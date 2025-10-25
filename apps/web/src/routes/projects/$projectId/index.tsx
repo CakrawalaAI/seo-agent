@@ -94,7 +94,7 @@ function ProjectDetailPage() {
 
   const createPlanMutation = useMutation({
     mutationFn: () =>
-      postJson('/api/plan/create', {
+      postJson('/api/plan-items', {
         projectId,
         days: 30
       }),
@@ -127,7 +127,7 @@ function ProjectDetailPage() {
 
   const rescheduleMutation = useMutation({
     mutationFn: ({ planItemId, plannedDate }: { planItemId: string; plannedDate: string }) =>
-      patchJson(`/api/plan/${planItemId}`, {
+      putJson(`/api/plan-items/${planItemId}`, {
         plannedDate
       }),
     onSuccess: (updated) => {
@@ -154,7 +154,7 @@ function ProjectDetailPage() {
 
   const planQuery = useQuery({
     queryKey: ['plan', projectId],
-    queryFn: () => fetchJson(`/api/projects/${projectId}/plan?limit=90`),
+    queryFn: () => fetchJson(`/api/plan-items?projectId=${projectId}&limit=90`),
     enabled: activeTab === 'plan'
   })
 
@@ -1284,6 +1284,13 @@ async function fetchJson(input: RequestInfo | URL, init?: RequestInit) {
 const postJson = (path: string, body: unknown) =>
   fetchJson(path, {
     method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(body ?? {})
+  })
+
+const putJson = (path: string, body: unknown) =>
+  fetchJson(path, {
+    method: 'PUT',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(body ?? {})
   })
