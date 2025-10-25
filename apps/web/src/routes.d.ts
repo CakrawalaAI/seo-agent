@@ -1,6 +1,7 @@
 import type { Route as RootRoute } from './routes/__root'
 import type { Route as IndexRoute } from './routes/index'
 import type { Route as ApiArticlesRoute } from './routes/api/articles'
+import type { Route as ApiArticlePublishRoute } from './routes/api/articles/$articleId/publish'
 import type { Route as ApiAuthCallbackProviderRoute } from './routes/api/auth/callback/$provider'
 import type { Route as ApiAuthSignInSocialRoute } from './routes/api/auth/sign-in/social'
 import type { Route as ApiCrawlJobStatusRoute } from './routes/api/crawl/$jobId/status'
@@ -29,6 +30,7 @@ declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
     '/': IndexRoute
     '/api/articles': ApiArticlesRoute
+    '/api/articles/$articleId/publish': ApiArticlePublishRoute
     '/api/auth/callback/$provider': ApiAuthCallbackProviderRoute
     '/api/auth/sign-in/social': ApiAuthSignInSocialRoute
     '/api/crawl/$jobId/status': ApiCrawlJobStatusRoute

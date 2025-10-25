@@ -114,6 +114,12 @@ async function processJob(job: ReservedJob) {
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown error'
     await appendLog(job.id, message, 'error')
+    if (job.type === 'publish') {
+      const articleId = typeof job.payload?.articleId === 'string' ? job.payload.articleId : null
+      if (articleId) {
+        await markArticlePublishFailed(articleId)
+      }
+    }
     await markJobFailed(job.id, message)
     throw error instanceof Error ? error : new Error(message)
   }
@@ -189,6 +195,13 @@ async function appendLog(id: string, message: string, level: 'info' | 'warn' | '
     .where(eq(schema.jobs.id, id))
 }
 
+async function markArticlePublishFailed(articleId: string) {
+  await db
+    .update(schema.articles)
+    .set({ status: 'failed', publicationDate: null, updatedAt: new Date() })
+    .where(eq(schema.articles.id, articleId))
+}
+
 function buildLogArray(entries: Array<{ message: string; level: 'info' | 'warn' | 'error'; timestamp: string }>) {
   return entries as any
 }
@@ -259,7 +272,7 @@ const normalizeImages = (value: unknown) => {
     .filter(Boolean)
 }
 
-const buildPortableArticle = (article: ArticleRecord): PortableArticle => {
+export const buildPortableArticle = (article: ArticleRecord): PortableArticle => {
   const outline = normalizeOutline(article.outline)
   const images = normalizeImages(article.media)
   const excerpt = buildExcerpt(article.bodyHtml ?? '')
@@ -605,8 +618,18 @@ async function handleGenerateJob(job: JobRecord) {
   await appendLog(job.id, 'Article draft generated', 'info')
 }
 
-async function handlePublishJob(job: JobRecord) {
-  const payload = PublishJobPayloadSchema.parse(job.payload)
+const publishJobDeps = {
+  db,
+  schema,
+  deliverWebhookPublish,
+  publishArticleToWebflow,
+  appendLog,
+  updateJobProgress
+}
+
+export const runPublishJob = async (job: JobRecord, payload: any, deps = publishJobDeps) => {
+  const { db, schema, deliverWebhookPublish, publishArticleToWebflow, appendLog, updateJobProgress } = deps
+
   const [article] = await db
     .select()
     .from(schema.articles)
@@ -718,6 +741,11 @@ async function handlePublishJob(job: JobRecord) {
   }
 }
 
+async function handlePublishJob(job: JobRecord) {
+  const payload = PublishJobPayloadSchema.parse(job.payload)
+  await runPublishJob(job, payload)
+}
+
 async function updateJobProgress(id: string, progress: number) {
   await db
     .update(schema.jobs)
@@ -737,7 +765,9 @@ function handleShutdown() {
   console.log('[worker] shutdown signal received')
 }
 
-main().catch((error) => {
-  console.error('[worker] fatal error', error)
-  process.exitCode = 1
-})
+if (process.env.NODE_ENV !== 'test') {
+  main().catch((error) => {
+    console.error('[worker] fatal error', error)
+    process.exitCode = 1
+  })
+}

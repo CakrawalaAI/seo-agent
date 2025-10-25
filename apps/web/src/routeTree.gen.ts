@@ -1,6 +1,7 @@
 import { Route as RootRoute } from './routes/__root'
 import { Route as IndexRoute } from './routes/index'
 import { Route as ApiArticlesRoute } from './routes/api/articles'
+import { Route as ApiArticlePublishRoute } from './routes/api/articles/$articleId/publish'
 import { Route as ApiAuthCallbackProviderRoute } from './routes/api/auth/callback/$provider'
 import { Route as ApiAuthSignInSocialRoute } from './routes/api/auth/sign-in/social'
 import { Route as ApiCrawlJobStatusRoute } from './routes/api/crawl/$jobId/status'
@@ -41,6 +42,7 @@ const ProjectsProjectRoutes = ProjectsProjectIdLayoutRoute.addChildren([
 export const routeTree = RootRoute.addChildren([
   IndexRoute,
   ApiArticlesRoute,
+  ApiArticlePublishRoute,
   ApiAuthCallbackProviderRoute,
   ApiAuthSignInSocialRoute,
   ApiCrawlJobStatusRoute,
