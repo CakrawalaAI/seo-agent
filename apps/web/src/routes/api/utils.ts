@@ -42,6 +42,23 @@ export const safeHandler = (
       if (error instanceof Response) {
         return error
       }
+      if (error && typeof error === 'object') {
+        const status = Number((error as any).status)
+        if (Number.isFinite(status) && status >= 400) {
+          const message =
+            typeof (error as any).message === 'string'
+              ? (error as any).message
+              : 'Request failed'
+          const code = typeof (error as any).code === 'string' ? (error as any).code : undefined
+          const details = (error as any).details ?? (code ? { code } : undefined)
+          if (status >= 500) {
+            console.error('API error', error)
+          } else {
+            console.warn('API request error', error)
+          }
+          return httpError(status, message, details)
+        }
+      }
       console.error('API error', error)
       return httpError(500, 'Internal Server Error')
     }

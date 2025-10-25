@@ -2,6 +2,7 @@
 import { randomUUID } from 'node:crypto'
 import { eq } from 'drizzle-orm'
 import { z } from 'zod'
+import { DEFAULT_BUFFER_DAYS } from '@seo-agent/domain'
 import type {
   CreateIntegrationInput,
   CreateOrgInput,
@@ -16,6 +17,7 @@ import { UpdateIntegrationInputSchema } from '@seo-agent/domain'
 import { getDb, schema } from '../db'
 import { startCrawl } from './crawl'
 import { buildTestPortableArticle, deliverWebhookPublish } from '@seo-agent/cms'
+import { ensureProjectSlotAvailable } from './billing'
 
 export const createOrg = async (input: CreateOrgInput): Promise<Org> => {
   const db = getDb()
@@ -43,15 +45,9 @@ export const createOrg = async (input: CreateOrgInput): Promise<Org> => {
 export const createProject = async (
   input: CreateProjectInput
 ): Promise<CreateProjectResponse> => {
+  const { entitlements } = await ensureProjectSlotAvailable(input.orgId)
   const db = getDb()
   const id = randomUUID()
-  const org = await db.query.orgs.findFirst({
-    where: (table, { eq }) => eq(table.id, input.orgId)
-  })
-  const entitlements = (org?.entitlements ?? {}) as {
-    autoPublishPolicy?: string
-    bufferDays?: number
-  }
   const autoPublishPolicy =
     entitlements.autoPublishPolicy === 'manual' ||
     entitlements.autoPublishPolicy === 'immediate' ||

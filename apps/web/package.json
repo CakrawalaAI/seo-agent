@@ -9,6 +9,7 @@
     "start": "NODE_ENV=production bunx tanstack start serve",
     "lint": "eslint \"src/**/*.{ts,tsx}\"",
     "typecheck": "tsc --noEmit",
+    "test": "bun test",
     "db:generate": "bunx drizzle-kit generate",
     "db:migrate": "bunx drizzle-kit migrate",
     "shadcn": "bunx shadcn-ui@latest",

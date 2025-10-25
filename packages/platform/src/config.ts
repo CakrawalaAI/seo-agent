@@ -6,6 +6,8 @@ const EnvSchema = z.object({
   SEO_AGENT_BILLING_CHECKOUT_BASE_URL: z.string().url().optional(),
   SEO_AGENT_BILLING_PORTAL_BASE_URL: z.string().url().optional(),
   SEO_AGENT_API_BASE_URL: z.string().url().optional(),
+  POLAR_WEBHOOK_SECRET: z.string().min(1).optional(),
+  POLAR_WEBHOOK_TOLERANCE_SECONDS: z.string().optional(),
   WORKER_POLL_INTERVAL_MS: z.string().optional(),
   WORKER_MAX_ATTEMPTS: z.string().optional()
 })
@@ -27,9 +29,16 @@ export const appConfig = {
   urls: {
     webBase: env.SEO_AGENT_WEB_BASE_URL ?? 'http://localhost:5173',
     invitePath: ensurePath(env.SEO_AGENT_INVITE_PATH, '/invite'),
-    billingCheckoutBase: env.SEO_AGENT_BILLING_CHECKOUT_BASE_URL ?? 'https://polar.sh/seo-agent/checkout',
-    billingPortalBase: env.SEO_AGENT_BILLING_PORTAL_BASE_URL ?? 'https://polar.sh/seo-agent/portal',
+    billingCheckoutBase:
+      env.SEO_AGENT_BILLING_CHECKOUT_BASE_URL ?? 'https://polar.sh/seo-agent/checkout',
+    billingPortalBase:
+      env.SEO_AGENT_BILLING_PORTAL_BASE_URL ?? 'https://polar.sh/seo-agent/portal',
     apiBase: env.SEO_AGENT_API_BASE_URL ?? 'http://localhost:3000'
+  },
+  polar: {
+    webhookSecret: env.POLAR_WEBHOOK_SECRET ?? null,
+    signatureHeader: 'x-polar-signature',
+    toleranceSeconds: toPositiveInt(env.POLAR_WEBHOOK_TOLERANCE_SECONDS, 300)
   },
   worker: {
     pollIntervalMs: toPositiveInt(env.WORKER_POLL_INTERVAL_MS, 1000),
