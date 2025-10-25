@@ -1,7 +1,9 @@
 // @ts-nocheck
 import type { Article, PaginatedResponse, UpdateArticleInput } from '@seo-agent/domain'
-import { UpdateArticleInputSchema } from '@seo-agent/domain'
+import { PublishJobPayloadSchema, UpdateArticleInputSchema } from '@seo-agent/domain'
+import { and, eq, inArray, sql } from 'drizzle-orm'
 import { getDb, schema } from '../db'
+import { getJobCoordinator } from '../jobs/coordinator'
 
 export type ArticlePagination = {
   cursor?: string
@@ -139,5 +141,91 @@ export const updateArticle = async (
     publicationDate: record.publicationDate ?? undefined,
     createdAt: record.createdAt,
     updatedAt: record.updatedAt
+  }
+}
+
+const activeJobStatuses = ['queued', 'running']
+
+export const startArticlePublish = async (articleId: string, integrationId: string) => {
+  const db = getDb()
+  const article = await db.query.articles.findFirst({
+    where: (articles, { eq }) => eq(articles.id, articleId)
+  })
+
+  if (!article) {
+    const error = new Error('Article not found')
+    ;(error as any).code = 'not_found'
+    throw error
+  }
+
+  if (article.status === 'published') {
+    const error = new Error('Article already published')
+    ;(error as any).code = 'already_published'
+    throw error
+  }
+
+  const integration = await db.query.integrations.findFirst({
+    where: (integrations, { and: andOp, eq: eqOp }) =>
+      andOp(eqOp(integrations.id, integrationId), eqOp(integrations.projectId, article.projectId))
+  })
+
+  if (!integration) {
+    const error = new Error('Integration not found')
+    ;(error as any).code = 'integration_not_found'
+    throw error
+  }
+
+  if (integration.status !== 'connected') {
+    const error = new Error('Integration not connected')
+    ;(error as any).code = 'integration_not_connected'
+    throw error
+  }
+
+  const [existingJob] = await db
+    .select({ id: schema.jobs.id, status: schema.jobs.status })
+    .from(schema.jobs)
+    .where(
+      and(
+        eq(schema.jobs.projectId, article.projectId),
+        eq(schema.jobs.type, 'publish'),
+        inArray(schema.jobs.status, activeJobStatuses),
+        sql`${schema.jobs.payload} ->> 'articleId' = ${articleId}`
+      )
+    )
+    .limit(1)
+
+  if (existingJob) {
+    return {
+      jobId: existingJob.id,
+      projectId: article.projectId,
+      status: existingJob.status,
+      reused: true
+    }
+  }
+
+  const payload = PublishJobPayloadSchema.parse({
+    projectId: article.projectId,
+    articleId,
+    integrationId
+  })
+
+  await db
+    .update(schema.articles)
+    .set({ status: 'draft', updatedAt: new Date() })
+    .where(eq(schema.articles.id, articleId))
+
+  const coordinator = getJobCoordinator()
+  const jobId = await coordinator.enqueue({
+    projectId: article.projectId,
+    type: 'publish',
+    payload,
+    priority: 0
+  })
+
+  return {
+    jobId,
+    projectId: article.projectId,
+    status: 'queued',
+    reused: false
   }
 }
