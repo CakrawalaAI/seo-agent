@@ -1,6 +1,0 @@
-{
-  "name": "@seo-agent/api-legacy",
-  "version": "0.0.0",
-  "private": true,
-  "description": "Legacy Hono API retained for reference; active API lives inside apps/web TanStack Start routes."
-}
