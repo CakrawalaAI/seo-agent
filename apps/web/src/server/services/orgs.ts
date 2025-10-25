@@ -1,6 +1,7 @@
 // @ts-nocheck
 import { randomUUID } from 'node:crypto'
 import { eq } from 'drizzle-orm'
+import { z } from 'zod'
 import type {
   CreateIntegrationInput,
   CreateOrgInput,
@@ -8,8 +9,10 @@ import type {
   CreateProjectResponse,
   Integration,
   Org,
-  Project
+  Project,
+  UpdateIntegrationInput
 } from '@seo-agent/domain'
+import { UpdateIntegrationInputSchema } from '@seo-agent/domain'
 import { getDb, schema } from '../db'
 import { startCrawl } from './crawl'
 import { buildTestPortableArticle, deliverWebhookPublish } from '@seo-agent/cms'
@@ -91,6 +94,18 @@ export const createProject = async (
   }
 }
 
+const serializeIntegration = (
+  record: typeof schema.integrations.$inferSelect
+): Integration => ({
+  id: record.id,
+  projectId: record.projectId,
+  type: record.type as Integration['type'],
+  configJson: record.config as Integration['configJson'],
+  status: record.status as Integration['status'],
+  createdAt: record.createdAt.toISOString(),
+  updatedAt: record.updatedAt ? record.updatedAt.toISOString() : undefined
+})
+
 export const createIntegration = async (
   input: CreateIntegrationInput
 ): Promise<Integration> => {
@@ -108,15 +123,7 @@ export const createIntegration = async (
     })
     .returning()
 
-  return {
-    id: record.id,
-    projectId: record.projectId,
-    type: record.type as Integration['type'],
-    configJson: record.config as Integration['configJson'],
-    status: record.status as Integration['status'],
-    createdAt: record.createdAt.toISOString(),
-    updatedAt: record.updatedAt ? record.updatedAt.toISOString() : undefined
-  }
+  return serializeIntegration(record)
 }
 
 export const getOrg = async (id: string) => {
@@ -126,16 +133,19 @@ export const getOrg = async (id: string) => {
   })
 }
 
+const WebhookIntegrationConfigSchema = z.object({
+  targetUrl: z.string().url(),
+  secret: z.string().min(1)
+})
+
 const resolveWebhookConfig = (record: typeof schema.integrations.$inferSelect) => {
-  const config = (record?.config as Record<string, unknown>) ?? {}
-  const targetUrl = typeof config.targetUrl === 'string' ? config.targetUrl : null
-  const secret = typeof config.secret === 'string' ? config.secret : null
-  if (!targetUrl || !secret) {
+  const parsed = WebhookIntegrationConfigSchema.safeParse(record?.config ?? {})
+  if (!parsed.success) {
     const error = new Error('Webhook integration missing targetUrl or secret')
     ;(error as any).code = 'invalid_config'
     throw error
   }
-  return { targetUrl, secret }
+  return parsed.data
 }
 
 export const testIntegration = async (integrationId: string) => {
@@ -176,5 +186,65 @@ export const testIntegration = async (integrationId: string) => {
       ;(error as any).code = 'unsupported'
       throw error
     }
+  }
+}
+
+export const updateIntegration = async (
+  integrationId: string,
+  input: UpdateIntegrationInput
+): Promise<Integration | null> => {
+  const db = getDb()
+  const payload = UpdateIntegrationInputSchema.parse(input)
+
+  if (payload.config === undefined && payload.status === undefined) {
+    const existing = await db.query.integrations.findFirst({
+      where: eq(schema.integrations.id, integrationId)
+    })
+    return existing ? serializeIntegration(existing) : null
+  }
+
+  const update: Partial<typeof schema.integrations.$inferInsert> = {
+    updatedAt: new Date()
+  }
+  if (payload.config !== undefined) {
+    update.config = payload.config
+  }
+  if (payload.status !== undefined) {
+    update.status = payload.status
+  }
+
+  const [record] = await db
+    .update(schema.integrations)
+    .set(update)
+    .where(eq(schema.integrations.id, integrationId))
+    .returning()
+
+  if (!record) {
+    return null
+  }
+
+  return serializeIntegration(record)
+}
+
+export const deleteIntegration = async (integrationId: string): Promise<boolean> => {
+  const db = getDb()
+  const result = await db
+    .delete(schema.integrations)
+    .where(eq(schema.integrations.id, integrationId))
+    .returning({ id: schema.integrations.id })
+  return result.length > 0
+}
+
+export const validateIntegrationConfig = async (input: {
+  type: Integration['type']
+  config: Record<string, unknown>
+}) => {
+  switch (input.type) {
+    case 'webhook': {
+      const parsed = WebhookIntegrationConfigSchema.parse(input.config)
+      return { status: 'ok' as const, config: parsed }
+    }
+    default:
+      return { status: 'ok' as const, config: input.config }
   }
 }

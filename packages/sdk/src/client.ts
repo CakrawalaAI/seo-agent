@@ -23,6 +23,9 @@ import {
   ScheduleRunResponseSchema,
   UpdateArticleInputSchema,
   UpdateKeywordInputSchema,
+  CreatePlanRequestSchema,
+  UpdatePlanItemSchema,
+  GenerateKeywordsRequestSchema,
   type ApiError,
   type Article,
   type CreateIntegrationInput,
@@ -47,7 +50,10 @@ import {
   type UpdateProjectInput,
   type UpdateArticleInput,
   type UpdateKeywordInput,
-  type SchedulePolicy
+  type SchedulePolicy,
+  type CreatePlanRequest,
+  type UpdatePlanItemInput,
+  type GenerateKeywordsRequest
 } from '@seo-agent/domain'
 import { fetch as undiciFetch, type RequestInit as UndiciRequestInit } from 'undici'
 import { z } from 'zod'
@@ -121,32 +127,6 @@ const IntegrationTestResponseSchema = z.object({
   status: z.literal('ok'),
   message: z.string().optional()
 })
-
-const PlanCreateSchema = z.object({
-  projectId: z.string().min(1),
-  keywordIds: z.array(z.string().min(1)).optional(),
-  days: z.number().int().positive().max(90).optional(),
-  startDate: z.string().min(10).max(10).optional()
-})
-
-const PlanUpdateSchema = z
-  .object({
-    plannedDate: z.string().min(10).max(10).optional(),
-    status: z.enum(['planned', 'skipped', 'consumed']).optional(),
-    title: z.string().min(1).optional(),
-    outlineJson: PlanItemSchema.shape.outlineJson.optional()
-  })
-  .refine(
-    (value) =>
-      value.plannedDate !== undefined ||
-      value.status !== undefined ||
-      value.title !== undefined ||
-      value.outlineJson !== undefined,
-    { message: 'Must provide at least one field to update' }
-  )
-
-type PlanCreateInput = z.infer<typeof PlanCreateSchema>
-type PlanUpdateInput = z.infer<typeof PlanUpdateSchema>
 
 const DeleteResponseSchema = z.object({
   status: z.string(),
@@ -419,6 +399,7 @@ export class SeoAgentClient {
     pagination?: { cursor?: string; limit?: number; status?: PlanItemStatus; from?: string; to?: string }
   ) {
     const params = new URLSearchParams()
+    params.set('projectId', projectId)
     if (pagination?.cursor) params.set('cursor', pagination.cursor)
     if (pagination?.limit) params.set('limit', String(pagination.limit))
     if (pagination?.status) params.set('status', pagination.status)
@@ -426,23 +407,17 @@ export class SeoAgentClient {
     if (pagination?.to) params.set('to', pagination.to)
 
     const schema = PaginatedResponseSchema(PlanItemSchema) as z.ZodType<PaginatedResponse<PlanItem>>
-    return this.request<PaginatedResponse<PlanItem>>(
-      'GET',
-      `/api/projects/${projectId}/plan`,
-      undefined,
-      schema,
-      params
-    )
+    return this.request<PaginatedResponse<PlanItem>>('GET', '/api/plan-items', undefined, schema, params)
   }
 
-  async createPlan(input: PlanCreateInput) {
-    const payload = PlanCreateSchema.parse(input)
-    return this.request('POST', '/api/plan/create', payload, StartJobResponseSchema)
+  async createPlan(input: CreatePlanRequest) {
+    const payload = CreatePlanRequestSchema.parse(input)
+    return this.request('POST', '/api/plan-items', payload, StartJobResponseSchema)
   }
 
-  async updatePlanItem(planItemId: string, input: PlanUpdateInput): Promise<PlanItem> {
-    const payload = PlanUpdateSchema.parse(input)
-    return this.request('PATCH', `/api/plan/${planItemId}`, payload, PlanItemSchema)
+  async updatePlanItem(planItemId: string, input: UpdatePlanItemInput): Promise<PlanItem> {
+    const payload = UpdatePlanItemSchema.parse(input)
+    return this.request('PUT', `/api/plan-items/${planItemId}`, payload, PlanItemSchema)
   }
 
   async getProjectSnapshot(projectId: string): Promise<ProjectSnapshot> {
@@ -482,6 +457,11 @@ export class SeoAgentClient {
     return this.request('GET', `/api/projects/${projectId}`, undefined, ProjectSchema)
   }
 
+  async generateArticle(planItemId: string) {
+    const payload = z.object({ planItemId: z.string().min(1) }).parse({ planItemId })
+    return this.request('POST', '/api/articles/generate', payload, StartJobResponseSchema)
+  }
+
   async publishArticle(articleId: string, integrationId: string) {
     const payload = PublishArticleRequestSchema.parse({ integrationId })
     return this.request('POST', `/api/articles/${articleId}/publish`, payload, StartJobResponseSchema)
@@ -494,6 +474,14 @@ export class SeoAgentClient {
 
   async testIntegration(integrationId: string) {
     return this.request('POST', `/api/integrations/${integrationId}/test`, undefined, IntegrationTestResponseSchema)
+  }
+
+  async validateIntegration(input: { type: string; config: Record<string, unknown> }) {
+    const payload = z
+      .object({ type: z.string().min(1), config: z.record(z.string(), z.unknown()) })
+      .parse(input)
+    const schema = z.object({ status: z.literal('ok'), config: z.record(z.string(), z.unknown()) })
+    return this.request('POST', '/api/integrations/validate', payload, schema)
   }
 
   async getCurrentUser(): Promise<MeResponse> {
@@ -535,13 +523,13 @@ export class SeoAgentClient {
           includeGAds?: boolean
         }
   ) {
-    const payload = keywordGeneratePayload.parse({
+    const payload = GenerateKeywordsRequestSchema.parse({
       projectId,
       locale: typeof options === 'string' ? options : options?.locale,
       location: typeof options === 'object' ? options.location : undefined,
-      max: typeof options === 'object' ? options.max : undefined,
+      maxKeywords: typeof options === 'object' ? options.max : undefined,
       includeGAds: typeof options === 'object' ? options.includeGAds : undefined
-    })
+    } as Partial<GenerateKeywordsRequest>)
     return this.request('POST', '/api/keywords/generate', payload, StartJobResponseSchema)
   }
 
@@ -562,10 +550,3 @@ export class SeoAgentClient {
   }
 }
 
-const keywordGeneratePayload = z.object({
-  projectId: z.string().min(1),
-  locale: z.string().min(2).default('en-US'),
-  location: z.string().min(2).optional(),
-  max: z.number().int().positive().max(2000).optional(),
-  includeGAds: z.boolean().optional()
-})

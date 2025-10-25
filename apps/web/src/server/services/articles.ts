@@ -1,7 +1,9 @@
 // @ts-nocheck
+import { and, eq, inArray, sql } from 'drizzle-orm'
 import type { Article, PaginatedResponse, UpdateArticleInput } from '@seo-agent/domain'
 import { UpdateArticleInputSchema } from '@seo-agent/domain'
 import { getDb, schema } from '../db'
+import { getJobCoordinator } from '../jobs/coordinator'
 
 export type ArticlePagination = {
   cursor?: string
@@ -140,4 +142,133 @@ export const updateArticle = async (
     createdAt: record.createdAt,
     updatedAt: record.updatedAt
   }
+}
+
+type ArticleJobResponse = {
+  jobId: string
+  projectId: string
+  status: string
+  reused?: boolean
+}
+
+type ArticleJobError = Error & { status?: number; code?: string }
+
+const buildArticleJobError = (message: string, code: string, status: number): ArticleJobError => {
+  const error = new Error(message) as ArticleJobError
+  error.code = code
+  error.status = status
+  return error
+}
+
+const ACTIVE_JOB_STATUSES = ['queued', 'running'] as const
+
+export const enqueueArticleGeneration = async (planItemId: string): Promise<ArticleJobResponse> => {
+  const db = getDb()
+  const planItem = await db.query.planItems.findFirst({
+    where: (planItems, { eq }) => eq(planItems.id, planItemId)
+  })
+
+  if (!planItem) {
+    throw buildArticleJobError('Plan item not found', 'plan_item_missing', 404)
+  }
+
+  const existingArticle = await db.query.articles.findFirst({
+    where: (articles, { eq }) => eq(articles.planItemId, planItemId)
+  })
+
+  if (existingArticle) {
+    throw buildArticleJobError('Article already exists for plan item', 'article_exists', 409)
+  }
+
+  const existingJob = await db
+    .select({ id: schema.jobs.id, status: schema.jobs.status })
+    .from(schema.jobs)
+    .where(
+      and(
+        eq(schema.jobs.projectId, planItem.projectId),
+        eq(schema.jobs.type, 'generate'),
+        inArray(schema.jobs.status, ACTIVE_JOB_STATUSES),
+        sql`${schema.jobs.payload} ->> 'planItemId' = ${planItemId}`
+      )
+    )
+    .limit(1)
+
+  if (existingJob.length > 0) {
+    return {
+      jobId: existingJob[0].id,
+      projectId: planItem.projectId,
+      status: existingJob[0].status,
+      reused: true
+    }
+  }
+
+  const coordinator = getJobCoordinator()
+  const jobId = await coordinator.enqueue({
+    projectId: planItem.projectId,
+    type: 'generate',
+    payload: { projectId: planItem.projectId, planItemId }
+  })
+
+  return { jobId, projectId: planItem.projectId, status: 'queued' }
+}
+
+export const enqueueArticlePublish = async (
+  articleId: string,
+  integrationId: string
+): Promise<ArticleJobResponse> => {
+  const db = getDb()
+  const article = await db.query.articles.findFirst({
+    where: (articles, { eq }) => eq(articles.id, articleId)
+  })
+
+  if (!article) {
+    throw buildArticleJobError('Article not found', 'article_missing', 404)
+  }
+
+  const integration = await db.query.integrations.findFirst({
+    where: (integrations, { eq }) => eq(integrations.id, integrationId)
+  })
+
+  if (!integration) {
+    throw buildArticleJobError('Integration not found', 'integration_missing', 404)
+  }
+
+  if (integration.projectId !== article.projectId) {
+    throw buildArticleJobError('Integration does not belong to project', 'integration_mismatch', 400)
+  }
+
+  const existingJob = await db
+    .select({ id: schema.jobs.id, status: schema.jobs.status })
+    .from(schema.jobs)
+    .where(
+      and(
+        eq(schema.jobs.projectId, article.projectId),
+        eq(schema.jobs.type, 'publish'),
+        inArray(schema.jobs.status, ACTIVE_JOB_STATUSES),
+        sql`${schema.jobs.payload} ->> 'articleId' = ${articleId}`
+      )
+    )
+    .limit(1)
+
+  if (existingJob.length > 0) {
+    return {
+      jobId: existingJob[0].id,
+      projectId: article.projectId,
+      status: existingJob[0].status,
+      reused: true
+    }
+  }
+
+  const coordinator = getJobCoordinator()
+  const jobId = await coordinator.enqueue({
+    projectId: article.projectId,
+    type: 'publish',
+    payload: {
+      projectId: article.projectId,
+      articleId,
+      integrationId
+    }
+  })
+
+  return { jobId, projectId: article.projectId, status: 'queued' }
 }
