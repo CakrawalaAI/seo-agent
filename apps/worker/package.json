@@ -13,10 +13,14 @@
     "@seo-agent/db": "file:../../packages/db",
     "@seo-agent/domain": "file:../../packages/domain",
     "@seo-agent/platform": "file:../../packages/platform",
+    "@seo-agent/integrations": "file:../../packages/integrations",
     "@seo-agent/cms": "file:../../packages/cms",
     "@seo-agent/queue": "file:../../packages/queue",
     "@seo-agent/sdk": "file:../../packages/sdk",
-    "p-retry": "^6.2.0"
+    "fast-xml-parser": "^4.3.6",
+    "p-retry": "^6.2.0",
+    "playwright": "^1.45.0",
+    "robots-parser": "^3.0.1"
   },
   "devDependencies": {
     "@types/node": "^20.12.7",

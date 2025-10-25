@@ -1,0 +1,12 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "outDir": "./dist",
+    "rootDir": "./src",
+    "moduleResolution": "node",
+    "composite": true,
+    "types": ["node", "vitest"]
+  },
+  "include": ["src", "tests"],
+  "exclude": ["dist", "node_modules"]
+}
