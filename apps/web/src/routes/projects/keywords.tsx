@@ -10,12 +10,12 @@ type KeywordResponse = {
   nextCursor?: string
 }
 
-const fetchKeywords = async (projectId: string, status: string): Promise<KeywordResponse> => {
-  const params = new URLSearchParams({ projectId, limit: '100' })
+export const fetchKeywords = async (projectId: string, status: string): Promise<KeywordResponse> => {
+  const params = new URLSearchParams({ limit: '100' })
   if (status && status !== 'all') {
     params.set('status', status)
   }
-  const response = await fetch(`/api/keywords?${params.toString()}`, {
+  const response = await fetch(`/api/projects/${projectId}/keywords?${params.toString()}`, {
     credentials: 'include'
   })
   if (!response.ok) {

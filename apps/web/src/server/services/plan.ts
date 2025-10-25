@@ -5,6 +5,9 @@ import { getDb, schema } from '../db'
 type PlanPagination = {
   cursor?: string
   limit?: number
+  status?: PlanItem['status']
+  from?: string
+  to?: string
 }
 
 export const listPlanItems = async (
@@ -13,12 +16,20 @@ export const listPlanItems = async (
 ): Promise<PaginatedResponse<PlanItem>> => {
   const db = getDb()
   const limit = Math.min(Math.max(pagination.limit ?? 20, 1), 100)
-  const cursorDate = pagination.cursor ? new Date(pagination.cursor) : null
+  const rawCursor = pagination.cursor ? new Date(pagination.cursor) : null
+  const cursorDate = rawCursor && !Number.isNaN(rawCursor.getTime()) ? rawCursor : null
+  const rawFrom = pagination.from ? new Date(pagination.from) : null
+  const fromDate = rawFrom && !Number.isNaN(rawFrom.getTime()) ? rawFrom : null
+  const rawTo = pagination.to ? new Date(pagination.to) : null
+  const toDate = rawTo && !Number.isNaN(rawTo.getTime()) ? rawTo : null
 
   const rows = await db.query.planItems.findMany({
-    where: (table, { and, eq, gt }) =>
+    where: (table, { and, eq, gt, gte, lte }) =>
       and(
         eq(table.projectId, projectId),
+        pagination.status ? eq(table.status, pagination.status) : undefined,
+        fromDate ? gte(table.plannedDate, fromDate.toISOString().split('T')[0]) : undefined,
+        toDate ? lte(table.plannedDate, toDate.toISOString().split('T')[0]) : undefined,
         cursorDate ? gt(table.plannedDate, cursorDate.toISOString().split('T')[0]) : undefined
       ),
     orderBy: (table, { asc }) => [asc(table.plannedDate)],

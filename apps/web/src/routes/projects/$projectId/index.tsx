@@ -1,7 +1,23 @@
 // @ts-nocheck
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, createFileRoute } from '@tanstack/react-router'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import {
+  closePlanEditor,
+  createIdlePlanEditState,
+  createIdlePublishState,
+  openPlanEditor,
+  planEditorSubmitError,
+  planEditorSubmitSuccess,
+  publishErrored,
+  publishQueued,
+  publishSubmitting,
+  resetPublishState,
+  submitPlanEditor,
+  type PlanEditState,
+  type PublishState,
+  updatePlanEditorDate
+} from './state-machines'
 
 const TABS = [
   { key: 'overview', label: 'Overview' },
@@ -24,10 +40,23 @@ function ProjectDetailPage() {
   const queryClient = useQueryClient()
 
   const [notices, setNotices] = useState([])
-  const [rescheduleTarget, setRescheduleTarget] = useState(null)
-  const [rescheduleDate, setRescheduleDate] = useState('')
+  const [planEditState, setPlanEditState] = useState<PlanEditState>(() => createIdlePlanEditState())
   const [testingIntegrationId, setTestingIntegrationId] = useState(null)
-  const [publishingArticleId, setPublishingArticleId] = useState(null)
+  const [publishState, setPublishState] = useState<PublishState>(() => createIdlePublishState())
+  const publishResetRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const clearPublishReset = () => {
+    if (publishResetRef.current) {
+      clearTimeout(publishResetRef.current)
+      publishResetRef.current = null
+    }
+  }
+
+  useEffect(() => {
+    return () => {
+      clearPublishReset()
+    }
+  }, [])
 
   const activeTab = useMemo(() => {
     const requested = typeof search?.tab === 'string' ? search.tab : ''
@@ -46,6 +75,19 @@ function ProjectDetailPage() {
 
   const dismissNotice = (id: string) => {
     setNotices((prev) => prev.filter((notice) => notice.id !== id))
+  }
+
+  const openPlanEdit = (item: any) => {
+    if (!item) return
+    setPlanEditState(openPlanEditor(item))
+  }
+
+  const updatePlanEditDate = (value: string) => {
+    setPlanEditState((prev) => updatePlanEditorDate(prev, value))
+  }
+
+  const closePlanEdit = () => {
+    setPlanEditState((prev) => closePlanEditor(prev))
   }
 
   const projectQuery = useQuery({
@@ -130,14 +172,21 @@ function ProjectDetailPage() {
       patchJson(`/api/plan/${planItemId}`, {
         plannedDate
       }),
-    onSuccess: (updated) => {
-      pushNotice('success', `Plan item moved to ${updated?.plannedDate ?? rescheduleDate}`)
+    onMutate: ({ planItemId, plannedDate }) => {
+      setPlanEditState((prev) => submitPlanEditor(prev, { planItemId, plannedDate }))
+    },
+    onSuccess: (updated, variables) => {
+      const nextDate = updated?.plannedDate ?? variables.plannedDate
+      pushNotice('success', `Plan item moved to ${nextDate}`)
       queryClient.invalidateQueries({ queryKey: ['plan', projectId] })
       queryClient.invalidateQueries({ queryKey: ['projectSnapshot', projectId] })
-      setRescheduleTarget(null)
-      setRescheduleDate('')
+      setPlanEditState(planEditorSubmitSuccess())
     },
-    onError: (error) => pushNotice('error', extractErrorMessage(error))
+    onError: (error, variables) => {
+      const message = extractErrorMessage(error)
+      setPlanEditState((prev) => planEditorSubmitError(prev, { planItemId: variables.planItemId, message }))
+      pushNotice('error', message)
+    }
   })
 
   const crawlPagesQuery = useQuery({
@@ -148,7 +197,7 @@ function ProjectDetailPage() {
 
   const keywordsQuery = useQuery({
     queryKey: ['keywords', projectId],
-    queryFn: () => fetchJson(`/api/keywords?projectId=${projectId}&limit=100`),
+    queryFn: () => fetchJson(`/api/projects/${projectId}/keywords?limit=100`),
     enabled: activeTab === 'keywords'
   })
 
@@ -160,7 +209,7 @@ function ProjectDetailPage() {
 
   const articlesQuery = useQuery({
     queryKey: ['articles', projectId],
-    queryFn: () => fetchJson(`/api/articles?projectId=${projectId}&limit=90`),
+    queryFn: () => fetchJson(`/api/projects/${projectId}/articles?limit=90`),
     enabled: activeTab === 'articles' || activeTab === 'plan'
   })
 
@@ -169,17 +218,31 @@ function ProjectDetailPage() {
       postJson(`/api/articles/${articleId}/publish`, {
         integrationId
       }),
-    onMutate: ({ articleId }) => {
-      setPublishingArticleId(articleId)
+    onMutate: ({ articleId, integrationId }) => {
+      clearPublishReset()
+      setPublishState((prev) => publishSubmitting(prev, { articleId, integrationId }))
     },
-    onSuccess: (result) => {
+    onSuccess: (result, variables) => {
       pushNotice('success', `Publish job ${result?.jobId ?? 'queued'}`)
       queryClient.invalidateQueries({ queryKey: ['articles', projectId] })
       queryClient.invalidateQueries({ queryKey: ['projectSnapshot', projectId] })
+      setPublishState((prev) => publishQueued(prev, { articleId: variables.articleId, jobId: result?.jobId }))
+      publishResetRef.current = setTimeout(() => {
+        setPublishState(() => resetPublishState())
+        publishResetRef.current = null
+      }, 4000)
     },
-    onError: (error) => pushNotice('error', extractErrorMessage(error)),
-    onSettled: () => {
-      setPublishingArticleId(null)
+    onError: (error, variables) => {
+      const message = extractErrorMessage(error)
+      pushNotice('error', message)
+      clearPublishReset()
+      setPublishState((prev) =>
+        publishErrored(prev, {
+          articleId: variables.articleId,
+          integrationId: variables.integrationId,
+          message
+        })
+      )
     }
   })
 
@@ -269,6 +332,12 @@ function ProjectDetailPage() {
     }
     return map
   }, [mergedPlanItems])
+
+  const planEditOpen = planEditState.status !== 'idle'
+  const planEditDate = planEditOpen ? planEditState.date : ''
+  const planEditItem = planEditOpen ? planEditState.item : null
+  const planEditError = planEditState.status === 'error' ? planEditState.message : null
+  const planEditSubmitting = planEditState.status === 'submitting'
 
   return (
     <main className="mx-auto flex min-h-screen max-w-6xl flex-col gap-6 px-6 py-12">
@@ -409,10 +478,8 @@ function ProjectDetailPage() {
           projectId={projectId}
           planItems={mergedPlanItems}
           articlesByPlanId={articlesByPlanId}
-          onReschedule={(item) => {
-            setRescheduleTarget(item)
-            setRescheduleDate(item.plannedDate)
-          }}
+          planEditState={planEditState}
+          onReschedule={openPlanEdit}
           onCreatePlan={() => createPlanMutation.mutate()}
           onRunSchedule={() => runScheduleMutation.mutate()}
           isCreatingPlan={createPlanMutation.isPending}
@@ -430,7 +497,7 @@ function ProjectDetailPage() {
           onPublish={(articleId, integrationId) =>
             publishArticleMutation.mutate({ articleId, integrationId })
           }
-          publishingArticleId={publishingArticleId}
+          publishState={publishState}
           onRefresh={() => articlesQuery.refetch()}
           isLoading={articlesQuery.isLoading}
         />
@@ -446,21 +513,26 @@ function ProjectDetailPage() {
         />
       ) : null}
 
-      {rescheduleTarget ? (
+      {planEditOpen ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
           <div className="w-full max-w-md rounded-lg border bg-card p-6 shadow-2xl">
             <h3 className="text-lg font-semibold text-foreground">Reschedule plan item</h3>
             <p className="mt-1 text-sm text-muted-foreground">
-              Choose a new publication date for <span className="font-medium">{rescheduleTarget.title}</span>.
+              Choose a new publication date for <span className="font-medium">{planEditItem?.title}</span>.
             </p>
+            {planEditError ? (
+              <div className="rounded-md border border-destructive bg-destructive/10 px-3 py-2 text-xs text-destructive">
+                {planEditError}
+              </div>
+            ) : null}
             <form
               className="mt-4 space-y-4"
               onSubmit={(event) => {
                 event.preventDefault()
-                if (!rescheduleTarget) return
+                if (!planEditItem || !planEditDate) return
                 rescheduleMutation.mutate({
-                  planItemId: rescheduleTarget.id,
-                  plannedDate: rescheduleDate
+                  planItemId: planEditItem.id,
+                  plannedDate: planEditDate
                 })
               }}
             >
@@ -468,9 +540,10 @@ function ProjectDetailPage() {
                 Planned date
                 <input
                   type="date"
-                  value={rescheduleDate}
-                  onChange={(event) => setRescheduleDate(event.target.value)}
+                  value={planEditDate}
+                  onChange={(event) => updatePlanEditDate(event.target.value)}
                   className="rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2"
+                  disabled={planEditSubmitting}
                   required
                 />
               </label>
@@ -478,20 +551,17 @@ function ProjectDetailPage() {
                 <button
                   type="button"
                   className="rounded-md border border-input px-3 py-1.5 text-sm font-medium text-muted-foreground hover:bg-muted"
-                  onClick={() => {
-                    setRescheduleTarget(null)
-                    setRescheduleDate('')
-                  }}
-                  disabled={rescheduleMutation.isPending}
+                  onClick={closePlanEdit}
+                  disabled={planEditSubmitting}
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   className="rounded-md bg-primary px-3 py-1.5 text-sm font-semibold text-primary-foreground shadow-sm disabled:opacity-60"
-                  disabled={!rescheduleDate || rescheduleMutation.isPending}
+                  disabled={!planEditItem || !planEditDate || planEditSubmitting}
                 >
-                  {rescheduleMutation.isPending ? 'Updating…' : 'Save'}
+                  {planEditSubmitting ? 'Updating…' : 'Save'}
                 </button>
               </div>
             </form>
@@ -796,6 +866,7 @@ function PlanTab({
   projectId,
   planItems,
   articlesByPlanId,
+  planEditState,
   onReschedule,
   onCreatePlan,
   onRunSchedule,
@@ -806,6 +877,7 @@ function PlanTab({
   projectId: string
   planItems: any[]
   articlesByPlanId: Map<string, any>
+  planEditState: PlanEditState
   onReschedule: (planItem: any) => void
   onCreatePlan: () => void
   onRunSchedule: () => void
@@ -868,10 +940,16 @@ function PlanTab({
                     cell.items.map((item) => {
                       const status = resolvePlanStatus(item, articlesByPlanId)
                       const relatedArticle = articlesByPlanId.get(item.id)
+                      const isActive = planEditState.status !== 'idle' && planEditState.item?.id === item.id
+                      const isSubmitting = planEditState.status === 'submitting' && planEditState.item?.id === item.id
+                      const isErrored = planEditState.status === 'error' && planEditState.item?.id === item.id
+                      const errorMessage = isErrored ? planEditState.message : null
                       return (
                         <div
                           key={item.id}
-                          className="space-y-2 rounded-md border border-dashed border-border/60 bg-background/80 p-2 shadow-sm"
+                          className={`space-y-2 rounded-md border border-dashed border-border/60 bg-background/80 p-2 shadow-sm ${
+                            isActive ? 'ring-1 ring-primary/60' : ''
+                          }`}
                         >
                           <div className="flex items-start justify-between gap-2">
                             <p className="text-[11px] font-semibold leading-snug text-foreground">
@@ -885,22 +963,28 @@ function PlanTab({
                               {status.label}
                             </span>
                           </div>
-                          <div className="flex flex-wrap items-center gap-2 text-[11px]">
-                            <button
-                              type="button"
-                              className="font-medium text-primary hover:underline"
-                              onClick={() => onReschedule(item)}
-                            >
-                              Reschedule
-                            </button>
-                            {relatedArticle ? (
-                              <Link
-                                to="/projects/$projectId/articles/$articleId"
-                                params={{ projectId, articleId: relatedArticle.id }}
-                                className="font-medium text-primary hover:underline"
+                          <div className="flex flex-col gap-1">
+                            <div className="flex flex-wrap items-center gap-2 text-[11px]">
+                              <button
+                                type="button"
+                                className={`font-medium text-primary hover:underline disabled:cursor-not-allowed disabled:opacity-60`}
+                                onClick={() => onReschedule(item)}
+                                disabled={isSubmitting}
                               >
-                                View draft
-                              </Link>
+                                {isSubmitting ? 'Saving…' : 'Reschedule'}
+                              </button>
+                              {relatedArticle ? (
+                                <Link
+                                  to="/projects/$projectId/articles/$articleId"
+                                  params={{ projectId, articleId: relatedArticle.id }}
+                                  className="font-medium text-primary hover:underline"
+                                >
+                                  View draft
+                                </Link>
+                              ) : null}
+                            </div>
+                            {errorMessage ? (
+                              <p className="text-[10px] font-medium text-destructive">{errorMessage}</p>
                             ) : null}
                           </div>
                         </div>
@@ -923,7 +1007,7 @@ function ArticlesTab({
   planItemMap,
   integrations,
   onPublish,
-  publishingArticleId,
+  publishState,
   onRefresh,
   isLoading
 }: {
@@ -932,7 +1016,7 @@ function ArticlesTab({
   planItemMap: Map<string, any>
   integrations: any[]
   onPublish: (articleId: string, integrationId: string) => void
-  publishingArticleId: string | null
+  publishState: PublishState
   onRefresh: () => void
   isLoading: boolean
 }) {
@@ -987,6 +1071,14 @@ function ArticlesTab({
                     : article.status === 'draft'
                       ? 'amber'
                       : 'rose'
+                const publishSubmitting =
+                  publishState.status === 'submitting' && publishState.articleId === article.id
+                const publishQueued =
+                  publishState.status === 'queued' && publishState.articleId === article.id
+                const publishError =
+                  publishState.status === 'error' && publishState.articleId === article.id
+                    ? publishState.message
+                    : null
 
                 return (
                   <tr key={article.id} className="odd:bg-muted/30">
@@ -1039,17 +1131,21 @@ function ArticlesTab({
                           type="button"
                           className="rounded-md bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground shadow-sm disabled:cursor-not-allowed disabled:opacity-60"
                           onClick={() => {
-                            if (!chosenIntegration) return
+                            if (!chosenIntegration || publishSubmitting) return
                             onPublish(article.id, chosenIntegration)
                           }}
-                          disabled={
-                            !chosenIntegration ||
-                            publishingArticleId === article.id ||
-                            connected.length === 0
-                          }
+                          disabled={!chosenIntegration || publishSubmitting || connected.length === 0}
                         >
-                          {publishingArticleId === article.id ? 'Publishing…' : 'Publish'}
+                          {publishSubmitting ? 'Publishing…' : publishQueued ? 'Queued' : 'Publish'}
                         </button>
+                        {publishQueued && publishState.jobId ? (
+                          <span className="text-[10px] text-muted-foreground">
+                            Job {publishState.jobId} queued
+                          </span>
+                        ) : null}
+                        {publishError ? (
+                          <span className="text-[10px] font-medium text-destructive">{publishError}</span>
+                        ) : null}
                       </div>
                     </td>
                   </tr>
