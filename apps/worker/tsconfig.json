@@ -17,12 +17,15 @@
       "@seo-agent/platform": ["../../packages/platform/src/index.ts"],
       "@seo-agent/platform/*": ["../../packages/platform/src/*"],
       "@seo-agent/cms": ["../../packages/cms/src/index.ts"],
-      "@seo-agent/cms/*": ["../../packages/cms/src/*"]
+      "@seo-agent/cms/*": ["../../packages/cms/src/*"],
+      "@seo-agent/integrations": ["../../packages/integrations/src/index.ts"],
+      "@seo-agent/integrations/*": ["../../packages/integrations/src/*"]
     }
   },
   "include": [
     "src",
     "../../packages/platform/src/**/*",
-    "../../packages/cms/src/**/*"
+    "../../packages/cms/src/**/*",
+    "../../packages/integrations/src/**/*"
   ]
 }
