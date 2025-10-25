@@ -318,6 +318,114 @@ declare const IntegrationSchema: z.ZodObject<{
     updatedAt?: string | undefined;
 }>;
 type Integration = z.infer<typeof IntegrationSchema>;
+declare const WebhookIntegrationConfigSchema: z.ZodObject<{
+    targetUrl: z.ZodString;
+    secret: z.ZodString;
+}, "strip", z.ZodTypeAny, {
+    targetUrl: string;
+    secret: string;
+}, {
+    targetUrl: string;
+    secret: string;
+}>;
+type WebhookIntegrationConfig = z.infer<typeof WebhookIntegrationConfigSchema>;
+declare const WebflowFieldMappingSchema: z.ZodObject<{
+    name: z.ZodDefault<z.ZodString>;
+    slug: z.ZodDefault<z.ZodString>;
+    body: z.ZodString;
+    excerpt: z.ZodOptional<z.ZodString>;
+    seoTitle: z.ZodOptional<z.ZodString>;
+    seoDescription: z.ZodOptional<z.ZodString>;
+    tags: z.ZodOptional<z.ZodString>;
+    mainImage: z.ZodOptional<z.ZodString>;
+}, "strip", z.ZodTypeAny, {
+    name: string;
+    slug: string;
+    body: string;
+    excerpt?: string | undefined;
+    seoTitle?: string | undefined;
+    seoDescription?: string | undefined;
+    tags?: string | undefined;
+    mainImage?: string | undefined;
+}, {
+    name: string;
+    slug: string;
+    body: string;
+    excerpt?: string | undefined;
+    seoTitle?: string | undefined;
+    seoDescription?: string | undefined;
+    tags?: string | undefined;
+    mainImage?: string | undefined;
+}>;
+type WebflowFieldMapping = z.infer<typeof WebflowFieldMappingSchema>;
+declare const WebflowIntegrationConfigSchema: z.ZodObject<{
+    accessToken: z.ZodString;
+    siteId: z.ZodOptional<z.ZodString>;
+    collectionId: z.ZodString;
+    fieldMapping: z.ZodObject<{
+        name: z.ZodDefault<z.ZodString>;
+        slug: z.ZodDefault<z.ZodString>;
+        body: z.ZodString;
+        excerpt: z.ZodOptional<z.ZodString>;
+        seoTitle: z.ZodOptional<z.ZodString>;
+        seoDescription: z.ZodOptional<z.ZodString>;
+        tags: z.ZodOptional<z.ZodString>;
+        mainImage: z.ZodOptional<z.ZodString>;
+    }, "strip", z.ZodTypeAny, {
+        name: string;
+        slug: string;
+        body: string;
+        excerpt?: string | undefined;
+        seoTitle?: string | undefined;
+        seoDescription?: string | undefined;
+        tags?: string | undefined;
+        mainImage?: string | undefined;
+    }, {
+        name: string;
+        slug: string;
+        body: string;
+        excerpt?: string | undefined;
+        seoTitle?: string | undefined;
+        seoDescription?: string | undefined;
+        tags?: string | undefined;
+        mainImage?: string | undefined;
+    }>;
+    publishMode: z.ZodDefault<z.ZodEnum<["draft", "live"]>>;
+    cmsLocaleId: z.ZodOptional<z.ZodString>;
+}, "strip", z.ZodTypeAny, {
+    accessToken: string;
+    collectionId: string;
+    fieldMapping: {
+        name: string;
+        slug: string;
+        body: string;
+        excerpt?: string | undefined;
+        seoTitle?: string | undefined;
+        seoDescription?: string | undefined;
+        tags?: string | undefined;
+        mainImage?: string | undefined;
+    };
+    publishMode: "draft" | "live";
+    siteId?: string | undefined;
+    cmsLocaleId?: string | undefined;
+}, {
+    accessToken: string;
+    collectionId: string;
+    fieldMapping: {
+        name: string;
+        slug: string;
+        body: string;
+        excerpt?: string | undefined;
+        seoTitle?: string | undefined;
+        seoDescription?: string | undefined;
+        tags?: string | undefined;
+        mainImage?: string | undefined;
+    };
+    publishMode: "draft" | "live";
+    siteId?: string | undefined;
+    cmsLocaleId?: string | undefined;
+}>;
+type WebflowIntegrationConfig = z.infer<typeof WebflowIntegrationConfigSchema>;
 declare const CrawlPageSchema: z.ZodObject<{
     id: z.ZodString;
     projectId: z.ZodString;
@@ -1936,4 +2044,4 @@ type PaginatedResponse<T> = {
     nextCursor?: string;
 };
 
-export { type AnyQueuePayload, type ApiError, ApiErrorSchema, type AppFeatureFlag, AppFeatureFlagSchema, type Article, ArticleSchema, type ArticleStatus, ArticleStatusSchema, type AutoPublishPolicy, AutoPublishPolicySchema, BrandingSchema, CrawlBudgetSchema, CrawlJobPayloadSchema, type CrawlPage, CrawlPageSchema, type CreateIntegrationInput, CreateIntegrationInputSchema, type CreateOrgInput, CreateOrgInputSchema, type CreateProjectInput, CreateProjectInputSchema, type CreateProjectResponse, CreateProjectResponseSchema, DEFAULT_BUFFER_DAYS, DEFAULT_CRAWL_BUDGET, DEFAULT_DAILY_ARTICLES, DiscoveryJobPayloadSchema, type DiscoveryRun, DiscoveryRunSchema, DiscoverySummarySchema, type Entitlement, EntitlementSchema, type FeatureConfig, FeatureConfigSchema, GenerateJobPayloadSchema, type HealthResponse, HealthResponseSchema, type Integration, IntegrationSchema, type IntegrationStatus, IntegrationStatusSchema, type IntegrationType, IntegrationTypeSchema, type Job, JobLogSchema, JobSchema, type JobStatus, JobStatusSchema, type JobType, JobTypeSchema, type Keyword, KeywordMetricsSchema, KeywordSchema, type KeywordSource, KeywordSourceSchema, type KeywordStatus, KeywordStatusSchema, type MeResponse, MeResponseSchema, type MetricCache, type MetricCacheProvider, MetricCacheProviderSchema, MetricCacheSchema, type MetricSource, MetricSourceSchema, type MetricsProvider, MetricsProviderSchema, type Org, type OrgMember, type OrgMemberRole, OrgMemberRoleSchema, OrgMemberSchema, OrgSchema, type PaginatedResponse, PaginatedResponseSchema, type Pagination, PaginationSchema, type PlanItem, PlanItemSchema, type PlanItemStatus, PlanItemStatusSchema, PlanJobPayloadSchema, type PortableArticle, PortableArticleSchema, type Project, ProjectSchema, type ProjectScopedJob, ProjectScopedJobSchema, type ProjectSnapshot, ProjectSnapshotSchema, type Provider, ProviderSchema, PublishJobPayloadSchema, type QueueJobDefinition, QueueJobDefinitionSchema, type QueuePayloadFor, QueuePayloadSchemas, type QueuePayloadSchemasMap, type SchedulePolicy, SchedulePolicySchema, ScheduleRunRequestSchema, ScheduleRunResponseSchema, type ScheduleRunResult, ScheduleRunResultSchema, type User, UserSchema };
+export { type AnyQueuePayload, type ApiError, ApiErrorSchema, type AppFeatureFlag, AppFeatureFlagSchema, type Article, ArticleSchema, type ArticleStatus, ArticleStatusSchema, type AutoPublishPolicy, AutoPublishPolicySchema, BrandingSchema, CrawlBudgetSchema, CrawlJobPayloadSchema, type CrawlPage, CrawlPageSchema, type CreateIntegrationInput, CreateIntegrationInputSchema, type CreateOrgInput, CreateOrgInputSchema, type CreateProjectInput, CreateProjectInputSchema, type CreateProjectResponse, CreateProjectResponseSchema, DEFAULT_BUFFER_DAYS, DEFAULT_CRAWL_BUDGET, DEFAULT_DAILY_ARTICLES, DiscoveryJobPayloadSchema, type DiscoveryRun, DiscoveryRunSchema, DiscoverySummarySchema, type Entitlement, EntitlementSchema, type FeatureConfig, FeatureConfigSchema, GenerateJobPayloadSchema, type HealthResponse, HealthResponseSchema, type Integration, IntegrationSchema, type IntegrationStatus, IntegrationStatusSchema, type IntegrationType, IntegrationTypeSchema, type Job, JobLogSchema, JobSchema, type JobStatus, JobStatusSchema, type JobType, JobTypeSchema, type Keyword, KeywordMetricsSchema, KeywordSchema, type KeywordSource, KeywordSourceSchema, type KeywordStatus, KeywordStatusSchema, type MeResponse, MeResponseSchema, type MetricCache, type MetricCacheProvider, MetricCacheProviderSchema, MetricCacheSchema, type MetricSource, MetricSourceSchema, type MetricsProvider, MetricsProviderSchema, type Org, type OrgMember, type OrgMemberRole, OrgMemberRoleSchema, OrgMemberSchema, OrgSchema, type PaginatedResponse, PaginatedResponseSchema, type Pagination, PaginationSchema, type PlanItem, PlanItemSchema, type PlanItemStatus, PlanItemStatusSchema, PlanJobPayloadSchema, type PortableArticle, PortableArticleSchema, type Project, ProjectSchema, type ProjectScopedJob, ProjectScopedJobSchema, type ProjectSnapshot, ProjectSnapshotSchema, type Provider, ProviderSchema, PublishJobPayloadSchema, type QueueJobDefinition, QueueJobDefinitionSchema, type QueuePayloadFor, QueuePayloadSchemas, type QueuePayloadSchemasMap, type SchedulePolicy, SchedulePolicySchema, ScheduleRunRequestSchema, ScheduleRunResponseSchema, type ScheduleRunResult, ScheduleRunResultSchema, type User, UserSchema, type WebflowFieldMapping, WebflowFieldMappingSchema, type WebflowIntegrationConfig, WebflowIntegrationConfigSchema, type WebhookIntegrationConfig, WebhookIntegrationConfigSchema };

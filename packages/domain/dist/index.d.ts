@@ -523,6 +523,114 @@ export declare const IntegrationSchema: z.ZodObject<{
     updatedAt?: string | undefined;
 }>;
 export type Integration = z.infer<typeof IntegrationSchema>;
+export declare const WebhookIntegrationConfigSchema: z.ZodObject<{
+    targetUrl: z.ZodString;
+    secret: z.ZodString;
+}, "strip", z.ZodTypeAny, {
+    targetUrl: string;
+    secret: string;
+}, {
+    targetUrl: string;
+    secret: string;
+}>;
+export type WebhookIntegrationConfig = z.infer<typeof WebhookIntegrationConfigSchema>;
+export declare const WebflowFieldMappingSchema: z.ZodObject<{
+    name: z.ZodDefault<z.ZodString>;
+    slug: z.ZodDefault<z.ZodString>;
+    body: z.ZodString;
+    excerpt: z.ZodOptional<z.ZodString>;
+    seoTitle: z.ZodOptional<z.ZodString>;
+    seoDescription: z.ZodOptional<z.ZodString>;
+    tags: z.ZodOptional<z.ZodString>;
+    mainImage: z.ZodOptional<z.ZodString>;
+}, "strip", z.ZodTypeAny, {
+    name: string;
+    slug: string;
+    body: string;
+    tags?: string | undefined;
+    excerpt?: string | undefined;
+    seoTitle?: string | undefined;
+    seoDescription?: string | undefined;
+    mainImage?: string | undefined;
+}, {
+    body: string;
+    tags?: string | undefined;
+    name?: string | undefined;
+    slug?: string | undefined;
+    excerpt?: string | undefined;
+    seoTitle?: string | undefined;
+    seoDescription?: string | undefined;
+    mainImage?: string | undefined;
+}>;
+export type WebflowFieldMapping = z.infer<typeof WebflowFieldMappingSchema>;
+export declare const WebflowIntegrationConfigSchema: z.ZodObject<{
+    accessToken: z.ZodString;
+    siteId: z.ZodOptional<z.ZodString>;
+    collectionId: z.ZodString;
+    fieldMapping: z.ZodObject<{
+        name: z.ZodDefault<z.ZodString>;
+        slug: z.ZodDefault<z.ZodString>;
+        body: z.ZodString;
+        excerpt: z.ZodOptional<z.ZodString>;
+        seoTitle: z.ZodOptional<z.ZodString>;
+        seoDescription: z.ZodOptional<z.ZodString>;
+        tags: z.ZodOptional<z.ZodString>;
+        mainImage: z.ZodOptional<z.ZodString>;
+    }, "strip", z.ZodTypeAny, {
+        name: string;
+        slug: string;
+        body: string;
+        tags?: string | undefined;
+        excerpt?: string | undefined;
+        seoTitle?: string | undefined;
+        seoDescription?: string | undefined;
+        mainImage?: string | undefined;
+    }, {
+        body: string;
+        tags?: string | undefined;
+        name?: string | undefined;
+        slug?: string | undefined;
+        excerpt?: string | undefined;
+        seoTitle?: string | undefined;
+        seoDescription?: string | undefined;
+        mainImage?: string | undefined;
+    }>;
+    publishMode: z.ZodDefault<z.ZodEnum<["draft", "live"]>>;
+    cmsLocaleId: z.ZodOptional<z.ZodString>;
+}, "strip", z.ZodTypeAny, {
+    accessToken: string;
+    collectionId: string;
+    fieldMapping: {
+        name: string;
+        slug: string;
+        body: string;
+        tags?: string | undefined;
+        excerpt?: string | undefined;
+        seoTitle?: string | undefined;
+        seoDescription?: string | undefined;
+        mainImage?: string | undefined;
+    };
+    publishMode: "draft" | "live";
+    siteId?: string | undefined;
+    cmsLocaleId?: string | undefined;
+}, {
+    accessToken: string;
+    collectionId: string;
+    fieldMapping: {
+        body: string;
+        tags?: string | undefined;
+        name?: string | undefined;
+        slug?: string | undefined;
+        excerpt?: string | undefined;
+        seoTitle?: string | undefined;
+        seoDescription?: string | undefined;
+        mainImage?: string | undefined;
+    };
+    siteId?: string | undefined;
+    publishMode?: "draft" | "live" | undefined;
+    cmsLocaleId?: string | undefined;
+}>;
+export type WebflowIntegrationConfig = z.infer<typeof WebflowIntegrationConfigSchema>;
 export declare const CrawlPageSchema: z.ZodObject<{
     id: z.ZodString;
     projectId: z.ZodString;
@@ -692,22 +800,34 @@ export declare const KeywordMetricsSchema: z.ZodObject<{
     searchVolume: z.ZodNullable<z.ZodNumber>;
     cpc: z.ZodNullable<z.ZodNumber>;
     competition: z.ZodNullable<z.ZodNumber>;
+    trend12mo: z.ZodOptional<z.ZodArray<z.ZodNullable<z.ZodNumber>, "many">>;
     difficulty: z.ZodNullable<z.ZodNumber>;
+    intent: z.ZodOptional<z.ZodNullable<z.ZodString>>;
     sourceProvider: z.ZodOptional<z.ZodEnum<["dataforseo"]>>;
+    provider: z.ZodOptional<z.ZodString>;
+    fetchedAt: z.ZodOptional<z.ZodString>;
     asOf: z.ZodOptional<z.ZodString>;
 }, "strip", z.ZodTypeAny, {
     searchVolume: number | null;
     cpc: number | null;
     competition: number | null;
     difficulty: number | null;
+    provider?: string | undefined;
+    trend12mo?: (number | null)[] | undefined;
+    intent?: string | null | undefined;
     sourceProvider?: "dataforseo" | undefined;
+    fetchedAt?: string | undefined;
     asOf?: string | undefined;
 }, {
     searchVolume: number | null;
     cpc: number | null;
     competition: number | null;
     difficulty: number | null;
+    provider?: string | undefined;
+    trend12mo?: (number | null)[] | undefined;
+    intent?: string | null | undefined;
     sourceProvider?: "dataforseo" | undefined;
+    fetchedAt?: string | undefined;
     asOf?: string | undefined;
 }>;
 export declare const KeywordSchema: z.ZodObject<{
@@ -721,26 +841,39 @@ export declare const KeywordSchema: z.ZodObject<{
         searchVolume: z.ZodNullable<z.ZodNumber>;
         cpc: z.ZodNullable<z.ZodNumber>;
         competition: z.ZodNullable<z.ZodNumber>;
+        trend12mo: z.ZodOptional<z.ZodArray<z.ZodNullable<z.ZodNumber>, "many">>;
         difficulty: z.ZodNullable<z.ZodNumber>;
+        intent: z.ZodOptional<z.ZodNullable<z.ZodString>>;
         sourceProvider: z.ZodOptional<z.ZodEnum<["dataforseo"]>>;
+        provider: z.ZodOptional<z.ZodString>;
+        fetchedAt: z.ZodOptional<z.ZodString>;
         asOf: z.ZodOptional<z.ZodString>;
     }, "strip", z.ZodTypeAny, {
         searchVolume: number | null;
         cpc: number | null;
         competition: number | null;
         difficulty: number | null;
+        provider?: string | undefined;
+        trend12mo?: (number | null)[] | undefined;
+        intent?: string | null | undefined;
         sourceProvider?: "dataforseo" | undefined;
+        fetchedAt?: string | undefined;
         asOf?: string | undefined;
     }, {
         searchVolume: number | null;
         cpc: number | null;
         competition: number | null;
         difficulty: number | null;
+        provider?: string | undefined;
+        trend12mo?: (number | null)[] | undefined;
+        intent?: string | null | undefined;
         sourceProvider?: "dataforseo" | undefined;
+        fetchedAt?: string | undefined;
         asOf?: string | undefined;
     }>>;
     status: z.ZodEnum<["recommended", "planned", "generated"]>;
     isStarred: z.ZodOptional<z.ZodBoolean>;
+    opportunityScore: z.ZodOptional<z.ZodNumber>;
     createdAt: z.ZodOptional<z.ZodString>;
     updatedAt: z.ZodOptional<z.ZodString>;
 }, "strip", z.ZodTypeAny, {
@@ -758,10 +891,15 @@ export declare const KeywordSchema: z.ZodObject<{
         cpc: number | null;
         competition: number | null;
         difficulty: number | null;
+        provider?: string | undefined;
+        trend12mo?: (number | null)[] | undefined;
+        intent?: string | null | undefined;
         sourceProvider?: "dataforseo" | undefined;
+        fetchedAt?: string | undefined;
         asOf?: string | undefined;
     } | undefined;
     isStarred?: boolean | undefined;
+    opportunityScore?: number | undefined;
 }, {
     status: "planned" | "recommended" | "generated";
     locale: string;
@@ -777,10 +915,15 @@ export declare const KeywordSchema: z.ZodObject<{
         cpc: number | null;
         competition: number | null;
         difficulty: number | null;
+        provider?: string | undefined;
+        trend12mo?: (number | null)[] | undefined;
+        intent?: string | null | undefined;
         sourceProvider?: "dataforseo" | undefined;
+        fetchedAt?: string | undefined;
         asOf?: string | undefined;
     } | undefined;
     isStarred?: boolean | undefined;
+    opportunityScore?: number | undefined;
 }>;
 export type Keyword = z.infer<typeof KeywordSchema>;
 export declare const UpdateKeywordInputSchema: z.ZodEffects<z.ZodObject<{
@@ -791,77 +934,110 @@ export declare const UpdateKeywordInputSchema: z.ZodEffects<z.ZodObject<{
         searchVolume: z.ZodOptional<z.ZodNullable<z.ZodNumber>>;
         cpc: z.ZodOptional<z.ZodNullable<z.ZodNumber>>;
         competition: z.ZodOptional<z.ZodNullable<z.ZodNumber>>;
+        trend12mo: z.ZodOptional<z.ZodOptional<z.ZodArray<z.ZodNullable<z.ZodNumber>, "many">>>;
         difficulty: z.ZodOptional<z.ZodNullable<z.ZodNumber>>;
+        intent: z.ZodOptional<z.ZodOptional<z.ZodNullable<z.ZodString>>>;
         sourceProvider: z.ZodOptional<z.ZodOptional<z.ZodEnum<["dataforseo"]>>>;
+        provider: z.ZodOptional<z.ZodOptional<z.ZodString>>;
+        fetchedAt: z.ZodOptional<z.ZodOptional<z.ZodString>>;
         asOf: z.ZodOptional<z.ZodOptional<z.ZodString>>;
     }, "strip", z.ZodTypeAny, {
+        provider?: string | undefined;
         searchVolume?: number | null | undefined;
         cpc?: number | null | undefined;
         competition?: number | null | undefined;
+        trend12mo?: (number | null)[] | undefined;
         difficulty?: number | null | undefined;
+        intent?: string | null | undefined;
         sourceProvider?: "dataforseo" | undefined;
+        fetchedAt?: string | undefined;
         asOf?: string | undefined;
     }, {
+        provider?: string | undefined;
         searchVolume?: number | null | undefined;
         cpc?: number | null | undefined;
         competition?: number | null | undefined;
+        trend12mo?: (number | null)[] | undefined;
         difficulty?: number | null | undefined;
+        intent?: string | null | undefined;
         sourceProvider?: "dataforseo" | undefined;
+        fetchedAt?: string | undefined;
         asOf?: string | undefined;
     }>>;
     isStarred: z.ZodOptional<z.ZodBoolean>;
+    opportunityScore: z.ZodOptional<z.ZodNumber>;
 }, "strip", z.ZodTypeAny, {
     status?: "planned" | "recommended" | "generated" | undefined;
     phrase?: string | undefined;
     primaryTopic?: string | null | undefined;
     metricsJson?: {
+        provider?: string | undefined;
         searchVolume?: number | null | undefined;
         cpc?: number | null | undefined;
         competition?: number | null | undefined;
+        trend12mo?: (number | null)[] | undefined;
         difficulty?: number | null | undefined;
+        intent?: string | null | undefined;
         sourceProvider?: "dataforseo" | undefined;
+        fetchedAt?: string | undefined;
         asOf?: string | undefined;
     } | undefined;
     isStarred?: boolean | undefined;
+    opportunityScore?: number | undefined;
 }, {
     status?: "planned" | "recommended" | "generated" | undefined;
     phrase?: string | undefined;
     primaryTopic?: string | null | undefined;
     metricsJson?: {
+        provider?: string | undefined;
         searchVolume?: number | null | undefined;
         cpc?: number | null | undefined;
         competition?: number | null | undefined;
+        trend12mo?: (number | null)[] | undefined;
         difficulty?: number | null | undefined;
+        intent?: string | null | undefined;
         sourceProvider?: "dataforseo" | undefined;
+        fetchedAt?: string | undefined;
         asOf?: string | undefined;
     } | undefined;
     isStarred?: boolean | undefined;
+    opportunityScore?: number | undefined;
 }>, {
     status?: "planned" | "recommended" | "generated" | undefined;
     phrase?: string | undefined;
     primaryTopic?: string | null | undefined;
     metricsJson?: {
+        provider?: string | undefined;
         searchVolume?: number | null | undefined;
         cpc?: number | null | undefined;
         competition?: number | null | undefined;
+        trend12mo?: (number | null)[] | undefined;
         difficulty?: number | null | undefined;
+        intent?: string | null | undefined;
         sourceProvider?: "dataforseo" | undefined;
+        fetchedAt?: string | undefined;
         asOf?: string | undefined;
     } | undefined;
     isStarred?: boolean | undefined;
+    opportunityScore?: number | undefined;
 }, {
     status?: "planned" | "recommended" | "generated" | undefined;
     phrase?: string | undefined;
     primaryTopic?: string | null | undefined;
     metricsJson?: {
+        provider?: string | undefined;
         searchVolume?: number | null | undefined;
         cpc?: number | null | undefined;
         competition?: number | null | undefined;
+        trend12mo?: (number | null)[] | undefined;
         difficulty?: number | null | undefined;
+        intent?: string | null | undefined;
         sourceProvider?: "dataforseo" | undefined;
+        fetchedAt?: string | undefined;
         asOf?: string | undefined;
     } | undefined;
     isStarred?: boolean | undefined;
+    opportunityScore?: number | undefined;
 }>;
 export type UpdateKeywordInput = z.infer<typeof UpdateKeywordInputSchema>;
 export declare const CreateKeywordInputSchema: z.ZodObject<{
@@ -873,26 +1049,39 @@ export declare const CreateKeywordInputSchema: z.ZodObject<{
         searchVolume: z.ZodNullable<z.ZodNumber>;
         cpc: z.ZodNullable<z.ZodNumber>;
         competition: z.ZodNullable<z.ZodNumber>;
+        trend12mo: z.ZodOptional<z.ZodArray<z.ZodNullable<z.ZodNumber>, "many">>;
         difficulty: z.ZodNullable<z.ZodNumber>;
+        intent: z.ZodOptional<z.ZodNullable<z.ZodString>>;
         sourceProvider: z.ZodOptional<z.ZodEnum<["dataforseo"]>>;
+        provider: z.ZodOptional<z.ZodString>;
+        fetchedAt: z.ZodOptional<z.ZodString>;
         asOf: z.ZodOptional<z.ZodString>;
     }, "strip", z.ZodTypeAny, {
         searchVolume: number | null;
         cpc: number | null;
         competition: number | null;
         difficulty: number | null;
+        provider?: string | undefined;
+        trend12mo?: (number | null)[] | undefined;
+        intent?: string | null | undefined;
         sourceProvider?: "dataforseo" | undefined;
+        fetchedAt?: string | undefined;
         asOf?: string | undefined;
     }, {
         searchVolume: number | null;
         cpc: number | null;
         competition: number | null;
         difficulty: number | null;
+        provider?: string | undefined;
+        trend12mo?: (number | null)[] | undefined;
+        intent?: string | null | undefined;
         sourceProvider?: "dataforseo" | undefined;
+        fetchedAt?: string | undefined;
         asOf?: string | undefined;
     }>>;
     status: z.ZodDefault<z.ZodEnum<["recommended", "planned", "generated"]>>;
     isStarred: z.ZodDefault<z.ZodBoolean>;
+    opportunityScore: z.ZodOptional<z.ZodNumber>;
 }, "strip", z.ZodTypeAny, {
     status: "planned" | "recommended" | "generated";
     locale: string;
@@ -905,9 +1094,14 @@ export declare const CreateKeywordInputSchema: z.ZodObject<{
         cpc: number | null;
         competition: number | null;
         difficulty: number | null;
+        provider?: string | undefined;
+        trend12mo?: (number | null)[] | undefined;
+        intent?: string | null | undefined;
         sourceProvider?: "dataforseo" | undefined;
+        fetchedAt?: string | undefined;
         asOf?: string | undefined;
     } | undefined;
+    opportunityScore?: number | undefined;
 }, {
     projectId: string;
     phrase: string;
@@ -919,10 +1113,15 @@ export declare const CreateKeywordInputSchema: z.ZodObject<{
         cpc: number | null;
         competition: number | null;
         difficulty: number | null;
+        provider?: string | undefined;
+        trend12mo?: (number | null)[] | undefined;
+        intent?: string | null | undefined;
         sourceProvider?: "dataforseo" | undefined;
+        fetchedAt?: string | undefined;
         asOf?: string | undefined;
     } | undefined;
     isStarred?: boolean | undefined;
+    opportunityScore?: number | undefined;
 }>;
 export type CreateKeywordInput = z.infer<typeof CreateKeywordInputSchema>;
 export declare const PlanItemSchema: z.ZodObject<{
@@ -1196,22 +1395,34 @@ export declare const MetricCacheSchema: z.ZodObject<{
         searchVolume: z.ZodNullable<z.ZodNumber>;
         cpc: z.ZodNullable<z.ZodNumber>;
         competition: z.ZodNullable<z.ZodNumber>;
+        trend12mo: z.ZodOptional<z.ZodArray<z.ZodNullable<z.ZodNumber>, "many">>;
         difficulty: z.ZodNullable<z.ZodNumber>;
+        intent: z.ZodOptional<z.ZodNullable<z.ZodString>>;
         sourceProvider: z.ZodOptional<z.ZodEnum<["dataforseo"]>>;
+        provider: z.ZodOptional<z.ZodString>;
+        fetchedAt: z.ZodOptional<z.ZodString>;
         asOf: z.ZodOptional<z.ZodString>;
     }, "strip", z.ZodTypeAny, {
         searchVolume: number | null;
         cpc: number | null;
         competition: number | null;
         difficulty: number | null;
+        provider?: string | undefined;
+        trend12mo?: (number | null)[] | undefined;
+        intent?: string | null | undefined;
         sourceProvider?: "dataforseo" | undefined;
+        fetchedAt?: string | undefined;
         asOf?: string | undefined;
     }, {
         searchVolume: number | null;
         cpc: number | null;
         competition: number | null;
         difficulty: number | null;
+        provider?: string | undefined;
+        trend12mo?: (number | null)[] | undefined;
+        intent?: string | null | undefined;
         sourceProvider?: "dataforseo" | undefined;
+        fetchedAt?: string | undefined;
         asOf?: string | undefined;
     }>;
     fetchedAt: z.ZodString;
@@ -1220,31 +1431,39 @@ export declare const MetricCacheSchema: z.ZodObject<{
     provider: "dataforseo";
     id: string;
     projectId: string;
+    fetchedAt: string;
     metricsJson: {
         searchVolume: number | null;
         cpc: number | null;
         competition: number | null;
         difficulty: number | null;
+        provider?: string | undefined;
+        trend12mo?: (number | null)[] | undefined;
+        intent?: string | null | undefined;
         sourceProvider?: "dataforseo" | undefined;
+        fetchedAt?: string | undefined;
         asOf?: string | undefined;
     };
     hash: string;
-    fetchedAt: string;
     ttl: number;
 }, {
     provider: "dataforseo";
     id: string;
     projectId: string;
+    fetchedAt: string;
     metricsJson: {
         searchVolume: number | null;
         cpc: number | null;
         competition: number | null;
         difficulty: number | null;
+        provider?: string | undefined;
+        trend12mo?: (number | null)[] | undefined;
+        intent?: string | null | undefined;
         sourceProvider?: "dataforseo" | undefined;
+        fetchedAt?: string | undefined;
         asOf?: string | undefined;
     };
     hash: string;
-    fetchedAt: string;
     ttl: number;
 }>;
 export type MetricCache = z.infer<typeof MetricCacheSchema>;
@@ -1341,6 +1560,7 @@ export declare const PortableArticleSchema: z.ZodObject<{
     bodyHtml: string;
     tags?: string[] | undefined;
     locale?: string | undefined;
+    slug?: string | undefined;
     excerpt?: string | undefined;
     outline?: {
         heading: string;
@@ -1354,7 +1574,6 @@ export declare const PortableArticleSchema: z.ZodObject<{
             caption?: string | undefined;
         }[] | undefined;
     } | undefined;
-    slug?: string | undefined;
     seo?: {
         canonicalUrl?: string | undefined;
         metaTitle?: string | undefined;
@@ -1365,6 +1584,7 @@ export declare const PortableArticleSchema: z.ZodObject<{
     bodyHtml: string;
     tags?: string[] | undefined;
     locale?: string | undefined;
+    slug?: string | undefined;
     excerpt?: string | undefined;
     outline?: {
         heading: string;
@@ -1378,7 +1598,6 @@ export declare const PortableArticleSchema: z.ZodObject<{
             caption?: string | undefined;
         }[] | undefined;
     } | undefined;
-    slug?: string | undefined;
     seo?: {
         canonicalUrl?: string | undefined;
         metaTitle?: string | undefined;
@@ -1816,14 +2035,51 @@ export declare const DiscoveryJobPayloadSchema: z.ZodObject<{
     projectId: z.ZodString;
     pageIds: z.ZodArray<z.ZodString, "many">;
     locale: z.ZodString;
+    location: z.ZodOptional<z.ZodString>;
+    maxKeywords: z.ZodDefault<z.ZodNumber>;
+    includeGAds: z.ZodDefault<z.ZodBoolean>;
+    costEstimate: z.ZodOptional<z.ZodObject<{
+        currency: z.ZodDefault<z.ZodString>;
+        labsSubtotal: z.ZodNumber;
+        gadsSubtotal: z.ZodOptional<z.ZodNumber>;
+        total: z.ZodNumber;
+    }, "strip", z.ZodTypeAny, {
+        currency: string;
+        labsSubtotal: number;
+        total: number;
+        gadsSubtotal?: number | undefined;
+    }, {
+        labsSubtotal: number;
+        total: number;
+        currency?: string | undefined;
+        gadsSubtotal?: number | undefined;
+    }>>;
 }, "strip", z.ZodTypeAny, {
     locale: string;
     projectId: string;
     pageIds: string[];
+    maxKeywords: number;
+    includeGAds: boolean;
+    location?: string | undefined;
+    costEstimate?: {
+        currency: string;
+        labsSubtotal: number;
+        total: number;
+        gadsSubtotal?: number | undefined;
+    } | undefined;
 }, {
     locale: string;
     projectId: string;
     pageIds: string[];
+    location?: string | undefined;
+    maxKeywords?: number | undefined;
+    includeGAds?: boolean | undefined;
+    costEstimate?: {
+        labsSubtotal: number;
+        total: number;
+        currency?: string | undefined;
+        gadsSubtotal?: number | undefined;
+    } | undefined;
 }>;
 export declare const PlanJobPayloadSchema: z.ZodObject<{
     projectId: z.ZodString;
@@ -1908,14 +2164,51 @@ export declare const QueuePayloadSchemas: {
         projectId: z.ZodString;
         pageIds: z.ZodArray<z.ZodString, "many">;
         locale: z.ZodString;
+        location: z.ZodOptional<z.ZodString>;
+        maxKeywords: z.ZodDefault<z.ZodNumber>;
+        includeGAds: z.ZodDefault<z.ZodBoolean>;
+        costEstimate: z.ZodOptional<z.ZodObject<{
+            currency: z.ZodDefault<z.ZodString>;
+            labsSubtotal: z.ZodNumber;
+            gadsSubtotal: z.ZodOptional<z.ZodNumber>;
+            total: z.ZodNumber;
+        }, "strip", z.ZodTypeAny, {
+            currency: string;
+            labsSubtotal: number;
+            total: number;
+            gadsSubtotal?: number | undefined;
+        }, {
+            labsSubtotal: number;
+            total: number;
+            currency?: string | undefined;
+            gadsSubtotal?: number | undefined;
+        }>>;
     }, "strip", z.ZodTypeAny, {
         locale: string;
         projectId: string;
         pageIds: string[];
+        maxKeywords: number;
+        includeGAds: boolean;
+        location?: string | undefined;
+        costEstimate?: {
+            currency: string;
+            labsSubtotal: number;
+            total: number;
+            gadsSubtotal?: number | undefined;
+        } | undefined;
     }, {
         locale: string;
         projectId: string;
         pageIds: string[];
+        location?: string | undefined;
+        maxKeywords?: number | undefined;
+        includeGAds?: boolean | undefined;
+        costEstimate?: {
+            labsSubtotal: number;
+            total: number;
+            currency?: string | undefined;
+            gadsSubtotal?: number | undefined;
+        } | undefined;
     }>;
     plan: z.ZodObject<{
         projectId: z.ZodString;

@@ -406,12 +406,15 @@ const executeKeywordAdd = async (options: {
   cpc?: string
   competition?: string
   difficulty?: string
+  intent?: string
+  trend?: string
+  opportunity?: string
 }) => {
   const spinner = ora('Creating keyword').start()
   try {
     const client = createClient()
 
-    const metrics: Record<string, number> = {}
+    const metrics: Record<string, unknown> = {}
     const volume = parseOptionalInt(options.volume)
     if (volume !== undefined) metrics.searchVolume = volume
     const cpc = parseOptionalFloat(options.cpc)
@@ -420,6 +423,18 @@ const executeKeywordAdd = async (options: {
     if (competition !== undefined) metrics.competition = competition
     const difficulty = parseOptionalFloat(options.difficulty)
     if (difficulty !== undefined) metrics.difficulty = difficulty
+    if (options.intent) {
+      metrics.intent = options.intent
+    }
+    if (options.trend) {
+      const trendValues = options.trend
+        .split(',')
+        .map((value) => parseOptionalFloat(value))
+        .filter((value) => value !== undefined)
+      if (trendValues.length > 0) {
+        metrics.trend12mo = trendValues
+      }
+    }
 
     const payload: Record<string, unknown> = {
       projectId: options.project,
@@ -433,6 +448,11 @@ const executeKeywordAdd = async (options: {
 
     if (Object.keys(metrics).length > 0) {
       payload.metricsJson = metrics
+    }
+
+    const opportunity = parseOptionalFloat(options.opportunity)
+    if (opportunity !== undefined) {
+      payload.opportunityScore = Math.min(100, Math.max(0, opportunity))
     }
 
     if (options.status) {
@@ -984,6 +1004,9 @@ keywordCommand
   .option('--cpc <number>', 'CPC estimate')
   .option('--competition <number>', 'Competition score')
   .option('--difficulty <number>', 'Difficulty score')
+  .option('--intent <intent>', 'Primary search intent label')
+  .option('--trend <values>', 'Comma separated 12 month trend values')
+  .option('--opportunity <score>', 'Opportunity score between 0-100')
   .action((options) => executeKeywordAdd(options))
 
 keywordCommand
@@ -1009,12 +1032,23 @@ keywordCommand
   .description('Trigger keyword discovery for a project')
   .requiredOption('--project <projectId>', 'Project ID')
   .option('--locale <locale>', 'Locale to target', 'en-US')
+  .option('--location <location>', 'Geographic location label')
+  .option('--max <count>', 'Maximum keyword candidates', '500')
+  .option('--gads', 'Include Google Ads bulk volume task')
   .action(async (options) => {
     const spinner = ora('Queuing keyword discovery').start()
     try {
       const client = createClient()
-      const response = await client.generateKeywords(options.project, options.locale)
-      spinner.succeed(`Discovery job enqueued: ${response.jobId}`)
+      const response = await client.generateKeywords(options.project, {
+        locale: options.locale,
+        location: options.location,
+        max: parseOptionalInt(options.max),
+        includeGAds: Boolean(options.gads)
+      })
+      const suffix = response.costEstimate
+        ? ` (est. $${response.costEstimate.total.toFixed(3)} ${response.costEstimate.currency})`
+        : ''
+      spinner.succeed(`Discovery job enqueued: ${response.jobId}${suffix}`)
     } catch (error) {
       spinner.fail('Failed to enqueue keyword discovery')
       handleError(error)
