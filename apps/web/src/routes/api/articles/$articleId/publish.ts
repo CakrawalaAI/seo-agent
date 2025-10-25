@@ -1,33 +1,37 @@
-// @ts-nocheck
 import { z } from 'zod'
 import { createFileRoute } from '@tanstack/react-router'
-import { enqueueArticlePublish } from '~/server/services/articles'
-import { httpError, json, parseJson, safeHandler } from '../../utils'
+import { startArticlePublish } from '~/server/services/articles'
+import { httpError, parseJson, safeHandler, json } from '../../utils'
 
-const PublishRequestSchema = z.object({
+const PublishArticleSchema = z.object({
   integrationId: z.string().min(1)
 })
-
-const ParamsSchema = z.object({ articleId: z.string().min(1) })
 
 export const Route = createFileRoute('/api/articles/$articleId/publish')({
   server: {
     handlers: {
       POST: safeHandler(async ({ params, request }) => {
-        const { articleId } = ParamsSchema.parse(params)
-        const input = await parseJson(request, PublishRequestSchema)
+        const input = await parseJson(request, PublishArticleSchema)
+
         try {
-          const response = await enqueueArticlePublish(articleId, input.integrationId)
-          const status = response.reused ? 200 : 202
-          return json(response, { status })
+          const result = await startArticlePublish(params.articleId, input.integrationId)
+          const status = result.reused ? 200 : 202
+          return json(result, { status })
         } catch (error) {
-          if ((error as any)?.status) {
-            return httpError(
-              (error as any).status,
-              error instanceof Error ? error.message : 'Failed to enqueue article publish'
-            )
+          const code = (error as any)?.code
+          if (code === 'not_found') {
+            return httpError(404, 'Article not found')
           }
-          return httpError(500, 'Failed to enqueue article publish')
+          if (code === 'integration_not_found') {
+            return httpError(404, 'Integration not found')
+          }
+          if (code === 'integration_not_connected') {
+            return httpError(409, 'Integration is not connected')
+          }
+          if (code === 'already_published') {
+            return httpError(409, 'Article already published')
+          }
+          throw error
         }
       })
     }

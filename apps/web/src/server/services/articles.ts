@@ -1,7 +1,7 @@
 // @ts-nocheck
 import { and, eq, inArray, sql } from 'drizzle-orm'
 import type { Article, PaginatedResponse, UpdateArticleInput } from '@seo-agent/domain'
-import { UpdateArticleInputSchema } from '@seo-agent/domain'
+import { PublishJobPayloadSchema, UpdateArticleInputSchema } from '@seo-agent/domain'
 import { getDb, schema } from '../db'
 import { getJobCoordinator } from '../jobs/coordinator'
 
@@ -160,7 +160,7 @@ const buildArticleJobError = (message: string, code: string, status: number): Ar
   return error
 }
 
-const ACTIVE_JOB_STATUSES = ['queued', 'running'] as const
+const activeJobStatuses = ['queued', 'running'] as const
 
 export const enqueueArticleGeneration = async (planItemId: string): Promise<ArticleJobResponse> => {
   const db = getDb()
@@ -187,7 +187,7 @@ export const enqueueArticleGeneration = async (planItemId: string): Promise<Arti
       and(
         eq(schema.jobs.projectId, planItem.projectId),
         eq(schema.jobs.type, 'generate'),
-        inArray(schema.jobs.status, ACTIVE_JOB_STATUSES),
+        inArray(schema.jobs.status, activeJobStatuses),
         sql`${schema.jobs.payload} ->> 'planItemId' = ${planItemId}`
       )
     )
@@ -212,7 +212,7 @@ export const enqueueArticleGeneration = async (planItemId: string): Promise<Arti
   return { jobId, projectId: planItem.projectId, status: 'queued' }
 }
 
-export const enqueueArticlePublish = async (
+export const startArticlePublish = async (
   articleId: string,
   integrationId: string
 ): Promise<ArticleJobResponse> => {
@@ -222,53 +222,75 @@ export const enqueueArticlePublish = async (
   })
 
   if (!article) {
-    throw buildArticleJobError('Article not found', 'article_missing', 404)
+    const error = buildArticleJobError('Article not found', 'not_found', 404)
+    throw error
+  }
+
+  if (article.status === 'published') {
+    const error = buildArticleJobError('Article already published', 'already_published', 409)
+    throw error
   }
 
   const integration = await db.query.integrations.findFirst({
-    where: (integrations, { eq }) => eq(integrations.id, integrationId)
+    where: (integrations, { and: andOp, eq: eqOp }) =>
+      andOp(eqOp(integrations.id, integrationId), eqOp(integrations.projectId, article.projectId))
   })
 
   if (!integration) {
-    throw buildArticleJobError('Integration not found', 'integration_missing', 404)
+    const error = buildArticleJobError('Integration not found', 'integration_not_found', 404)
+    throw error
   }
 
-  if (integration.projectId !== article.projectId) {
-    throw buildArticleJobError('Integration does not belong to project', 'integration_mismatch', 400)
+  if (integration.status !== 'connected') {
+    const error = buildArticleJobError('Integration not connected', 'integration_not_connected', 409)
+    throw error
   }
 
-  const existingJob = await db
+  const [existingJob] = await db
     .select({ id: schema.jobs.id, status: schema.jobs.status })
     .from(schema.jobs)
     .where(
       and(
         eq(schema.jobs.projectId, article.projectId),
         eq(schema.jobs.type, 'publish'),
-        inArray(schema.jobs.status, ACTIVE_JOB_STATUSES),
+        inArray(schema.jobs.status, activeJobStatuses),
         sql`${schema.jobs.payload} ->> 'articleId' = ${articleId}`
       )
     )
     .limit(1)
 
-  if (existingJob.length > 0) {
+  if (existingJob) {
     return {
-      jobId: existingJob[0].id,
+      jobId: existingJob.id,
       projectId: article.projectId,
-      status: existingJob[0].status,
+      status: existingJob.status,
       reused: true
     }
   }
+
+  const payload = PublishJobPayloadSchema.parse({
+    projectId: article.projectId,
+    articleId,
+    integrationId
+  })
+
+  await db
+    .update(schema.articles)
+    .set({ status: 'draft', updatedAt: new Date() })
+    .where(eq(schema.articles.id, articleId))
 
   const coordinator = getJobCoordinator()
   const jobId = await coordinator.enqueue({
     projectId: article.projectId,
     type: 'publish',
-    payload: {
-      projectId: article.projectId,
-      articleId,
-      integrationId
-    }
+    payload,
+    priority: 0
   })
 
-  return { jobId, projectId: article.projectId, status: 'queued' }
+  return {
+    jobId,
+    projectId: article.projectId,
+    status: 'queued',
+    reused: false
+  }
 }
