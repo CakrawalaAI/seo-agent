@@ -1,0 +1,22 @@
+{
+  "compilerOptions": {
+    "module": "ESNext",
+    "target": "ES2021",
+    "moduleResolution": "Bundler",
+    "esModuleInterop": true,
+    "strict": true,
+    "skipLibCheck": true,
+    "outDir": "dist",
+    "rootDirs": ["src", "../../packages"],
+    "types": ["node"],
+    "forceConsistentCasingInFileNames": true,
+    "baseUrl": ".",
+    "paths": {
+      "@seo-agent/sdk": ["../../packages/sdk/src/index.ts"],
+      "@seo-agent/domain": ["../../packages/domain/src/index.ts"],
+      "@seo-agent/platform": ["../../packages/platform/src/index.ts"],
+      "@seo-agent/platform/*": ["../../packages/platform/src/*"]
+    }
+  },
+  "include": ["src"]
+}

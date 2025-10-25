@@ -1,0 +1,21 @@
+{
+  "compilerOptions": {
+    "target": "ES2021",
+    "module": "ESNext",
+    "moduleResolution": "Node",
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "strict": true,
+    "allowSyntheticDefaultImports": true,
+    "baseUrl": ".",
+    "paths": {
+      "@seo-agent/domain": ["packages/domain/src/index"],
+      "@seo-agent/db": ["packages/db/src/index"],
+      "@seo-agent/queue": ["packages/queue/src/index"],
+      "@seo-agent/sdk": ["packages/sdk/src/index"],
+      "@seo-agent/auth": ["packages/auth/src/index"],
+      "@seo-agent/platform": ["packages/platform/src/index"],
+      "@seo-agent/cms": ["packages/cms/src/index"]
+    }
+  }
+}
