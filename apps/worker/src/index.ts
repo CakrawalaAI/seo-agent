@@ -324,11 +324,31 @@ async function handleCrawlJob(job: JobRecord) {
 async function handleDiscoveryJob(job: JobRecord) {
   const payload = DiscoveryJobPayloadSchema.parse(job.payload)
   const now = new Date()
+  const totalKeywords = Math.min(payload.maxKeywords ?? 30, 200)
+  const basePages = Math.max(payload.pageIds.length, 1)
 
-  const targetKeywordCount = 30
-  const keywords = Array.from({ length: targetKeywordCount }, (_, index) => {
-    const seedPageId = payload.pageIds[index % Math.max(payload.pageIds.length, 1)] ?? 'page'
+  await updateJobProgress(job.id, 20)
+  await appendLog(job.id, `Starting discovery for ${totalKeywords} candidates`, 'info')
+
+  const keywords = Array.from({ length: totalKeywords }, (_, index) => {
+    const seedPageId = payload.pageIds[index % basePages] ?? 'page'
     const order = index + 1
+    const searchVolume = 120 + order * 8
+    const difficulty = Math.min(100, 25 + order * 1.8)
+    const competition = Number((0.2 + (order % 7) * 0.07).toFixed(2))
+    const cpc = Number((0.8 + order * 0.04).toFixed(2))
+    const trend12mo = Array.from({ length: 12 }, (_, monthIndex) =>
+      Number((searchVolume * (0.8 + monthIndex * 0.02)).toFixed(2))
+    )
+    const intent = order % 3 === 0 ? 'transactional' : order % 2 === 0 ? 'commercial' : 'informational'
+    const opportunity = Math.max(
+      0,
+      Math.min(
+        100,
+        Number((Math.log(searchVolume + 1) * 18 - difficulty * 0.45 + (intent === 'transactional' ? 12 : 6)).toFixed(2))
+      )
+    )
+
     return {
       id: randomUUID(),
       projectId: payload.projectId,
@@ -337,16 +357,25 @@ async function handleDiscoveryJob(job: JobRecord) {
       primaryTopic: `Topic Cluster ${Math.floor(order / 5) + 1}`,
       source: 'crawl' as const,
       metrics: {
-        searchVolume: 150 + order * 10,
-        cpc: Number((1 + order * 0.05).toFixed(2)),
-        competition: Number((0.1 + (order % 10) * 0.05).toFixed(2)),
-        difficulty: Math.min(100, 20 + order * 2)
+        searchVolume,
+        cpc,
+        competition,
+        difficulty,
+        trend12mo,
+        intent,
+        sourceProvider: 'dataforseo',
+        provider: 'dfseo',
+        fetchedAt: now.toISOString()
       },
+      opportunityScore: opportunity,
       status: 'recommended' as const,
       createdAt: now,
       updatedAt: now
     }
   })
+
+  await updateJobProgress(job.id, 50)
+  await appendLog(job.id, 'Keyword metrics enriched with mock provider data', 'info')
 
   await db
     .insert(schema.keywords)
@@ -360,12 +389,16 @@ async function handleDiscoveryJob(job: JobRecord) {
         source: keyword.source,
         metrics: keyword.metrics,
         status: keyword.status,
+        opportunityScore: keyword.opportunityScore,
         createdAt: keyword.createdAt,
         updatedAt: keyword.updatedAt
       }))
     )
     .onConflictDoNothing()
   await appendLog(job.id, `Seeded ${keywords.length} keywords`, 'info')
+
+  await updateJobProgress(job.id, 70)
+  await appendLog(job.id, 'Scored opportunities and persisted records', 'info')
 
   const planJobId = randomUUID()
   await db.insert(schema.jobs).values({
@@ -388,14 +421,21 @@ async function handleDiscoveryJob(job: JobRecord) {
   })
   await appendLog(job.id, 'Queued plan job', 'info')
 
+  await updateJobProgress(job.id, 90)
+  await appendLog(job.id, 'Queued downstream planning job', 'info')
+
   await db.insert(schema.discoveryRuns).values({
     id: job.id,
     projectId: payload.projectId,
-    providersUsed: ['crawl'],
+    providersUsed: ['crawl', 'dataforseo'],
     startedAt: now,
     finishedAt: now,
     status: 'succeeded',
-    costMeter: { creditsConsumed: keywords.length, currency: 'usd' },
+    costMeter: {
+      creditsConsumed: keywords.length,
+      currency: payload.costEstimate?.currency ?? 'usd',
+      estimatedSpend: payload.costEstimate?.total
+    },
     summary: {
       businessSummary: `Generated growth plan for project ${payload.projectId}`,
       audience: ['Prospects researching services', 'Returning customers'],

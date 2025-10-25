@@ -179,6 +179,28 @@ var IntegrationSchema = z2.object({
   createdAt: isoDate().optional(),
   updatedAt: isoDate().optional()
 });
+var WebhookIntegrationConfigSchema = z2.object({
+  targetUrl: z2.string().url(),
+  secret: z2.string().min(1)
+});
+var WebflowFieldMappingSchema = z2.object({
+  name: z2.string().min(1).default("name"),
+  slug: z2.string().min(1).default("slug"),
+  body: z2.string().min(1),
+  excerpt: z2.string().min(1).optional(),
+  seoTitle: z2.string().min(1).optional(),
+  seoDescription: z2.string().min(1).optional(),
+  tags: z2.string().min(1).optional(),
+  mainImage: z2.string().min(1).optional()
+});
+var WebflowIntegrationConfigSchema = z2.object({
+  accessToken: z2.string().min(1),
+  siteId: z2.string().min(1).optional(),
+  collectionId: z2.string().min(1),
+  fieldMapping: WebflowFieldMappingSchema,
+  publishMode: z2.enum(["draft", "live"]).default("draft"),
+  cmsLocaleId: z2.string().min(1).optional()
+});
 var CrawlPageSchema = z2.object({
   id: z2.string().min(1),
   projectId: z2.string().min(1),
@@ -227,10 +249,15 @@ var KeywordMetricsSchema = z2.object({
   searchVolume: z2.number().nonnegative().nullable(),
   cpc: z2.number().nonnegative().nullable(),
   competition: z2.number().nonnegative().nullable(),
+  trend12mo: z2.array(z2.number().nullable()).max(24).optional(),
   difficulty: z2.number().nonnegative().nullable(),
+  intent: z2.string().min(1).nullable().optional(),
   sourceProvider: MetricsProviderSchema.optional(),
+  provider: z2.string().min(1).optional(),
+  fetchedAt: isoDate().optional(),
   asOf: isoDate().optional()
 });
+var KeywordMetricsUpdateSchema = KeywordMetricsSchema.partial();
 var KeywordSchema = z2.object({
   id: z2.string().min(1),
   projectId: z2.string().min(1),
@@ -240,8 +267,31 @@ var KeywordSchema = z2.object({
   source: KeywordSourceSchema,
   metricsJson: KeywordMetricsSchema.optional(),
   status: KeywordStatusSchema,
+  isStarred: z2.boolean().optional(),
+  opportunityScore: z2.number().min(0).max(100).optional(),
   createdAt: isoDate().optional(),
   updatedAt: isoDate().optional()
+});
+var UpdateKeywordInputSchema = z2.object({
+  phrase: z2.string().min(1).optional(),
+  primaryTopic: z2.string().nullable().optional(),
+  status: KeywordStatusSchema.optional(),
+  metricsJson: KeywordMetricsUpdateSchema.optional(),
+  isStarred: z2.boolean().optional(),
+  opportunityScore: z2.number().min(0).max(100).optional()
+}).refine(
+  (value) => value.phrase !== void 0 || value.primaryTopic !== void 0 || value.status !== void 0 || value.metricsJson !== void 0 || value.isStarred !== void 0 || value.opportunityScore !== void 0,
+  { message: "Provide at least one field to update" }
+);
+var CreateKeywordInputSchema = z2.object({
+  projectId: z2.string().min(1),
+  phrase: z2.string().min(1),
+  locale: z2.string().min(2).default("en-US"),
+  primaryTopic: z2.string().optional(),
+  metricsJson: KeywordMetricsSchema.optional(),
+  status: KeywordStatusSchema.default("recommended"),
+  isStarred: z2.boolean().default(false),
+  opportunityScore: z2.number().min(0).max(100).optional()
 });
 var PlanItemSchema = z2.object({
   id: z2.string().min(1),
@@ -284,6 +334,15 @@ var ArticleSchema = z2.object({
   publicationDate: isoDate().optional(),
   createdAt: isoDate(),
   updatedAt: isoDate()
+});
+var UpdateArticleInputSchema = z2.object({
+  title: z2.string().min(1).optional(),
+  outlineJson: PlanItemSchema.shape.outlineJson.optional(),
+  bodyHtml: z2.string().min(1).optional(),
+  language: z2.string().min(2).optional(),
+  tone: z2.string().optional()
+}).refine((value) => Object.keys(value).length > 0, {
+  message: "Provide at least one field to update"
 });
 var JobLogSchema = z2.object({
   message: z2.string(),
@@ -376,7 +435,16 @@ var CrawlJobPayloadSchema = z2.object({
 var DiscoveryJobPayloadSchema = z2.object({
   projectId: z2.string().min(1),
   pageIds: z2.array(z2.string().min(1)),
-  locale: z2.string().min(2)
+  locale: z2.string().min(2),
+  location: z2.string().min(2).optional(),
+  maxKeywords: z2.number().int().positive().max(2e3).default(500),
+  includeGAds: z2.boolean().default(false),
+  costEstimate: z2.object({
+    currency: z2.string().default("usd"),
+    labsSubtotal: z2.number().nonnegative(),
+    gadsSubtotal: z2.number().nonnegative().optional(),
+    total: z2.number().nonnegative()
+  }).optional()
 });
 var PlanJobPayloadSchema = z2.object({
   projectId: z2.string().min(1),
@@ -471,10 +539,15 @@ var CreatePlanRequestSchema = z2.object({
 });
 var UpdatePlanItemSchema = z2.object({
   plannedDate: z2.string().date().optional(),
-  status: PlanItemStatusSchema.optional()
-}).refine((data) => data.plannedDate || data.status, {
-  message: "Must provide plannedDate or status"
-});
+  status: PlanItemStatusSchema.optional(),
+  title: z2.string().min(1).optional(),
+  outlineJson: PlanItemSchema.shape.outlineJson.optional()
+}).refine(
+  (data) => data.plannedDate !== void 0 || data.status !== void 0 || data.title !== void 0 || data.outlineJson !== void 0,
+  {
+    message: "Must provide at least one field to update"
+  }
+);
 var MeResponseSchema = z2.object({
   user: UserSchema.nullable(),
   orgs: z2.array(OrgSchema).default([]),
@@ -511,6 +584,7 @@ export {
   CrawlJobPayloadSchema,
   CrawlPageSchema,
   CreateIntegrationInputSchema,
+  CreateKeywordInputSchema,
   CreateOrgInputSchema,
   CreateOrgInviteInputSchema,
   CreatePlanRequestSchema,
@@ -570,8 +644,13 @@ export {
   ScheduleRunRequestSchema,
   ScheduleRunResponseSchema,
   ScheduleRunResultSchema,
+  UpdateArticleInputSchema,
   UpdateIntegrationInputSchema,
+  UpdateKeywordInputSchema,
   UpdatePlanItemSchema,
   UpdateProjectInputSchema,
-  UserSchema
+  UserSchema,
+  WebflowFieldMappingSchema,
+  WebflowIntegrationConfigSchema,
+  WebhookIntegrationConfigSchema
 };

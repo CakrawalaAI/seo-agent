@@ -47,6 +47,7 @@ export const listKeywords = async (
     metricsJson: (row.metrics ?? undefined) as Keyword['metricsJson'],
     status: row.status,
     isStarred: Boolean((row as any).isStarred ?? false),
+    opportunityScore: row.opportunityScore ? Number(row.opportunityScore) : undefined,
     createdAt: row.createdAt?.toISOString?.() ?? new Date().toISOString(),
     updatedAt: row.updatedAt?.toISOString?.()
   }))
@@ -93,6 +94,7 @@ export const createKeyword = async (input: {
       metrics: parsed.metricsJson ?? null,
       status: parsed.status,
       isStarred: parsed.isStarred,
+      opportunityScore: parsed.opportunityScore ?? null,
       createdAt: now,
       updatedAt: now
     })
@@ -108,6 +110,7 @@ export const createKeyword = async (input: {
     metricsJson: (row.metrics ?? undefined) as Keyword['metricsJson'],
     status: row.status,
     isStarred: row.isStarred ?? false,
+    opportunityScore: row.opportunityScore ? Number(row.opportunityScore) : undefined,
     createdAt: row.createdAt?.toISOString?.() ?? now.toISOString(),
     updatedAt: row.updatedAt?.toISOString?.()
   }
@@ -139,6 +142,9 @@ export const updateKeyword = async (
   if (parsed.metricsJson !== undefined) {
     patch.metrics = parsed.metricsJson ?? null
   }
+  if (parsed.opportunityScore !== undefined) {
+    patch.opportunityScore = parsed.opportunityScore ?? null
+  }
 
   const [row] = await db
     .update(schema.keywords)
@@ -160,6 +166,7 @@ export const updateKeyword = async (
     metricsJson: (row.metrics ?? undefined) as Keyword['metricsJson'],
     status: row.status,
     isStarred: row.isStarred ?? false,
+    opportunityScore: row.opportunityScore ? Number(row.opportunityScore) : undefined,
     createdAt: row.createdAt?.toISOString?.() ?? new Date().toISOString(),
     updatedAt: row.updatedAt?.toISOString?.()
   }

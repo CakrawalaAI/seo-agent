@@ -10,12 +10,14 @@ import type { Route as ApiHealthRoute } from './routes/api/health'
 import type { Route as ApiIntegrationsRoute } from './routes/api/integrations'
 import type { Route as ApiKeywordsRoute } from './routes/api/keywords'
 import type { Route as ApiKeywordsKeywordIdRoute } from './routes/api/keywords/$keywordId'
+import type { Route as ApiKeywordsGenerateRoute } from './routes/api/keywords/generate'
 import type { Route as ApiJobRoute } from './routes/api/jobs/$jobId'
 import type { Route as ApiMeRoute } from './routes/api/me'
 import type { Route as ApiOrgsRoute } from './routes/api/orgs'
 import type { Route as ApiPlanItemsRoute } from './routes/api/plan-items'
 import type { Route as ApiProjectsRoute } from './routes/api/projects'
 import type { Route as ApiProjectJobsRoute } from './routes/api/projects/$projectId/jobs'
+import type { Route as ApiProjectsProjectIdKeywordsRoute } from './routes/api/projects/$projectId/keywords'
 import type { Route as ApiProjectSnapshotRoute } from './routes/api/projects/$projectId/snapshot'
 import type { Route as ApiSchedulesRunRoute } from './routes/api/schedules/run'
 import type { Route as DashboardRoute } from './routes/dashboard'
@@ -36,12 +38,14 @@ declare module '@tanstack/react-router' {
     '/api/integrations': ApiIntegrationsRoute
     '/api/keywords': ApiKeywordsRoute
     '/api/keywords/$keywordId': ApiKeywordsKeywordIdRoute
+    '/api/keywords/generate': ApiKeywordsGenerateRoute
     '/api/jobs/$jobId': ApiJobRoute
     '/api/me': ApiMeRoute
     '/api/orgs': ApiOrgsRoute
     '/api/plan-items': ApiPlanItemsRoute
     '/api/projects': ApiProjectsRoute
     '/api/projects/$projectId/jobs': ApiProjectJobsRoute
+    '/api/projects/$projectId/keywords': ApiProjectsProjectIdKeywordsRoute
     '/api/projects/$projectId/snapshot': ApiProjectSnapshotRoute
     '/api/schedules/run': ApiSchedulesRunRoute
     '/dashboard': DashboardRoute

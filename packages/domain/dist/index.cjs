@@ -34,6 +34,7 @@ __export(index_exports, {
   CrawlJobPayloadSchema: () => CrawlJobPayloadSchema,
   CrawlPageSchema: () => CrawlPageSchema,
   CreateIntegrationInputSchema: () => CreateIntegrationInputSchema,
+  CreateKeywordInputSchema: () => CreateKeywordInputSchema,
   CreateOrgInputSchema: () => CreateOrgInputSchema,
   CreateOrgInviteInputSchema: () => CreateOrgInviteInputSchema,
   CreatePlanRequestSchema: () => CreatePlanRequestSchema,
@@ -93,10 +94,15 @@ __export(index_exports, {
   ScheduleRunRequestSchema: () => ScheduleRunRequestSchema,
   ScheduleRunResponseSchema: () => ScheduleRunResponseSchema,
   ScheduleRunResultSchema: () => ScheduleRunResultSchema,
+  UpdateArticleInputSchema: () => UpdateArticleInputSchema,
   UpdateIntegrationInputSchema: () => UpdateIntegrationInputSchema,
+  UpdateKeywordInputSchema: () => UpdateKeywordInputSchema,
   UpdatePlanItemSchema: () => UpdatePlanItemSchema,
   UpdateProjectInputSchema: () => UpdateProjectInputSchema,
-  UserSchema: () => UserSchema
+  UserSchema: () => UserSchema,
+  WebflowFieldMappingSchema: () => WebflowFieldMappingSchema,
+  WebflowIntegrationConfigSchema: () => WebflowIntegrationConfigSchema,
+  WebhookIntegrationConfigSchema: () => WebhookIntegrationConfigSchema
 });
 module.exports = __toCommonJS(index_exports);
 var import_zod2 = require("zod");
@@ -279,6 +285,28 @@ var IntegrationSchema = import_zod2.z.object({
   createdAt: isoDate().optional(),
   updatedAt: isoDate().optional()
 });
+var WebhookIntegrationConfigSchema = import_zod2.z.object({
+  targetUrl: import_zod2.z.string().url(),
+  secret: import_zod2.z.string().min(1)
+});
+var WebflowFieldMappingSchema = import_zod2.z.object({
+  name: import_zod2.z.string().min(1).default("name"),
+  slug: import_zod2.z.string().min(1).default("slug"),
+  body: import_zod2.z.string().min(1),
+  excerpt: import_zod2.z.string().min(1).optional(),
+  seoTitle: import_zod2.z.string().min(1).optional(),
+  seoDescription: import_zod2.z.string().min(1).optional(),
+  tags: import_zod2.z.string().min(1).optional(),
+  mainImage: import_zod2.z.string().min(1).optional()
+});
+var WebflowIntegrationConfigSchema = import_zod2.z.object({
+  accessToken: import_zod2.z.string().min(1),
+  siteId: import_zod2.z.string().min(1).optional(),
+  collectionId: import_zod2.z.string().min(1),
+  fieldMapping: WebflowFieldMappingSchema,
+  publishMode: import_zod2.z.enum(["draft", "live"]).default("draft"),
+  cmsLocaleId: import_zod2.z.string().min(1).optional()
+});
 var CrawlPageSchema = import_zod2.z.object({
   id: import_zod2.z.string().min(1),
   projectId: import_zod2.z.string().min(1),
@@ -327,10 +355,15 @@ var KeywordMetricsSchema = import_zod2.z.object({
   searchVolume: import_zod2.z.number().nonnegative().nullable(),
   cpc: import_zod2.z.number().nonnegative().nullable(),
   competition: import_zod2.z.number().nonnegative().nullable(),
+  trend12mo: import_zod2.z.array(import_zod2.z.number().nullable()).max(24).optional(),
   difficulty: import_zod2.z.number().nonnegative().nullable(),
+  intent: import_zod2.z.string().min(1).nullable().optional(),
   sourceProvider: MetricsProviderSchema.optional(),
+  provider: import_zod2.z.string().min(1).optional(),
+  fetchedAt: isoDate().optional(),
   asOf: isoDate().optional()
 });
+var KeywordMetricsUpdateSchema = KeywordMetricsSchema.partial();
 var KeywordSchema = import_zod2.z.object({
   id: import_zod2.z.string().min(1),
   projectId: import_zod2.z.string().min(1),
@@ -340,8 +373,31 @@ var KeywordSchema = import_zod2.z.object({
   source: KeywordSourceSchema,
   metricsJson: KeywordMetricsSchema.optional(),
   status: KeywordStatusSchema,
+  isStarred: import_zod2.z.boolean().optional(),
+  opportunityScore: import_zod2.z.number().min(0).max(100).optional(),
   createdAt: isoDate().optional(),
   updatedAt: isoDate().optional()
+});
+var UpdateKeywordInputSchema = import_zod2.z.object({
+  phrase: import_zod2.z.string().min(1).optional(),
+  primaryTopic: import_zod2.z.string().nullable().optional(),
+  status: KeywordStatusSchema.optional(),
+  metricsJson: KeywordMetricsUpdateSchema.optional(),
+  isStarred: import_zod2.z.boolean().optional(),
+  opportunityScore: import_zod2.z.number().min(0).max(100).optional()
+}).refine(
+  (value) => value.phrase !== void 0 || value.primaryTopic !== void 0 || value.status !== void 0 || value.metricsJson !== void 0 || value.isStarred !== void 0 || value.opportunityScore !== void 0,
+  { message: "Provide at least one field to update" }
+);
+var CreateKeywordInputSchema = import_zod2.z.object({
+  projectId: import_zod2.z.string().min(1),
+  phrase: import_zod2.z.string().min(1),
+  locale: import_zod2.z.string().min(2).default("en-US"),
+  primaryTopic: import_zod2.z.string().optional(),
+  metricsJson: KeywordMetricsSchema.optional(),
+  status: KeywordStatusSchema.default("recommended"),
+  isStarred: import_zod2.z.boolean().default(false),
+  opportunityScore: import_zod2.z.number().min(0).max(100).optional()
 });
 var PlanItemSchema = import_zod2.z.object({
   id: import_zod2.z.string().min(1),
@@ -384,6 +440,15 @@ var ArticleSchema = import_zod2.z.object({
   publicationDate: isoDate().optional(),
   createdAt: isoDate(),
   updatedAt: isoDate()
+});
+var UpdateArticleInputSchema = import_zod2.z.object({
+  title: import_zod2.z.string().min(1).optional(),
+  outlineJson: PlanItemSchema.shape.outlineJson.optional(),
+  bodyHtml: import_zod2.z.string().min(1).optional(),
+  language: import_zod2.z.string().min(2).optional(),
+  tone: import_zod2.z.string().optional()
+}).refine((value) => Object.keys(value).length > 0, {
+  message: "Provide at least one field to update"
 });
 var JobLogSchema = import_zod2.z.object({
   message: import_zod2.z.string(),
@@ -476,7 +541,16 @@ var CrawlJobPayloadSchema = import_zod2.z.object({
 var DiscoveryJobPayloadSchema = import_zod2.z.object({
   projectId: import_zod2.z.string().min(1),
   pageIds: import_zod2.z.array(import_zod2.z.string().min(1)),
-  locale: import_zod2.z.string().min(2)
+  locale: import_zod2.z.string().min(2),
+  location: import_zod2.z.string().min(2).optional(),
+  maxKeywords: import_zod2.z.number().int().positive().max(2e3).default(500),
+  includeGAds: import_zod2.z.boolean().default(false),
+  costEstimate: import_zod2.z.object({
+    currency: import_zod2.z.string().default("usd"),
+    labsSubtotal: import_zod2.z.number().nonnegative(),
+    gadsSubtotal: import_zod2.z.number().nonnegative().optional(),
+    total: import_zod2.z.number().nonnegative()
+  }).optional()
 });
 var PlanJobPayloadSchema = import_zod2.z.object({
   projectId: import_zod2.z.string().min(1),
@@ -571,10 +645,15 @@ var CreatePlanRequestSchema = import_zod2.z.object({
 });
 var UpdatePlanItemSchema = import_zod2.z.object({
   plannedDate: import_zod2.z.string().date().optional(),
-  status: PlanItemStatusSchema.optional()
-}).refine((data) => data.plannedDate || data.status, {
-  message: "Must provide plannedDate or status"
-});
+  status: PlanItemStatusSchema.optional(),
+  title: import_zod2.z.string().min(1).optional(),
+  outlineJson: PlanItemSchema.shape.outlineJson.optional()
+}).refine(
+  (data) => data.plannedDate !== void 0 || data.status !== void 0 || data.title !== void 0 || data.outlineJson !== void 0,
+  {
+    message: "Must provide at least one field to update"
+  }
+);
 var MeResponseSchema = import_zod2.z.object({
   user: UserSchema.nullable(),
   orgs: import_zod2.z.array(OrgSchema).default([]),
@@ -612,6 +691,7 @@ var PaginatedResponseSchema = (item) => import_zod2.z.object({
   CrawlJobPayloadSchema,
   CrawlPageSchema,
   CreateIntegrationInputSchema,
+  CreateKeywordInputSchema,
   CreateOrgInputSchema,
   CreateOrgInviteInputSchema,
   CreatePlanRequestSchema,
@@ -671,8 +751,13 @@ var PaginatedResponseSchema = (item) => import_zod2.z.object({
   ScheduleRunRequestSchema,
   ScheduleRunResponseSchema,
   ScheduleRunResultSchema,
+  UpdateArticleInputSchema,
   UpdateIntegrationInputSchema,
+  UpdateKeywordInputSchema,
   UpdatePlanItemSchema,
   UpdateProjectInputSchema,
-  UserSchema
+  UserSchema,
+  WebflowFieldMappingSchema,
+  WebflowIntegrationConfigSchema,
+  WebhookIntegrationConfigSchema
 });

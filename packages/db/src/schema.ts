@@ -255,6 +255,7 @@ export const keywords = pgTable(
     metrics: jsonb('metrics').$type<unknown>(),
     status: keywordStatusEnum('status').notNull(),
     isStarred: boolean('is_starred').default(false).notNull(),
+    opportunityScore: numeric('opportunity_score', { precision: 5, scale: 2 }),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true })
   },

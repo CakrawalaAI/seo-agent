@@ -295,8 +295,12 @@ export const KeywordMetricsSchema = z.object({
   searchVolume: z.number().nonnegative().nullable(),
   cpc: z.number().nonnegative().nullable(),
   competition: z.number().nonnegative().nullable(),
+  trend12mo: z.array(z.number().nullable()).max(24).optional(),
   difficulty: z.number().nonnegative().nullable(),
+  intent: z.string().min(1).nullable().optional(),
   sourceProvider: MetricsProviderSchema.optional(),
+  provider: z.string().min(1).optional(),
+  fetchedAt: isoDate().optional(),
   asOf: isoDate().optional()
 })
 
@@ -312,6 +316,7 @@ export const KeywordSchema = z.object({
   metricsJson: KeywordMetricsSchema.optional(),
   status: KeywordStatusSchema,
   isStarred: z.boolean().optional(),
+  opportunityScore: z.number().min(0).max(100).optional(),
   createdAt: isoDate().optional(),
   updatedAt: isoDate().optional()
 })
@@ -323,7 +328,8 @@ export const UpdateKeywordInputSchema = z
     primaryTopic: z.string().nullable().optional(),
     status: KeywordStatusSchema.optional(),
     metricsJson: KeywordMetricsUpdateSchema.optional(),
-    isStarred: z.boolean().optional()
+    isStarred: z.boolean().optional(),
+    opportunityScore: z.number().min(0).max(100).optional()
   })
   .refine(
     (value) =>
@@ -331,7 +337,8 @@ export const UpdateKeywordInputSchema = z
       value.primaryTopic !== undefined ||
       value.status !== undefined ||
       value.metricsJson !== undefined ||
-      value.isStarred !== undefined,
+      value.isStarred !== undefined ||
+      value.opportunityScore !== undefined,
     { message: 'Provide at least one field to update' }
   )
 export type UpdateKeywordInput = z.infer<typeof UpdateKeywordInputSchema>
@@ -343,7 +350,8 @@ export const CreateKeywordInputSchema = z.object({
   primaryTopic: z.string().optional(),
   metricsJson: KeywordMetricsSchema.optional(),
   status: KeywordStatusSchema.default('recommended'),
-  isStarred: z.boolean().default(false)
+  isStarred: z.boolean().default(false),
+  opportunityScore: z.number().min(0).max(100).optional()
 })
 export type CreateKeywordInput = z.infer<typeof CreateKeywordInputSchema>
 
@@ -525,7 +533,18 @@ export const CrawlJobPayloadSchema = z.object({
 export const DiscoveryJobPayloadSchema = z.object({
   projectId: z.string().min(1),
   pageIds: z.array(z.string().min(1)),
-  locale: z.string().min(2)
+  locale: z.string().min(2),
+  location: z.string().min(2).optional(),
+  maxKeywords: z.number().int().positive().max(2000).default(500),
+  includeGAds: z.boolean().default(false),
+  costEstimate: z
+    .object({
+      currency: z.string().default('usd'),
+      labsSubtotal: z.number().nonnegative(),
+      gadsSubtotal: z.number().nonnegative().optional(),
+      total: z.number().nonnegative()
+    })
+    .optional()
 })
 
 export const PlanJobPayloadSchema = z.object({
