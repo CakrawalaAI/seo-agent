@@ -459,7 +459,6 @@ export class SeoAgentClient {
 
   async listArticles(projectId: string, pagination?: { cursor?: string; limit?: number; status?: string }) {
     const params = new URLSearchParams()
-    params.set('projectId', projectId)
     if (pagination?.cursor) params.set('cursor', pagination.cursor)
     if (pagination?.limit) params.set('limit', String(pagination.limit))
     if (pagination?.status) params.set('status', pagination.status)
@@ -467,7 +466,7 @@ export class SeoAgentClient {
     const schema = PaginatedResponseSchema(ArticleSchema) as z.ZodType<PaginatedResponse<Article>>
     return this.request<PaginatedResponse<Article>>(
       'GET',
-      '/api/articles',
+      `/api/projects/${projectId}/articles`,
       undefined,
       schema,
       params

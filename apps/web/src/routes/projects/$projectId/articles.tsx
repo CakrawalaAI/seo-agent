@@ -10,9 +10,9 @@ type ArticleResponse = {
   nextCursor?: string
 }
 
-const fetchArticles = async (projectId: string): Promise<ArticleResponse> => {
-  const params = new URLSearchParams({ projectId, limit: '60' })
-  const response = await fetch(`/api/articles?${params.toString()}`, {
+export const fetchArticles = async (projectId: string): Promise<ArticleResponse> => {
+  const params = new URLSearchParams({ limit: '60' })
+  const response = await fetch(`/api/projects/${projectId}/articles?${params.toString()}`, {
     credentials: 'include'
   })
   if (!response.ok) {

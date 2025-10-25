@@ -10,9 +10,12 @@ type KeywordResponse = {
   nextCursor?: string
 }
 
-const fetchKeywords = async (projectId: string): Promise<KeywordResponse> => {
-  const params = new URLSearchParams({ projectId, limit: '100' })
-  const response = await fetch(`/api/keywords?${params.toString()}`, {
+export const fetchKeywords = async (projectId: string, status: string): Promise<KeywordResponse> => {
+  const params = new URLSearchParams({ limit: '100' })
+  if (status && status !== 'all') {
+    params.set('status', status)
+  }
+  const response = await fetch(`/api/projects/${projectId}/keywords?${params.toString()}`, {
     credentials: 'include'
   })
   if (!response.ok) {
@@ -30,7 +33,7 @@ function KeywordsPage() {
 
   const keywordQuery = useQuery({
     queryKey: ['project', projectId, 'keywords'],
-    queryFn: () => fetchKeywords(projectId),
+    queryFn: () => fetchKeywords(projectId, 'all'),
     staleTime: 60_000,
     refetchInterval: 180_000
   })
