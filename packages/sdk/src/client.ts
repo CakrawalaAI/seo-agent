@@ -57,7 +57,15 @@ const StartJobResponseSchema = z.object({
   projectId: z.string().optional(),
   status: z.string().optional(),
   reused: z.boolean().optional(),
-  skipped: z.boolean().optional()
+  skipped: z.boolean().optional(),
+  costEstimate: z
+    .object({
+      currency: z.string(),
+      labsSubtotal: z.number(),
+      gadsSubtotal: z.number().optional(),
+      total: z.number()
+    })
+    .optional()
 })
 
 const CrawlStatusSchema = z.object({
@@ -372,13 +380,18 @@ export class SeoAgentClient {
     pagination?: { cursor?: string; limit?: number; status?: string }
   ) {
     const params = new URLSearchParams()
-    params.set('projectId', projectId)
     if (pagination?.cursor) params.set('cursor', pagination.cursor)
     if (pagination?.limit) params.set('limit', String(pagination.limit))
     if (pagination?.status) params.set('status', pagination.status)
 
     const schema = PaginatedResponseSchema(KeywordSchema) as z.ZodType<PaginatedResponse<Keyword>>
-    return this.request<PaginatedResponse<Keyword>>('GET', '/api/keywords', undefined, schema, params)
+    return this.request<PaginatedResponse<Keyword>>(
+      'GET',
+      `/api/projects/${projectId}/keywords`,
+      undefined,
+      schema,
+      params
+    )
   }
 
   async createKeyword(input: CreateKeywordInput): Promise<Keyword> {
@@ -511,8 +524,24 @@ export class SeoAgentClient {
     return response.items
   }
 
-  async generateKeywords(projectId: string, locale?: string) {
-    const payload = keywordGeneratePayload.parse({ projectId, locale })
+  async generateKeywords(
+    projectId: string,
+    options?:
+      | string
+      | {
+          locale?: string
+          location?: string
+          max?: number
+          includeGAds?: boolean
+        }
+  ) {
+    const payload = keywordGeneratePayload.parse({
+      projectId,
+      locale: typeof options === 'string' ? options : options?.locale,
+      location: typeof options === 'object' ? options.location : undefined,
+      max: typeof options === 'object' ? options.max : undefined,
+      includeGAds: typeof options === 'object' ? options.includeGAds : undefined
+    })
     return this.request('POST', '/api/keywords/generate', payload, StartJobResponseSchema)
   }
 
@@ -535,5 +564,8 @@ export class SeoAgentClient {
 
 const keywordGeneratePayload = z.object({
   projectId: z.string().min(1),
-  locale: z.string().min(2).default('en-US')
+  locale: z.string().min(2).default('en-US'),
+  location: z.string().min(2).optional(),
+  max: z.number().int().positive().max(2000).optional(),
+  includeGAds: z.boolean().optional()
 })

@@ -11,6 +11,7 @@ import { Route as ApiIntegrationsRoute } from './routes/api/integrations'
 import { Route as ApiIntegrationTestRoute } from './routes/api/integrations/$integrationId/test'
 import { Route as ApiKeywordsRoute } from './routes/api/keywords'
 import { Route as ApiKeywordsKeywordIdRoute } from './routes/api/keywords/$keywordId'
+import { Route as ApiKeywordsGenerateRoute } from './routes/api/keywords/generate'
 import { Route as ApiJobRoute } from './routes/api/jobs/$jobId'
 import { Route as ApiMeRoute } from './routes/api/me'
 import { Route as ApiOrgsRoute } from './routes/api/orgs'
@@ -18,6 +19,7 @@ import { Route as ApiPlanItemsRoute } from './routes/api/plan-items'
 import { Route as ApiProjectsRoute } from './routes/api/projects'
 import { Route as ApiProjectJobsRoute } from './routes/api/projects/$projectId/jobs'
 import { Route as ApiProjectIndexRoute } from './routes/api/projects/$projectId/index'
+import { Route as ApiProjectsProjectIdKeywordsRoute } from './routes/api/projects/$projectId/keywords'
 import { Route as ApiProjectSnapshotRoute } from './routes/api/projects/$projectId/snapshot'
 import { Route as ApiSchedulesRunRoute } from './routes/api/schedules/run'
 import { Route as DashboardRoute } from './routes/dashboard'
@@ -49,12 +51,14 @@ export const routeTree = RootRoute.addChildren([
   ApiIntegrationTestRoute,
   ApiKeywordsRoute,
   ApiKeywordsKeywordIdRoute,
+  ApiKeywordsGenerateRoute,
   ApiJobRoute,
   ApiMeRoute,
   ApiOrgsRoute,
   ApiPlanItemsRoute,
   ApiProjectsRoute,
   ApiProjectJobsRoute,
+  ApiProjectsProjectIdKeywordsRoute,
   ApiProjectIndexRoute,
   ApiProjectSnapshotRoute,
   ApiSchedulesRunRoute,

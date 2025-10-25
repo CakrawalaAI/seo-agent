@@ -5,6 +5,7 @@ import {
   HealthResponseSchema,
   MeResponseSchema,
   CreateIntegrationInputSchema,
+  UpdateIntegrationInputSchema,
   CreateOrgInputSchema,
   CreateProjectInputSchema,
   CreateProjectResponseSchema,
@@ -12,20 +13,33 @@ import {
   JobSchema,
   IntegrationSchema,
   KeywordSchema,
+  CreateKeywordInputSchema,
   OrgMemberRoleSchema,
   OrgSchema,
   PaginatedResponseSchema,
   PlanItemSchema,
+  ProjectSchema,
   ProjectSnapshotSchema,
   ScheduleRunRequestSchema,
-  ScheduleRunResponseSchema
+  ScheduleRunResponseSchema,
+  UpdateArticleInputSchema,
+  UpdateKeywordInputSchema,
+  UpdateProjectInputSchema
 } from "@seo-agent/domain";
 import { fetch as undiciFetch } from "undici";
 import { z } from "zod";
 var StartJobResponseSchema = z.object({
   jobId: z.string(),
   projectId: z.string().optional(),
-  status: z.string().optional()
+  status: z.string().optional(),
+  reused: z.boolean().optional(),
+  skipped: z.boolean().optional(),
+  costEstimate: z.object({
+    currency: z.string(),
+    labsSubtotal: z.number(),
+    gadsSubtotal: z.number().optional(),
+    total: z.number()
+  }).optional()
 });
 var CrawlStatusSchema = z.object({
   jobId: z.string(),
@@ -75,8 +89,20 @@ var PlanCreateSchema = z.object({
 });
 var PlanUpdateSchema = z.object({
   plannedDate: z.string().min(10).max(10).optional(),
-  status: z.enum(["planned", "skipped", "consumed"]).optional()
-}).refine((value) => value.plannedDate || value.status, { message: "Must provide plannedDate or status" });
+  status: z.enum(["planned", "skipped", "consumed"]).optional(),
+  title: z.string().min(1).optional(),
+  outlineJson: PlanItemSchema.shape.outlineJson.optional()
+}).refine(
+  (value) => value.plannedDate !== void 0 || value.status !== void 0 || value.title !== void 0 || value.outlineJson !== void 0,
+  { message: "Must provide at least one field to update" }
+);
+var DeleteResponseSchema = z.object({
+  status: z.string(),
+  projectId: z.string().optional(),
+  integrationId: z.string().optional(),
+  keywordId: z.string().optional(),
+  id: z.string().optional()
+});
 var defaultFetch = typeof fetch === "function" ? fetch.bind(globalThis) : undiciFetch.bind(globalThis);
 var SeoAgentClient = class {
   constructor(options) {
@@ -154,9 +180,42 @@ var SeoAgentClient = class {
     const payload = CreateProjectInputSchema.parse(input);
     return this.request("POST", "/api/projects", payload, CreateProjectResponseSchema);
   }
+  async updateProject(projectId, input) {
+    const payload = UpdateProjectInputSchema.parse(input);
+    return this.request("PATCH", `/api/projects/${projectId}`, payload, ProjectSchema);
+  }
+  async deleteProject(projectId) {
+    return this.request(
+      "DELETE",
+      `/api/projects/${projectId}`,
+      void 0,
+      DeleteResponseSchema
+    );
+  }
+  async listProjects(filters) {
+    const params = new URLSearchParams();
+    if (filters?.orgId) params.set("orgId", filters.orgId);
+    if (filters?.cursor) params.set("cursor", filters.cursor);
+    if (filters?.limit) params.set("limit", String(filters.limit));
+    const schema = PaginatedResponseSchema(ProjectSchema);
+    return this.request("GET", "/api/projects", void 0, schema, params);
+  }
   async createIntegration(input) {
     const payload = CreateIntegrationInputSchema.parse(input);
     return this.request("POST", "/api/integrations", payload, IntegrationSchema);
+  }
+  async updateIntegration(integrationId, input) {
+    const payload = UpdateIntegrationInputSchema.parse(input);
+    return this.request("PATCH", `/api/integrations/${integrationId}`, payload, IntegrationSchema);
+  }
+  async deleteIntegration(integrationId) {
+    const response = await this.request(
+      "DELETE",
+      `/api/integrations/${integrationId}`,
+      void 0,
+      DeleteResponseSchema
+    );
+    return response.status;
   }
   async createBillingCheckout(input) {
     const payload = BillingCheckoutRequestSchema.parse(input);
@@ -171,16 +230,29 @@ var SeoAgentClient = class {
     }
     return this.request("GET", "/api/billing/portal", void 0, BillingLinkResponseSchema, params);
   }
-  async startCrawl(projectId) {
-    return this.request(
-      "POST",
-      "/api/crawl/start",
-      { projectId },
-      StartJobResponseSchema
-    );
+  async startCrawl(projectId, options) {
+    const payload = { projectId };
+    if (options?.crawlBudget) {
+      payload.crawlBudget = options.crawlBudget;
+    }
+    return this.request("POST", "/api/crawl/run", payload, StartJobResponseSchema);
   }
   async getCrawlStatus(jobId) {
     return this.request("GET", `/api/crawl/${jobId}/status`, void 0, CrawlStatusSchema);
+  }
+  async listCrawlRuns(filters) {
+    const params = new URLSearchParams();
+    if (filters?.projectId) params.set("projectId", filters.projectId);
+    if (filters?.cursor) params.set("cursor", filters.cursor);
+    if (filters?.limit) params.set("limit", String(filters.limit));
+    const schema = PaginatedResponseSchema(JobSchema);
+    return this.request(
+      "GET",
+      "/api/crawl/runs",
+      void 0,
+      schema,
+      params
+    );
   }
   async startDiscovery(projectId) {
     return this.request(
@@ -192,22 +264,46 @@ var SeoAgentClient = class {
   }
   async listKeywords(projectId, pagination) {
     const params = new URLSearchParams();
-    params.set("projectId", projectId);
-    if (pagination?.cursor) params.set("cursor", pagination.cursor);
-    if (pagination?.limit) params.set("limit", String(pagination.limit));
-    const schema = PaginatedResponseSchema(KeywordSchema);
-    return this.request("GET", "/api/keywords", void 0, schema, params);
-  }
-  async listPlanItems(projectId, pagination) {
-    const params = new URLSearchParams();
-    params.set("projectId", projectId);
     if (pagination?.cursor) params.set("cursor", pagination.cursor);
     if (pagination?.limit) params.set("limit", String(pagination.limit));
     if (pagination?.status) params.set("status", pagination.status);
+    const schema = PaginatedResponseSchema(KeywordSchema);
+    return this.request(
+      "GET",
+      `/api/projects/${projectId}/keywords`,
+      void 0,
+      schema,
+      params
+    );
+  }
+  async createKeyword(input) {
+    const payload = CreateKeywordInputSchema.parse(input);
+    return this.request("POST", "/api/keywords", payload, KeywordSchema);
+  }
+  async deleteKeyword(keywordId) {
+    const response = await this.request(
+      "DELETE",
+      `/api/keywords/${keywordId}`,
+      void 0,
+      DeleteResponseSchema
+    );
+    return response.status;
+  }
+  async updateKeyword(keywordId, input) {
+    const payload = UpdateKeywordInputSchema.parse(input);
+    return this.request("PATCH", `/api/keywords/${keywordId}`, payload, KeywordSchema);
+  }
+  async listPlanItems(projectId, pagination) {
+    const params = new URLSearchParams();
+    if (pagination?.cursor) params.set("cursor", pagination.cursor);
+    if (pagination?.limit) params.set("limit", String(pagination.limit));
+    if (pagination?.status) params.set("status", pagination.status);
+    if (pagination?.from) params.set("from", pagination.from);
+    if (pagination?.to) params.set("to", pagination.to);
     const schema = PaginatedResponseSchema(PlanItemSchema);
     return this.request(
       "GET",
-      "/api/plan-items",
+      `/api/projects/${projectId}/plan`,
       void 0,
       schema,
       params
@@ -249,9 +345,16 @@ var SeoAgentClient = class {
   async getArticle(articleId) {
     return this.request("GET", `/api/articles/${articleId}`, void 0, ArticleSchema);
   }
+  async getProject(projectId) {
+    return this.request("GET", `/api/projects/${projectId}`, void 0, ProjectSchema);
+  }
   async publishArticle(articleId, integrationId) {
     const payload = PublishArticleRequestSchema.parse({ integrationId });
     return this.request("POST", `/api/articles/${articleId}/publish`, payload, StartJobResponseSchema);
+  }
+  async updateArticle(articleId, input) {
+    const payload = UpdateArticleInputSchema.parse(input);
+    return this.request("PATCH", `/api/articles/${articleId}`, payload, ArticleSchema);
   }
   async testIntegration(integrationId) {
     return this.request("POST", `/api/integrations/${integrationId}/test`, void 0, IntegrationTestResponseSchema);
@@ -278,8 +381,14 @@ var SeoAgentClient = class {
     );
     return response.items;
   }
-  async generateKeywords(projectId, locale) {
-    const payload = keywordGeneratePayload.parse({ projectId, locale });
+  async generateKeywords(projectId, options) {
+    const payload = keywordGeneratePayload.parse({
+      projectId,
+      locale: typeof options === "string" ? options : options?.locale,
+      location: typeof options === "object" ? options.location : void 0,
+      max: typeof options === "object" ? options.max : void 0,
+      includeGAds: typeof options === "object" ? options.includeGAds : void 0
+    });
     return this.request("POST", "/api/keywords/generate", payload, StartJobResponseSchema);
   }
   async listCrawlPages(projectId, pagination) {
@@ -299,7 +408,10 @@ var SeoAgentClient = class {
 };
 var keywordGeneratePayload = z.object({
   projectId: z.string().min(1),
-  locale: z.string().min(2).default("en-US")
+  locale: z.string().min(2).default("en-US"),
+  location: z.string().min(2).optional(),
+  max: z.number().int().positive().max(2e3).optional(),
+  includeGAds: z.boolean().optional()
 });
 export {
   SeoAgentClient

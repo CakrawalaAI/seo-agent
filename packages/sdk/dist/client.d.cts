@@ -1,4 +1,4 @@
-import { HealthResponse, CreateOrgInput, Org, CreateProjectInput, CreateProjectResponse, CreateIntegrationInput, UpdateIntegrationInput, UpdateProjectInput, Integration, PaginatedResponse, PlanItemStatus, PlanItem, Project, ProjectSnapshot, SchedulePolicy, Article, MeResponse, Job } from '@seo-agent/domain';
+import { HealthResponse, CreateOrgInput, Org, CreateProjectInput, CreateProjectResponse, UpdateProjectInput, Project, PaginatedResponse, CreateIntegrationInput, Integration, UpdateIntegrationInput, CreateKeywordInput, Keyword, UpdateKeywordInput, PlanItemStatus, PlanItem, ProjectSnapshot, SchedulePolicy, Article, UpdateArticleInput, MeResponse, Job } from '@seo-agent/domain';
 import { RequestInit as RequestInit$1 } from 'undici';
 import { z } from 'zod';
 
@@ -82,18 +82,49 @@ declare const PlanCreateSchema: z.ZodObject<{
 declare const PlanUpdateSchema: z.ZodEffects<z.ZodObject<{
     plannedDate: z.ZodOptional<z.ZodString>;
     status: z.ZodOptional<z.ZodEnum<["planned", "skipped", "consumed"]>>;
+    title: z.ZodOptional<z.ZodString>;
+    outlineJson: z.ZodOptional<z.ZodArray<z.ZodObject<{
+        heading: z.ZodString;
+        subpoints: z.ZodDefault<z.ZodArray<z.ZodString, "many">>;
+    }, "strip", z.ZodTypeAny, {
+        heading: string;
+        subpoints: string[];
+    }, {
+        heading: string;
+        subpoints?: string[] | undefined;
+    }>, "many">>;
 }, "strip", z.ZodTypeAny, {
-    status?: "planned" | "skipped" | "consumed" | undefined;
+    status?: "skipped" | "planned" | "consumed" | undefined;
     plannedDate?: string | undefined;
+    title?: string | undefined;
+    outlineJson?: {
+        heading: string;
+        subpoints: string[];
+    }[] | undefined;
 }, {
-    status?: "planned" | "skipped" | "consumed" | undefined;
+    status?: "skipped" | "planned" | "consumed" | undefined;
     plannedDate?: string | undefined;
+    title?: string | undefined;
+    outlineJson?: {
+        heading: string;
+        subpoints?: string[] | undefined;
+    }[] | undefined;
 }>, {
-    status?: "planned" | "skipped" | "consumed" | undefined;
+    status?: "skipped" | "planned" | "consumed" | undefined;
     plannedDate?: string | undefined;
+    title?: string | undefined;
+    outlineJson?: {
+        heading: string;
+        subpoints: string[];
+    }[] | undefined;
 }, {
-    status?: "planned" | "skipped" | "consumed" | undefined;
+    status?: "skipped" | "planned" | "consumed" | undefined;
     plannedDate?: string | undefined;
+    title?: string | undefined;
+    outlineJson?: {
+        heading: string;
+        subpoints?: string[] | undefined;
+    }[] | undefined;
 }>;
 type PlanCreateInput = z.infer<typeof PlanCreateSchema>;
 type PlanUpdateInput = z.infer<typeof PlanUpdateSchema>;
@@ -117,15 +148,68 @@ declare class SeoAgentClient {
     acceptOrgInvite(token: string): Promise<unknown>;
     createProject(input: CreateProjectInput): Promise<CreateProjectResponse>;
     updateProject(projectId: string, input: UpdateProjectInput): Promise<Project>;
+    deleteProject(projectId: string): Promise<{
+        status: string;
+        projectId?: string;
+    }>;
+    listProjects(filters?: {
+        orgId?: string;
+        cursor?: string;
+        limit?: number;
+    }): Promise<PaginatedResponse<{
+        id: string;
+        name: string;
+        createdAt: string;
+        orgId: string;
+        siteUrl: string;
+        defaultLocale: string;
+        autoPublishPolicy?: "manual" | "buffered" | "immediate" | undefined;
+        bufferDays?: number | undefined;
+        brandingJson?: {
+            tone?: string | undefined;
+            voice?: string | undefined;
+            palette?: string[] | undefined;
+            brandPillars?: string[] | undefined;
+        } | undefined;
+    }>>;
     createIntegration(input: CreateIntegrationInput): Promise<Integration>;
+    updateIntegration(integrationId: string, input: UpdateIntegrationInput): Promise<Integration>;
+    deleteIntegration(integrationId: string): Promise<string>;
     createBillingCheckout(input: BillingCheckoutRequest): Promise<BillingLinkResponse>;
     getBillingPortalLink(input: BillingPortalRequest): Promise<BillingLinkResponse>;
-    startCrawl(projectId: string): Promise<unknown>;
+    startCrawl(projectId: string, options?: {
+        crawlBudget?: {
+            maxPages?: number;
+            respectRobots?: boolean;
+            includeSitemaps?: boolean;
+        };
+    }): Promise<unknown>;
     getCrawlStatus(jobId: string): Promise<unknown>;
+    listCrawlRuns(filters?: {
+        projectId?: string;
+        cursor?: string;
+        limit?: number;
+    }): Promise<PaginatedResponse<{
+        type: "crawl" | "discovery" | "plan" | "generate" | "publish" | "linking" | "reoptimize";
+        status: "failed" | "queued" | "running" | "succeeded" | "canceled";
+        id: string;
+        projectId: string;
+        startedAt: string | null;
+        finishedAt: string | null;
+        payloadJson: Record<string, unknown>;
+        retries: number;
+        logs: {
+            message: string;
+            level: "error" | "info" | "warn";
+            timestamp: string;
+        }[];
+        progressPct?: number | undefined;
+    }>>;
     startDiscovery(projectId: string): Promise<unknown>;
     listKeywords(projectId: string, pagination?: {
         cursor?: string;
         limit?: number;
+        status?: string;
     }): Promise<PaginatedResponse<{
         status: "planned" | "recommended" | "generated";
         locale: string;
@@ -141,14 +225,25 @@ declare class SeoAgentClient {
             cpc: number | null;
             competition: number | null;
             difficulty: number | null;
+            provider?: string | undefined;
+            trend12mo?: (number | null)[] | undefined;
+            intent?: string | null | undefined;
             sourceProvider?: "dataforseo" | undefined;
+            fetchedAt?: string | undefined;
             asOf?: string | undefined;
         } | undefined;
+        isStarred?: boolean | undefined;
+        opportunityScore?: number | undefined;
     }>>;
+    createKeyword(input: CreateKeywordInput): Promise<Keyword>;
+    deleteKeyword(keywordId: string): Promise<string>;
+    updateKeyword(keywordId: string, input: UpdateKeywordInput): Promise<Keyword>;
     listPlanItems(projectId: string, pagination?: {
         cursor?: string;
         limit?: number;
         status?: PlanItemStatus;
+        from?: string;
+        to?: string;
     }): Promise<PaginatedResponse<{
         status: "planned" | "skipped" | "consumed";
         title: string;
@@ -204,6 +299,7 @@ declare class SeoAgentClient {
     getArticle(articleId: string): Promise<Article>;
     getProject(projectId: string): Promise<Project>;
     publishArticle(articleId: string, integrationId: string): Promise<unknown>;
+    updateArticle(articleId: string, input: UpdateArticleInput): Promise<Article>;
     testIntegration(integrationId: string): Promise<unknown>;
     getCurrentUser(): Promise<MeResponse>;
     getJob(jobId: string): Promise<Job>;
@@ -227,7 +323,12 @@ declare class SeoAgentClient {
         }[];
         progressPct?: number | undefined;
     }[]>;
-    generateKeywords(projectId: string, locale?: string): Promise<unknown>;
+    generateKeywords(projectId: string, options?: string | {
+        locale?: string;
+        location?: string;
+        max?: number;
+        includeGAds?: boolean;
+    }): Promise<unknown>;
     listCrawlPages(projectId: string, pagination?: {
         cursor?: string;
         limit?: number;
