@@ -355,6 +355,15 @@ export const CreateKeywordInputSchema = z.object({
 })
 export type CreateKeywordInput = z.infer<typeof CreateKeywordInputSchema>
 
+export const GenerateKeywordsRequestSchema = z.object({
+  projectId: z.string().min(1),
+  locale: z.string().min(2).default('en-US'),
+  location: z.string().min(2).optional(),
+  maxKeywords: z.number().int().positive().max(2000).optional(),
+  includeGAds: z.boolean().optional()
+})
+export type GenerateKeywordsRequest = z.infer<typeof GenerateKeywordsRequestSchema>
+
 export const PlanItemSchema = z.object({
   id: z.string().min(1),
   projectId: z.string().min(1),
