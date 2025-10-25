@@ -5,6 +5,7 @@ import { readFileSync } from 'node:fs'
 import { SeoAgentClient } from '@seo-agent/sdk'
 import { OrgMemberRoleSchema } from '@seo-agent/domain'
 import type { CrawlPage, CreateIntegrationInput, Project } from '@seo-agent/domain'
+import { describeJobStatus } from './jobs.js'
 import {
   getSessionCookie,
   persistSessionFromHeaders,
@@ -593,14 +594,9 @@ const executeCrawlRun = async (options: { project: string; maxPages?: string }) 
     const response = await client.startCrawl(options.project, {
       crawlBudget: Object.keys(crawlBudget).length > 0 ? (crawlBudget as any) : undefined
     })
-    if (response.skipped) {
-      spinner.succeed(`Crawl skipped (recent) - job ${response.jobId}`)
-    } else if (response.reused) {
-      spinner.succeed(`Crawl already active: ${response.jobId}`)
-    } else {
-      spinner.succeed(`Crawl enqueued: ${response.jobId}`)
-    }
-    if (response.status) {
+    const message = describeJobStatus('Crawl', response)
+    spinner.succeed(message)
+    if (response.status && response.status !== 'queued') {
       console.log(`status: ${response.status}`)
     }
   } catch (error) {
@@ -653,7 +649,7 @@ const executeArticlePublish = async (options: { id: string; integration: string 
   try {
     const client = createClient()
     const response = await client.publishArticle(options.id, options.integration)
-    spinner.succeed(`Publish job enqueued: ${response.jobId}`)
+    spinner.succeed(describeJobStatus('Publish job', response))
   } catch (error) {
     spinner.fail('Failed to enqueue publish job')
     handleError(error)
@@ -970,8 +966,8 @@ program
     const spinner = ora('Starting discovery').start()
     try {
       const client = createClient()
-      const { jobId } = await client.startDiscovery(options.project)
-      spinner.succeed(`Discovery enqueued: ${jobId}`)
+      const response = await client.startDiscovery(options.project)
+      spinner.succeed(describeJobStatus('Discovery', response))
     } catch (error) {
       spinner.fail('Failed to start discovery')
       handleError(error)
@@ -1048,7 +1044,7 @@ keywordCommand
       const suffix = response.costEstimate
         ? ` (est. $${response.costEstimate.total.toFixed(3)} ${response.costEstimate.currency})`
         : ''
-      spinner.succeed(`Discovery job enqueued: ${response.jobId}${suffix}`)
+      spinner.succeed(`${describeJobStatus('Keyword discovery', response)}${suffix}`)
     } catch (error) {
       spinner.fail('Failed to enqueue keyword discovery')
       handleError(error)
@@ -1247,7 +1243,7 @@ program
         startDate: options.start
       }
       const response = await client.createPlan(payload)
-      spinner.succeed(`Plan job enqueued: ${response.jobId}`)
+      spinner.succeed(describeJobStatus('Plan job', response))
     } catch (error) {
       spinner.fail('Failed to enqueue plan job')
       handleError(error)

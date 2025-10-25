@@ -4,7 +4,6 @@ import type {
   CreatePlanRequest,
   PaginatedResponse,
   PlanItem,
-  PlanItemStatus,
   UpdatePlanItemInput
 } from '@seo-agent/domain'
 import { CreatePlanRequestSchema, PlanItemSchema, UpdatePlanItemSchema } from '@seo-agent/domain'
@@ -14,7 +13,7 @@ import { getJobCoordinator } from '../jobs/coordinator'
 type PlanPagination = {
   cursor?: string
   limit?: number
-  status?: PlanItemStatus
+  status?: PlanItem['status']
   from?: string
   to?: string
 }
@@ -38,28 +37,22 @@ export const listPlanItems = async (
 ): Promise<PaginatedResponse<PlanItem>> => {
   const db = getDb()
   const limit = Math.min(Math.max(pagination.limit ?? 20, 1), 100)
-  const cursorDate = pagination.cursor ? new Date(pagination.cursor) : null
-  const fromDate = pagination.from ? new Date(pagination.from) : null
-  const toDate = pagination.to ? new Date(pagination.to) : null
+  const rawCursor = pagination.cursor ? new Date(pagination.cursor) : null
+  const cursorDate = rawCursor && !Number.isNaN(rawCursor.getTime()) ? rawCursor : null
+  const rawFrom = pagination.from ? new Date(pagination.from) : null
+  const fromDate = rawFrom && !Number.isNaN(rawFrom.getTime()) ? rawFrom : null
+  const rawTo = pagination.to ? new Date(pagination.to) : null
+  const toDate = rawTo && !Number.isNaN(rawTo.getTime()) ? rawTo : null
 
   const rows = await db.query.planItems.findMany({
-    where: (table, operators) => {
-      const clauses = [operators.eq(table.projectId, projectId)]
-      if (cursorDate && !Number.isNaN(cursorDate.getTime())) {
-        clauses.push(operators.gt(table.plannedDate, cursorDate.toISOString().split('T')[0]))
-      }
-      if (fromDate && !Number.isNaN(fromDate.getTime())) {
-        clauses.push(gte(table.plannedDate, fromDate.toISOString().split('T')[0]))
-      }
-      if (toDate && !Number.isNaN(toDate.getTime())) {
-        clauses.push(lte(table.plannedDate, toDate.toISOString().split('T')[0]))
-      }
-      if (pagination.status) {
-        clauses.push(operators.eq(table.status, pagination.status))
-      }
-      const [first, ...rest] = clauses
-      return rest.length ? and(first, ...rest) : first
-    },
+    where: (table, { and, eq, gt, gte, lte }) =>
+      and(
+        eq(table.projectId, projectId),
+        pagination.status ? eq(table.status, pagination.status) : undefined,
+        fromDate ? gte(table.plannedDate, fromDate.toISOString().split('T')[0]) : undefined,
+        toDate ? lte(table.plannedDate, toDate.toISOString().split('T')[0]) : undefined,
+        cursorDate ? gt(table.plannedDate, cursorDate.toISOString().split('T')[0]) : undefined
+      ),
     orderBy: (table, { asc }) => [asc(table.plannedDate), asc(table.id)],
     limit: limit + 1
   })
