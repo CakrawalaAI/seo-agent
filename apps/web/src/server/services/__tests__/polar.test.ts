@@ -152,8 +152,6 @@ describe('processPolarWebhook', () => {
 
     const event = createEvent({ data: { orgId: 'missing', plan: 'pro' } })
 
-    await expect(async () => {
-      await processPolarWebhook(event, { store })
-    }).rejects.toBeInstanceOf(PolarWebhookError)
+    await expect(processPolarWebhook(event, { store })).rejects.toBeInstanceOf(PolarWebhookError)
   })
 })

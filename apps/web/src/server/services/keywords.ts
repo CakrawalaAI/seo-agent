@@ -11,6 +11,14 @@ export type KeywordPagination = {
   status?: Keyword['status']
 }
 
+const toOptionalNumber = (value: unknown): number | undefined => {
+  if (value === null || value === undefined) {
+    return undefined
+  }
+  const parsed = Number(value)
+  return Number.isFinite(parsed) ? parsed : undefined
+}
+
 export const listKeywords = async (
   projectId: string,
   pagination: KeywordPagination = {}
@@ -47,7 +55,7 @@ export const listKeywords = async (
     metricsJson: (row.metrics ?? undefined) as Keyword['metricsJson'],
     status: row.status,
     isStarred: Boolean((row as any).isStarred ?? false),
-    opportunityScore: row.opportunityScore ? Number(row.opportunityScore) : undefined,
+    opportunityScore: toOptionalNumber(row.opportunityScore),
     createdAt: row.createdAt?.toISOString?.() ?? new Date().toISOString(),
     updatedAt: row.updatedAt?.toISOString?.()
   }))
@@ -110,7 +118,7 @@ export const createKeyword = async (input: {
     metricsJson: (row.metrics ?? undefined) as Keyword['metricsJson'],
     status: row.status,
     isStarred: row.isStarred ?? false,
-    opportunityScore: row.opportunityScore ? Number(row.opportunityScore) : undefined,
+    opportunityScore: toOptionalNumber(row.opportunityScore),
     createdAt: row.createdAt?.toISOString?.() ?? now.toISOString(),
     updatedAt: row.updatedAt?.toISOString?.()
   }
@@ -166,7 +174,7 @@ export const updateKeyword = async (
     metricsJson: (row.metrics ?? undefined) as Keyword['metricsJson'],
     status: row.status,
     isStarred: row.isStarred ?? false,
-    opportunityScore: row.opportunityScore ? Number(row.opportunityScore) : undefined,
+    opportunityScore: toOptionalNumber(row.opportunityScore),
     createdAt: row.createdAt?.toISOString?.() ?? new Date().toISOString(),
     updatedAt: row.updatedAt?.toISOString?.()
   }

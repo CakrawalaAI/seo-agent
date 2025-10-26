@@ -1,15 +1,25 @@
 // @ts-nocheck
 import { randomUUID } from 'node:crypto'
-import { eq } from 'drizzle-orm'
+import { and, eq, inArray } from 'drizzle-orm'
 import { z } from 'zod'
-import { DEFAULT_BUFFER_DAYS } from '@seo-agent/domain'
+import {
+  DEFAULT_BUFFER_DAYS,
+  EntitlementSchema,
+  CreateOrgInviteInputSchema,
+  AcceptOrgInviteInputSchema,
+  OrgInviteLinkResponseSchema
+} from '@seo-agent/domain'
 import type {
   CreateIntegrationInput,
   CreateOrgInput,
+  CreateOrgInviteInput,
+  AcceptOrgInviteInput,
   CreateProjectInput,
   CreateProjectResponse,
   Integration,
   Org,
+  OrgInviteLinkResponse,
+  Entitlement,
   Project,
   UpdateIntegrationInput
 } from '@seo-agent/domain'
@@ -18,6 +28,7 @@ import { getDb, schema } from '../db'
 import { startCrawl } from './crawl'
 import { buildTestPortableArticle, deliverWebhookPublish } from '@seo-agent/cms'
 import { ensureProjectSlotAvailable } from './billing'
+import { appConfig } from '@seo-agent/platform'
 
 export const createOrg = async (input: CreateOrgInput): Promise<Org> => {
   const db = getDb()
@@ -242,5 +253,183 @@ export const validateIntegrationConfig = async (input: {
     }
     default:
       return { status: 'ok' as const, config: input.config }
+  }
+}
+
+const normalizeEmail = (value: string) => value.trim().toLowerCase()
+
+const buildInviteUrl = (token: string) => {
+  const base = new URL(appConfig.urls.invitePath, appConfig.urls.webBase)
+  base.searchParams.set('token', token)
+  return base.toString()
+}
+
+const parseEntitlements = (value: unknown): Entitlement => {
+  const parsed = EntitlementSchema.safeParse(value)
+  if (parsed.success) {
+    return parsed.data
+  }
+  console.warn('Org entitlements failed validation', parsed.error.flatten())
+  return {
+    projectQuota: 0,
+    crawlPages: 0,
+    dailyArticles: 0,
+    autoPublishPolicy: 'buffered',
+    bufferDays: DEFAULT_BUFFER_DAYS
+  }
+}
+
+export const createOrgInvite = async (
+  input: CreateOrgInviteInput,
+  options?: { invitedByUserId?: string }
+): Promise<OrgInviteLinkResponse> => {
+  const payload = CreateOrgInviteInputSchema.parse(input)
+  const db = getDb()
+  const email = normalizeEmail(payload.email)
+  const now = new Date()
+  const expiresAt = new Date(now.getTime() + payload.expiresInHours * 60 * 60 * 1000)
+  const token = randomUUID()
+
+  await db
+    .update(schema.orgInvites)
+    .set({ status: 'revoked' })
+    .where(
+      and(
+        eq(schema.orgInvites.orgId, payload.orgId),
+        eq(schema.orgInvites.email, email),
+        eq(schema.orgInvites.status, 'pending')
+      )
+    )
+
+  await db.insert(schema.orgInvites).values({
+    id: randomUUID(),
+    orgId: payload.orgId,
+    email,
+    role: payload.role,
+    token,
+    status: 'pending',
+    expiresAt,
+    createdAt: now,
+    createdBy: options?.invitedByUserId ?? null
+  })
+
+  const inviteUrl = buildInviteUrl(token)
+  return OrgInviteLinkResponseSchema.parse({ inviteUrl })
+}
+
+export const acceptOrgInvite = async (
+  input: AcceptOrgInviteInput
+): Promise<{ status: 'accepted'; orgId: string }> => {
+  const payload = AcceptOrgInviteInputSchema.parse(input)
+  const db = getDb()
+
+  const invite = await db.query.orgInvites.findFirst({
+    where: eq(schema.orgInvites.token, payload.token)
+  })
+
+  if (!invite) {
+    const error = new Error('Invite not found')
+    ;(error as any).status = 404
+    ;(error as any).code = 'invite_not_found'
+    throw error
+  }
+
+  if (invite.status !== 'pending') {
+    const error = new Error('Invite already processed')
+    ;(error as any).status = 409
+    ;(error as any).code = 'invite_not_pending'
+    throw error
+  }
+
+  const now = new Date()
+  if (invite.expiresAt && invite.expiresAt < now) {
+    await db
+      .update(schema.orgInvites)
+      .set({ status: 'expired', acceptedAt: null })
+      .where(eq(schema.orgInvites.id, invite.id))
+    const error = new Error('Invite expired')
+    ;(error as any).status = 409
+    ;(error as any).code = 'invite_expired'
+    throw error
+  }
+
+  const userId = payload.userId
+  if (!userId) {
+    const error = new Error('User ID required to accept invite')
+    ;(error as any).status = 401
+    ;(error as any).code = 'unauthorized'
+    throw error
+  }
+
+  const existingMember = await db.query.orgMembers.findFirst({
+    where: and(eq(schema.orgMembers.orgId, invite.orgId), eq(schema.orgMembers.userId, userId))
+  })
+
+  if (existingMember) {
+    await db
+      .update(schema.orgMembers)
+      .set({ role: invite.role })
+      .where(and(eq(schema.orgMembers.orgId, invite.orgId), eq(schema.orgMembers.userId, userId)))
+  } else {
+    await db.insert(schema.orgMembers).values({
+      orgId: invite.orgId,
+      userId,
+      role: invite.role,
+      createdAt: now
+    })
+  }
+
+  await db
+    .update(schema.orgInvites)
+    .set({ status: 'accepted', acceptedAt: now })
+    .where(eq(schema.orgInvites.id, invite.id))
+
+  return { status: 'accepted', orgId: invite.orgId }
+}
+
+export const getOrgContextForUser = async (
+  userId: string,
+  options?: { requestedOrgId?: string }
+): Promise<{ orgs: Org[]; activeOrg: Org | null; entitlements: Entitlement | null }> => {
+  if (!userId) {
+    return { orgs: [], activeOrg: null, entitlements: null }
+  }
+
+  const db = getDb()
+  const memberships = await db.query.orgMembers.findMany({
+    where: eq(schema.orgMembers.userId, userId)
+  })
+
+  if (memberships.length === 0) {
+    return { orgs: [], activeOrg: null, entitlements: null }
+  }
+
+  const orgIds = memberships.map((membership) => membership.orgId)
+  const orgRecords = await db.query.orgs.findMany({
+    where: inArray(schema.orgs.id, orgIds)
+  })
+
+  const orgs: Org[] = orgRecords
+    .map((record) => ({
+      id: record.id,
+      name: record.name,
+      plan: record.plan,
+      entitlementsJson: parseEntitlements(record.entitlements),
+      createdAt: record.createdAt.toISOString()
+    }))
+    .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+
+  if (orgs.length === 0) {
+    return { orgs: [], activeOrg: null, entitlements: null }
+  }
+
+  const requestedOrgId = options?.requestedOrgId
+  const activeOrg =
+    (requestedOrgId ? orgs.find((org) => org.id === requestedOrgId) : undefined) ?? orgs[0]!
+
+  return {
+    orgs,
+    activeOrg,
+    entitlements: activeOrg?.entitlementsJson ?? null
   }
 }

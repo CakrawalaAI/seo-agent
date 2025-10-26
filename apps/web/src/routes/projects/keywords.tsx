@@ -306,7 +306,7 @@ function KeywordsPage() {
                   </td>
                   <td className="px-4 py-3 text-xs">
                     <span className="inline-flex items-center rounded-full bg-primary/10 px-2 py-0.5 font-medium text-primary">
-                      {keyword.metricsJson?.opportunity ?? 'High'}
+                      {formatOpportunityScore(keyword.opportunityScore)}
                     </span>
                   </td>
                   <td className="px-4 py-3 text-xs text-muted-foreground">{formatNumber(keyword.metricsJson?.searchVolume)}</td>
@@ -392,6 +392,13 @@ const formatCurrency = (value: unknown) => {
   if (typeof value === 'string' && value.trim().length > 0) {
     const parsed = Number.parseFloat(value)
     return Number.isFinite(parsed) ? `$${parsed.toFixed(2)}` : '—'
+  }
+  return '—'
+}
+
+const formatOpportunityScore = (value: number | undefined) => {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value.toFixed(1)
   }
   return '—'
 }

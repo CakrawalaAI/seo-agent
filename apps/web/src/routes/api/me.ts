@@ -3,6 +3,7 @@ import { getSession } from '@seo-agent/auth'
 import type { MeResponse } from '@seo-agent/domain'
 import { createFileRoute } from '@tanstack/react-router'
 import { json, safeHandler } from './utils'
+import { getOrgContextForUser } from '~/server/services/orgs'
 
 const applyAuthHeaders = (response: Response, headers?: Headers) => {
   if (!headers) {
@@ -44,11 +45,29 @@ export const Route = createFileRoute('/api/me')({
     handlers: {
       GET: safeHandler(async ({ request }) => {
         const { session, headers } = await getSession(request)
+        const user = normalizeUser(session)
+        const preferredOrgId =
+          request.headers.get('x-org-id') ?? request.headers.get('x-org') ?? undefined
+
+        let orgs: MeResponse['orgs'] = []
+        let activeOrg: MeResponse['activeOrg'] = null
+        let entitlements: MeResponse['entitlements'] = null
+
+        if (user) {
+          const userId = user.id
+          const context = await getOrgContextForUser(userId, {
+            requestedOrgId: preferredOrgId ?? undefined
+          })
+          orgs = context.orgs
+          activeOrg = context.activeOrg
+          entitlements = context.entitlements
+        }
+
         const payload: MeResponse = {
-          user: normalizeUser(session),
-          orgs: [],
-          activeOrg: null,
-          entitlements: null
+          user,
+          orgs,
+          activeOrg,
+          entitlements
         }
         const response = json(payload)
         return applyAuthHeaders(response, headers)

@@ -4,7 +4,7 @@ import { and, eq } from 'drizzle-orm'
 import { getDb, schema } from '../db'
 import { getJobCoordinator } from '../jobs/coordinator'
 
-const serializeJob = (record: typeof schema.jobs.$inferSelect): Job =>
+export const serializeJob = (record: typeof schema.jobs.$inferSelect): Job =>
   JobSchema.parse({
     id: record.id,
     projectId: record.projectId,

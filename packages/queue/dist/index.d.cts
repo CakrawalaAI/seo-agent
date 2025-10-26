@@ -1,6 +1,7 @@
 import { EventEmitter } from 'eventemitter3';
 import { JobType, QueuePayloadFor, JobStatus, ProjectScopedJob } from '@seo-agent/domain';
 
+type Logger = (level: 'info' | 'error', message: string, meta?: Record<string, unknown>) => void;
 type QueueEvents = {
     enqueued: [QueueJobSnapshot<JobType>];
     started: [QueueJobSnapshot<JobType>];
@@ -38,6 +39,7 @@ type JobHandle<T extends JobType> = {
 declare class InMemoryJobQueue extends EventEmitter<QueueEvents> {
     private readonly validatePayload;
     private jobs;
+    readonly ready: Promise<void>;
     constructor(validatePayload?: boolean);
     enqueue<T extends JobType>(input: ProjectScopedJob & {
         id?: string;
@@ -48,6 +50,49 @@ declare class InMemoryJobQueue extends EventEmitter<QueueEvents> {
     delete(id: string): Promise<boolean>;
     clear(): void;
 }
+type RabbitMqJobQueueOptions = {
+    url: string;
+    exchange?: string;
+    queue?: string;
+    bindingKey?: string;
+    prefetch?: number;
+    logger?: Logger;
+};
+declare class RabbitMqJobQueue extends EventEmitter<QueueEvents> {
+    private readonly options;
+    private readonly waiters;
+    private pending;
+    private connection?;
+    private channel?;
+    private queueName?;
+    private closed;
+    readonly ready: Promise<void>;
+    private readonly logger;
+    constructor(options: RabbitMqJobQueueOptions);
+    private setup;
+    private ensureReady;
+    private routingKey;
+    private log;
+    private handleMessage;
+    private shiftMatchingJob;
+    private fulfilWaiters;
+    private buildHandle;
+    private publish;
+    enqueue<T extends JobType>(input: ProjectScopedJob & {
+        id?: string;
+    }): Promise<string>;
+    list(filters?: ReserveFilter): Promise<QueueJobSnapshot<JobType>[]>;
+    reserveNext(filters?: ReserveFilter): Promise<JobHandle<JobType> | null>;
+    delete(id: string): Promise<boolean>;
+    updateStatus(): Promise<void>;
+    clear(): Promise<void>;
+}
+type JobQueue = InMemoryJobQueue | RabbitMqJobQueue;
 declare const createInMemoryJobQueue: (validatePayload?: boolean) => InMemoryJobQueue;
+type CreateJobQueueOptions = Omit<RabbitMqJobQueueOptions, 'url'> & {
+    url?: string;
+    fallbackToMemory?: boolean;
+};
+declare const createJobQueue: (options?: CreateJobQueueOptions) => JobQueue;
 
-export { InMemoryJobQueue, type JobHandle, type QueueJobSnapshot, type ReserveFilter, createInMemoryJobQueue };
+export { type CreateJobQueueOptions, InMemoryJobQueue, type JobHandle, type JobQueue, type QueueEvents, type QueueJobSnapshot, RabbitMqJobQueue, type ReserveFilter, createInMemoryJobQueue, createJobQueue };
