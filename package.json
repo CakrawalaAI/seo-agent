@@ -96,6 +96,7 @@
     "typescript": "^5.4.5",
     "vite": "^7.0.0",
     "vite-tsconfig-paths": "^5.0.0",
-    "vitest": "^1.6.0"
+    "vitest": "^1.6.0",
+    "@playwright/test": "^1.45.0"
   }
 }
