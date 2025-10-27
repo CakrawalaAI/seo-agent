@@ -14,6 +14,8 @@ type CliCommand =
   | 'billing-portal'
   | 'project-create'
   | 'project-ls'
+  | 'crawl-run'
+  | 'crawl-pages'
 
 export async function runCli(args: string[] = process.argv.slice(2)) {
   const command = normalizeCommand(args[0])
@@ -131,6 +133,51 @@ export async function runCli(args: string[] = process.argv.slice(2)) {
       }
       return
     }
+    case 'crawl-run': {
+      const baseUrl = process.env.SEO_AGENT_BASE_URL || 'http://localhost:5173'
+      const projectId = getFlag(args, '--project') || ''
+      if (!projectId) {
+        console.error('usage: seo crawl-run --project <id>')
+        process.exitCode = 1
+        return
+      }
+      const url = new URL('/api/crawl/run', baseUrl).toString()
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ projectId })
+      })
+      if (!res.ok) {
+        console.error(`crawl run failed: HTTP ${res.status}`)
+        process.exitCode = 1
+        return
+      }
+      const data = (await res.json()) as { jobId?: string }
+      console.log(`crawl job ${data?.jobId ?? 'queued'}`)
+      return
+    }
+    case 'crawl-pages': {
+      const baseUrl = process.env.SEO_AGENT_BASE_URL || 'http://localhost:5173'
+      const projectId = getFlag(args, '--project') || ''
+      const limit = getFlag(args, '--limit') || '100'
+      if (!projectId) {
+        console.error('usage: seo crawl-pages --project <id> [--limit N]')
+        process.exitCode = 1
+        return
+      }
+      const url = new URL(`/api/crawl/pages?projectId=${encodeURIComponent(projectId)}&limit=${encodeURIComponent(limit)}`, baseUrl).toString()
+      const res = await fetch(url)
+      if (!res.ok) {
+        console.error(`crawl pages failed: HTTP ${res.status}`)
+        process.exitCode = 1
+        return
+      }
+      const data = (await res.json()) as { items?: Array<{ url: string; httpStatus?: number | string | null; metaJson?: any }> }
+      for (const p of data?.items ?? []) {
+        console.log(`${p.httpStatus ?? ''}\t${(p.metaJson?.title as string) ?? ''}\t${p.url}`)
+      }
+      return
+    }
     case 'version': {
       const pkg = await readPackageJson()
       console.log(`${pkg.name ?? 'seo-agent'} v${pkg.version ?? '0.0.0'}`)
@@ -155,6 +202,8 @@ function normalizeCommand(input?: string): CliCommand {
   if (input.toLowerCase() === 'billing-portal') return 'billing-portal'
   if (input.toLowerCase() === 'project-create') return 'project-create'
   if (input.toLowerCase() === 'project-ls') return 'project-ls'
+  if (input.toLowerCase() === 'crawl-run') return 'crawl-run'
+  if (input.toLowerCase() === 'crawl-pages') return 'crawl-pages'
   return 'help'
 }
 
@@ -192,6 +241,8 @@ function printHelp() {
       '  billing-portal [--org id] [--return url] ',
       '  project-create --org <id> --name "Acme" --site https://acme.com [--locale en-US]',
       '  project-ls --org <id> [--limit 50]',
+      '  crawl-run --project <id>',
+      '  crawl-pages --project <id> [--limit 100]',
       '',
       'Examples:',
       '  seo version',
