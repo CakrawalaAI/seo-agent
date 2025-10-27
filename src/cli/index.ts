@@ -16,6 +16,8 @@ type CliCommand =
   | 'project-ls'
   | 'crawl-run'
   | 'crawl-pages'
+  | 'keyword-generate'
+  | 'keyword-ls'
 
 export async function runCli(args: string[] = process.argv.slice(2)) {
   const command = normalizeCommand(args[0])
@@ -178,6 +180,55 @@ export async function runCli(args: string[] = process.argv.slice(2)) {
       }
       return
     }
+    case 'keyword-generate': {
+      const baseUrl = process.env.SEO_AGENT_BASE_URL || 'http://localhost:5173'
+      const projectId = getFlag(args, '--project') || ''
+      const locale = getFlag(args, '--locale') || 'en-US'
+      if (!projectId) {
+        console.error('usage: seo keyword-generate --project <id> [--locale en-US]')
+        process.exitCode = 1
+        return
+      }
+      const url = new URL('/api/keywords/generate', baseUrl).toString()
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ projectId, locale })
+      })
+      if (!res.ok) {
+        console.error(`keyword generate failed: HTTP ${res.status}`)
+        process.exitCode = 1
+        return
+      }
+      const data = (await res.json()) as { jobId?: string }
+      console.log(`keyword job ${data?.jobId ?? 'queued'}`)
+      return
+    }
+    case 'keyword-ls': {
+      const baseUrl = process.env.SEO_AGENT_BASE_URL || 'http://localhost:5173'
+      const projectId = getFlag(args, '--project') || ''
+      const status = getFlag(args, '--status') || 'all'
+      const limit = getFlag(args, '--limit') || '100'
+      if (!projectId) {
+        console.error('usage: seo keyword-ls --project <id> [--status all] [--limit N]')
+        process.exitCode = 1
+        return
+      }
+      const url = new URL(`/api/projects/${encodeURIComponent(projectId)}/keywords?status=${encodeURIComponent(status)}&limit=${encodeURIComponent(limit)}`, baseUrl).toString()
+      const res = await fetch(url)
+      if (!res.ok) {
+        console.error(`keyword ls failed: HTTP ${res.status}`)
+        process.exitCode = 1
+        return
+      }
+      const data = (await res.json()) as { items?: Array<{ phrase: string; metricsJson?: any; status?: string }> }
+      for (const k of data?.items ?? []) {
+        const vol = k?.metricsJson?.searchVolume ?? ''
+        const diff = k?.metricsJson?.difficulty ?? ''
+        console.log(`${k.status ?? ''}\t${String(vol)}\t${String(diff)}\t${k.phrase}`)
+      }
+      return
+    }
     case 'version': {
       const pkg = await readPackageJson()
       console.log(`${pkg.name ?? 'seo-agent'} v${pkg.version ?? '0.0.0'}`)
@@ -204,6 +255,8 @@ function normalizeCommand(input?: string): CliCommand {
   if (input.toLowerCase() === 'project-ls') return 'project-ls'
   if (input.toLowerCase() === 'crawl-run') return 'crawl-run'
   if (input.toLowerCase() === 'crawl-pages') return 'crawl-pages'
+  if (input.toLowerCase() === 'keyword-generate') return 'keyword-generate'
+  if (input.toLowerCase() === 'keyword-ls') return 'keyword-ls'
   return 'help'
 }
 
@@ -243,6 +296,8 @@ function printHelp() {
       '  project-ls --org <id> [--limit 50]',
       '  crawl-run --project <id>',
       '  crawl-pages --project <id> [--limit 100]',
+      '  keyword-generate --project <id> [--locale en-US]',
+      '  keyword-ls --project <id> [--status all] [--limit 100]',
       '',
       'Examples:',
       '  seo version',
