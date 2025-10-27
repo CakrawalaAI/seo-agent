@@ -766,3 +766,20 @@ Each commit must update UI + API + CLI together for the scoped feature and run t
 - CLI tests: run specific command(s) (e.g., `seo ping`, `seo project create --dry-run`) in CI
 
 Failing any check blocks the commit from merging. Prefer parallel test execution.
+
+22. Implementation status (MVP v0)
+
+- C00 Health: implemented
+- C01 Auth (dev mock): implemented
+- C02 Billing (dev mock): implemented
+- C03 Projects: implemented
+- C04 Crawl (seeded pages): implemented
+- C05 Keywords (mock provider): implemented
+- C06 Plan (30‑day): implemented
+- C07 Schedule (lazy drafts): implemented
+- C08 Publish (Webhook) + auto‑publish: implemented (HMAC + idempotency)
+- C09 Editing (web): implemented
+- C10 Webflow connector: stub implemented (v0.1)
+
+Notes
+- Current MVP uses in‑memory repositories and mocked providers; replace with Drizzle/Postgres and real integrations for production. SSR loaders added to prime queries. Biome is configured as linter/formatter. Playwright curl/e2e smokes included.
