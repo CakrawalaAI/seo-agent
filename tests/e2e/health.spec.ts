@@ -9,3 +9,7 @@ test('GET /api/health', async () => {
   expect(json.ok).toBe(true)
 })
 
+test('home page renders', async ({ page }) => {
+  await page.goto('/')
+  await expect(page.getByText('SEO Agent')).toBeVisible()
+})
