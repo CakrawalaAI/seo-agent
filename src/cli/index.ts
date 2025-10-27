@@ -4,7 +4,16 @@ import { readFile } from 'node:fs/promises'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { dirname, join } from 'node:path'
 
-type CliCommand = 'help' | 'version' | 'ping' | 'login' | 'whoami' | 'billing-checkout' | 'billing-portal'
+type CliCommand =
+  | 'help'
+  | 'version'
+  | 'ping'
+  | 'login'
+  | 'whoami'
+  | 'billing-checkout'
+  | 'billing-portal'
+  | 'project-create'
+  | 'project-ls'
 
 export async function runCli(args: string[] = process.argv.slice(2)) {
   const command = normalizeCommand(args[0])
@@ -84,6 +93,44 @@ export async function runCli(args: string[] = process.argv.slice(2)) {
       console.log(data?.url ?? '')
       return
     }
+    case 'project-create': {
+      const baseUrl = process.env.SEO_AGENT_BASE_URL || 'http://localhost:5173'
+      const url = new URL('/api/projects', baseUrl).toString()
+      const orgId = getFlag(args, '--org') || 'org-dev'
+      const name = getFlag(args, '--name') || 'My Project'
+      const siteUrl = getFlag(args, '--site') || 'https://example.com'
+      const defaultLocale = getFlag(args, '--locale') || 'en-US'
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ orgId, name, siteUrl, defaultLocale })
+      })
+      if (!res.ok) {
+        console.error(`project create failed: HTTP ${res.status}`)
+        process.exitCode = 1
+        return
+      }
+      const data = (await res.json()) as { project?: { id?: string; name?: string }; crawlJobId?: string | null }
+      console.log(`project ${data?.project?.name ?? ''} created id=${data?.project?.id ?? ''}`)
+      return
+    }
+    case 'project-ls': {
+      const baseUrl = process.env.SEO_AGENT_BASE_URL || 'http://localhost:5173'
+      const orgId = getFlag(args, '--org') || 'org-dev'
+      const limit = getFlag(args, '--limit') || '50'
+      const url = new URL(`/api/projects?orgId=${encodeURIComponent(orgId)}&limit=${encodeURIComponent(limit)}`, baseUrl).toString()
+      const res = await fetch(url)
+      if (!res.ok) {
+        console.error(`project ls failed: HTTP ${res.status}`)
+        process.exitCode = 1
+        return
+      }
+      const data = (await res.json()) as { items?: Array<{ id: string; name: string; siteUrl?: string }> }
+      for (const p of data?.items ?? []) {
+        console.log(`${p.id}\t${p.name}\t${p.siteUrl ?? ''}`)
+      }
+      return
+    }
     case 'version': {
       const pkg = await readPackageJson()
       console.log(`${pkg.name ?? 'seo-agent'} v${pkg.version ?? '0.0.0'}`)
@@ -106,6 +153,8 @@ function normalizeCommand(input?: string): CliCommand {
   if (input.toLowerCase() === 'whoami') return 'whoami'
   if (input.toLowerCase() === 'billing-checkout') return 'billing-checkout'
   if (input.toLowerCase() === 'billing-portal') return 'billing-portal'
+  if (input.toLowerCase() === 'project-create') return 'project-create'
+  if (input.toLowerCase() === 'project-ls') return 'project-ls'
   return 'help'
 }
 
@@ -141,6 +190,8 @@ function printHelp() {
       '  whoami      Show session user from /api/me',
       '  billing-checkout [--org id] [--plan growth] [--success url] [--cancel url]',
       '  billing-portal [--org id] [--return url] ',
+      '  project-create --org <id> --name "Acme" --site https://acme.com [--locale en-US]',
+      '  project-ls --org <id> [--limit 50]',
       '',
       'Examples:',
       '  seo version',
