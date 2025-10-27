@@ -4,14 +4,21 @@ Name: SEO Agent
 Goal (MVP v0): From a website URL, SEO Agent crawls the site, understands the business, generates a 30‑day plan (titles+outlines), then creates one full article per day (lazy generation) and auto‑publishes via Webhook (v0) or Webflow (v0.1). Web FE mirrors the CLI.
 
 Dev guardrails:
-- All implementation work must stay inside `apps/seo-agent`. Never touch monorepo root configs (package.json, turbo.json, etc.) without explicit approval.
-- Project layout anchored at `apps/{web,worker,cli}` (TanStack Start app contains UI + server routes; worker + CLI sit beside it).
-- Shared platform + integration code lives under `packages/` (e.g. `packages/platform`, `packages/cms`).
-- All domain modules now live locally under `packages/{domain,db,auth,queue,sdk,integrations}` plus shared `packages/platform` and `packages/cms`, keeping `apps/seo-agent` standalone.
+- All implementation work stays inside this repository folder.
+- Project layout anchored at `src/{pages,app/routes,features,blocks,entities,common,cli,worker}`.
+- Blocks compose multiple features across pages; features are the primary UI units for a single concern.
+- API routes live under `src/app/routes/api/**`. Pages map 1:1 with routes under `src/pages/**`. File routes remain thin and import page loader + page component.
 
 1. System architecture (high level)
 
-Mono‑repo with apps (web, cli, worker) + packages under `packages/{domain,db,auth,queue,sdk,integrations}` (domain logic, persistence, queueing, SDK, etc.) plus shared `packages/platform` + `packages/cms`.
+Single‑app structure using TanStack Start + TanStack Router (server routes + web UI) within this repository. Core directories:
+- `src/common` (infra/utilities: http, logger, env, queue, db clients)
+- `src/entities/<entity>` (db schema, domain models, repositories/services)
+- `src/features/<feature>` (client UI, server actions, shared view logic)
+- `src/blocks` (cross‑feature composites reused across pages)
+- `src/pages/<route-id>` (page loader + page component)
+- `src/app/routes` (thin file routes importing from pages)
+- `src/cli`, `src/worker`
 
 TanStack Start + TanStack Router (server routes for all APIs).
 
@@ -28,6 +35,71 @@ Crawl: Playwright as the default fetcher (JS‑rendered), robots.txt + sitemap a
 Providers: everything swappable (LLM, discovery metrics, CMS publishing).
 
 CLI (seo) + Web FE share the same REST API.
+
+1.1 Execution model & data loading
+
+- Route‑level loaders live in `src/pages/**/loader.ts` (or `controller.ts`). They SSR critical data, compose multiple entity calls in parallel, and prime TanStack Query (e.g., `ensureQueryData`).
+- Feature components are declarative UI. They consume loader data via `Route.useLoaderData()` or the primed query cache (`useSuspenseQuery`).
+- Component‑scoped fetching is only for client‑only/local needs; all privileged/SSR‑critical work happens in loaders/server functions.
+- Server‑only concerns (DB, secrets, LLM, provider calls) run in loaders/services; UI never accesses secrets directly.
+- Loaders return stable, typed DTOs (e.g., `ProjectSnapshot`, `MeSession`) for predictable rendering and testing.
+
+1.2 Import boundaries & rules
+
+Allowed direction: `common → entities → features → blocks → pages → routes`.
+- `common` is infra‑agnostic and imported by all lower layers.
+- `entities` import only from `common`.
+- `features` import from `entities` and `common`.
+- `blocks` import from `features`, `entities`, `common`.
+- `pages` compose `blocks` + `features` and own the loader.
+- `routes` are glue only and import from `pages`.
+
+1.3 Feature‑sliced architecture overview
+
+- `src/app` – router entry points, file‑based routes (thin), global styles.
+- `src/pages/<route>` – page modules mapping 1:1 to routes; export `loader()` and `Page`.
+- `src/blocks` – cross‑feature composites (dashboards/shells/multi‑feature widgets).
+- `src/features/<name>` – feature UI and logic.
+  - `client/` – primary UI components for the feature.
+  - `server/` – mutations/actions that call entity services.
+  - `shared/` – state machines, hooks, view helpers.
+- `src/entities/<name>` – domain source of truth.
+  - `domain/` – TypeScript domain models.
+  - `db/` – Drizzle schemas.
+  - `service.ts` – HTTP/server service wrappers used by loaders/CLI/worker.
+- `src/common` – cross‑cutting infra (HTTP, logger, env, queue, db client), pure utilities.
+
+1.4 Tooling & UI
+
+- Styling/UI: tailwindcss + shadcn/ui components.
+- Router/UI framework: TanStack Start + TanStack Router.
+- Lint/format: Biome (replaces ESLint/Prettier in policy; code may migrate over time).
+- Package/runtime: bun.
+
+1.5 Terminology — "Composition‑Only Routes"
+
+- We avoid the vague word “thin”. Use “composition‑only routes” (aka adapter‑only route files).
+- Definition: file routes that only register a page’s `loader` and `Page` component; no business logic, no data fetching beyond delegating to the page loader, no side effects.
+- Page loaders (in `src/pages/**/loader.ts`) own SSR data composition and provider access.
+
+Entity coverage (current mapping)
+
+| Entity       | Domain file                              | Service file                              | Used by                      |
+|--------------|-------------------------------------------|-------------------------------------------|-------------------------------|
+| Project      | `src/entities/project/domain/project.ts` | `src/entities/project/service.ts`         | Projects page, project tabs   |
+| Article      | `src/entities/article/domain/article.ts` | `src/entities/article/service.ts`         | Article editor, publish       |
+| Plan Item    | `src/entities/plan/domain/plan-item.ts`  | `src/entities/project/service.ts`         | Calendar + scheduling         |
+| Keyword      | `src/entities/keyword/domain/keyword.ts` | `src/entities/keyword/service.ts`         | Keywords feature + tests      |
+| Crawl Page   | `src/entities/crawl/domain/page.ts`      | `src/entities/project/service.ts`         | Crawl tab                     |
+| Integration  | `src/entities/integration/domain/integration.ts` | `src/entities/project/service.ts` | Integrations tab              |
+| Job          | `src/entities/job/domain/job.ts`         | `src/entities/job/service.ts`             | Jobs tab, worker              |
+| Org Session  | `src/entities/org/domain/org.ts`         | `src/entities/org/service.ts`             | Dashboard/projects list       |
+
+Testing notes
+
+- Prefer unit tests around loaders (shape, SSR correctness, error cases) and entity services.
+- UI components: test with Vitest + Testing Library (jsdom).
+- Common network utilities: focused unit specs; API routes: contract tests per endpoint.
 
 2. Data model (Drizzle‑ready, conceptual)
 
@@ -469,32 +541,34 @@ Worker app:
   "slug": "example-title"
 }
 
-14. Monorepo layout
-/apps
-  /web                 # TanStack Start (server routes + web UI)
-    /routes/api/...    # REST endpoints (auth, orgs, billing, projects, crawl, keywords, plan, articles, jobs)
-    /routes/(ui)       # login, dashboard, project pages
-    /features/...      # FE slices: keywords, calendar, articles, integrations
-    /server            # thin route adapters -> domain services
-  /cli                 # React Ink CLI ('seo'); uses @seo-agent/sdk
-  /worker              # background worker consuming RabbitMQ jobs via /packages/queue
+14. Project layout
+```
+src/
+  app/
+    routes/
+      api/...          # REST endpoints (auth, orgs, billing, projects, crawl, keywords, plan, articles, jobs)
+      (ui)             # login, dashboard, project pages (thin file routes)
+    __root.tsx
+    router.tsx
+    styles.css
+  pages/
+    projects/
+      loader.ts        # page loader/controller (SSR, compose services, prime query)
+      page.tsx         # page component (compose features/blocks)
+    ...                # other pages mirror route segments 1:1
+  features/            # feature UI slices: keywords, calendar, articles, integrations
+    <feature>/client
+    <feature>/server
+    <feature>/shared
+  blocks/              # cross‑feature composites (dashboards, shells)
+  entities/            # db schema, domain models, repositories/services
+  common/              # http, logger, env, queue/db clients, generic utils
+  cli/                 # CLI commands using the same API DTOs
+  worker/              # background processors using repositories/services
+tests/                 # unit/integration tests
+```
 
-/packages
-  /db                  # Drizzle schema + migrations
-  /auth                # better-auth config (Google)
-  /payments            # Polar plugin glue + entitlement checks
-  /crawler             # Playwright-based crawler + robots/sitemap
-  /discovery           # LLM summary/seed + metrics provider registry (dataforseo adapter)
-  /cms                 # publishers: webhook, webflow, wordpress, framer, shopify, wix
-  /domain              # pure services (orgs, projects, crawl, keywords, plan, articles, jobs)
-  /queue               # job adapters (RabbitMQ driver + abstractions), locks, backoff
-  /sdk                 # typed client used by CLI & web
-  /types               # shared DTOs (Zod) incl. PortableArticle
-  /env                 # zod env parsing
-  /logger              # pino-like logger
-  /config              # tsconfig/eslint/prettier/turbo shared
-
-/docs                  # API docs, acceptance criteria, diagrams, ADRs
+Import boundaries are enforced per §1.2 (no upward imports).
 
 15. Acceptance criteria (CLI + Web together)
 
@@ -681,3 +755,14 @@ By C08 you already have: auth, orgs, billing, projects, crawl, keyword generatio
 Note:
 use tailwindcss and shadcn for ui, dont write, but use web search to install the components and first time setup
 use bun as package manager and build scripts and tests
+
+21. Testing & Commit Policy
+
+Each commit must update UI + API + CLI together for the scoped feature and run the following checks:
+- curl smoke: `curl -sS localhost:<port>/api/health` (and relevant new endpoints)
+- unit tests: `bun test` (Vitest)
+- integration tests: API contract tests (DTOs, error shapes)
+- e2e: Playwright smoke for critical flows (where applicable)
+- CLI tests: run specific command(s) (e.g., `seo ping`, `seo project create --dry-run`) in CI
+
+Failing any check blocks the commit from merging. Prefer parallel test execution.
