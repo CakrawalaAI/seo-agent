@@ -18,6 +18,13 @@ type CliCommand =
   | 'crawl-pages'
   | 'keyword-generate'
   | 'keyword-ls'
+  | 'plan-ls'
+  | 'plan-move'
+  | 'schedule-run'
+  | 'article-ls'
+  | 'article-publish'
+  | 'integration-add-webhook'
+  | 'integration-test'
 
 export async function runCli(args: string[] = process.argv.slice(2)) {
   const command = normalizeCommand(args[0])
@@ -229,6 +236,163 @@ export async function runCli(args: string[] = process.argv.slice(2)) {
       }
       return
     }
+    case 'plan-ls': {
+      const baseUrl = process.env.SEO_AGENT_BASE_URL || 'http://localhost:5173'
+      const projectId = getFlag(args, '--project') || ''
+      const limit = getFlag(args, '--limit') || '90'
+      if (!projectId) {
+        console.error('usage: seo plan-ls --project <id> [--limit 90]')
+        process.exitCode = 1
+        return
+      }
+      const url = new URL(`/api/plan-items?projectId=${encodeURIComponent(projectId)}&limit=${encodeURIComponent(limit)}`, baseUrl).toString()
+      const res = await fetch(url)
+      if (!res.ok) {
+        console.error(`plan ls failed: HTTP ${res.status}`)
+        process.exitCode = 1
+        return
+      }
+      const data = (await res.json()) as { items?: Array<{ id: string; plannedDate: string; title: string; status?: string }> }
+      for (const p of data?.items ?? []) {
+        console.log(`${p.plannedDate}\t${p.status ?? 'planned'}\t${p.id}\t${p.title}`)
+      }
+      return
+    }
+    case 'plan-move': {
+      const baseUrl = process.env.SEO_AGENT_BASE_URL || 'http://localhost:5173'
+      const id = getFlag(args, '--plan') || ''
+      const date = getFlag(args, '--date') || ''
+      if (!id || !date) {
+        console.error('usage: seo plan-move --plan <id> --date YYYY-MM-DD')
+        process.exitCode = 1
+        return
+      }
+      const url = new URL(`/api/plan-items/${encodeURIComponent(id)}`, baseUrl).toString()
+      const res = await fetch(url, {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ plannedDate: date })
+      })
+      if (!res.ok) {
+        console.error(`plan move failed: HTTP ${res.status}`)
+        process.exitCode = 1
+        return
+      }
+      console.log('ok')
+      return
+    }
+    case 'schedule-run': {
+      const baseUrl = process.env.SEO_AGENT_BASE_URL || 'http://localhost:5173'
+      const projectId = getFlag(args, '--project') || ''
+      if (!projectId) {
+        console.error('usage: seo schedule-run --project <id>')
+        process.exitCode = 1
+        return
+      }
+      const url = new URL('/api/schedules/run', baseUrl).toString()
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ projectId })
+      })
+      if (!res.ok) {
+        console.error(`schedule run failed: HTTP ${res.status}`)
+        process.exitCode = 1
+        return
+      }
+      const data = (await res.json()) as { result?: { generatedDrafts?: number } }
+      console.log(`generated ${data?.result?.generatedDrafts ?? 0}`)
+      return
+    }
+    case 'article-ls': {
+      const baseUrl = process.env.SEO_AGENT_BASE_URL || 'http://localhost:5173'
+      const projectId = getFlag(args, '--project') || ''
+      const limit = getFlag(args, '--limit') || '90'
+      if (!projectId) {
+        console.error('usage: seo article-ls --project <id> [--limit 90]')
+        process.exitCode = 1
+        return
+      }
+      const url = new URL(`/api/projects/${encodeURIComponent(projectId)}/articles?limit=${encodeURIComponent(limit)}`, baseUrl).toString()
+      const res = await fetch(url)
+      if (!res.ok) {
+        console.error(`article ls failed: HTTP ${res.status}`)
+        process.exitCode = 1
+        return
+      }
+      const data = (await res.json()) as { items?: Array<{ id: string; status?: string; title?: string }> }
+      for (const a of data?.items ?? []) {
+        console.log(`${a.status ?? ''}\t${a.id}\t${a.title ?? ''}`)
+      }
+      return
+    }
+    case 'article-publish': {
+      const baseUrl = process.env.SEO_AGENT_BASE_URL || 'http://localhost:5173'
+      const articleId = getFlag(args, '--article') || ''
+      const integrationId = getFlag(args, '--integration') || ''
+      if (!articleId || !integrationId) {
+        console.error('usage: seo article-publish --article <id> --integration <id>')
+        process.exitCode = 1
+        return
+      }
+      const url = new URL(`/api/articles/${encodeURIComponent(articleId)}/publish`, baseUrl).toString()
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ integrationId })
+      })
+      if (!res.ok) {
+        console.error(`article publish failed: HTTP ${res.status}`)
+        process.exitCode = 1
+        return
+      }
+      const data = (await res.json()) as { jobId?: string }
+      console.log(`publish job ${data?.jobId ?? ''}`)
+      return
+    }
+    case 'integration-add-webhook': {
+      const baseUrl = process.env.SEO_AGENT_BASE_URL || 'http://localhost:5173'
+      const projectId = getFlag(args, '--project') || ''
+      const url = getFlag(args, '--url') || ''
+      const secret = getFlag(args, '--secret') || ''
+      if (!projectId || !url) {
+        console.error('usage: seo integration-add-webhook --project <id> --url <target> [--secret s]')
+        process.exitCode = 1
+        return
+      }
+      const api = new URL('/api/integrations', baseUrl).toString()
+      const res = await fetch(api, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ projectId, type: 'webhook', status: 'connected', config: { targetUrl: url, secret } })
+      })
+      if (!res.ok) {
+        console.error(`integration add failed: HTTP ${res.status}`)
+        process.exitCode = 1
+        return
+      }
+      const data = (await res.json()) as { id?: string }
+      console.log(`integration ${data?.id ?? ''}`)
+      return
+    }
+    case 'integration-test': {
+      const baseUrl = process.env.SEO_AGENT_BASE_URL || 'http://localhost:5173'
+      const id = getFlag(args, '--integration') || ''
+      if (!id) {
+        console.error('usage: seo integration-test --integration <id>')
+        process.exitCode = 1
+        return
+      }
+      const api = new URL(`/api/integrations/${encodeURIComponent(id)}/test`, baseUrl).toString()
+      const res = await fetch(api, { method: 'POST' })
+      if (!res.ok && res.status !== 204) {
+        console.error(`integration test failed: HTTP ${res.status}`)
+        process.exitCode = 1
+        return
+      }
+      console.log('ok')
+      return
+    }
     case 'version': {
       const pkg = await readPackageJson()
       console.log(`${pkg.name ?? 'seo-agent'} v${pkg.version ?? '0.0.0'}`)
@@ -257,6 +421,13 @@ function normalizeCommand(input?: string): CliCommand {
   if (input.toLowerCase() === 'crawl-pages') return 'crawl-pages'
   if (input.toLowerCase() === 'keyword-generate') return 'keyword-generate'
   if (input.toLowerCase() === 'keyword-ls') return 'keyword-ls'
+  if (input.toLowerCase() === 'plan-ls') return 'plan-ls'
+  if (input.toLowerCase() === 'plan-move') return 'plan-move'
+  if (input.toLowerCase() === 'schedule-run') return 'schedule-run'
+  if (input.toLowerCase() === 'article-ls') return 'article-ls'
+  if (input.toLowerCase() === 'article-publish') return 'article-publish'
+  if (input.toLowerCase() === 'integration-add-webhook') return 'integration-add-webhook'
+  if (input.toLowerCase() === 'integration-test') return 'integration-test'
   return 'help'
 }
 
@@ -298,6 +469,13 @@ function printHelp() {
       '  crawl-pages --project <id> [--limit 100]',
       '  keyword-generate --project <id> [--locale en-US]',
       '  keyword-ls --project <id> [--status all] [--limit 100]',
+      '  plan-ls --project <id> [--limit 90]',
+      '  plan-move --plan <id> --date YYYY-MM-DD',
+      '  schedule-run --project <id>',
+      '  article-ls --project <id> [--limit 90]',
+      '  article-publish --article <id> --integration <id>',
+      '  integration-add-webhook --project <id> --url <target> [--secret s]',
+      '  integration-test --integration <id>',
       '',
       'Examples:',
       '  seo version',

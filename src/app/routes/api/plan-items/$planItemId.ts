@@ -1,0 +1,22 @@
+// @ts-nocheck
+import { createFileRoute } from '@tanstack/react-router'
+import { json, httpError, safeHandler } from '../utils'
+import { planRepo } from '@entities/plan/repository'
+
+export const Route = createFileRoute('/api/plan-items/$planItemId')({
+  server: {
+    handlers: {
+      PUT: safeHandler(async ({ params, request }) => {
+        const body = await request.json().catch(() => ({}))
+        const plannedDate = body?.plannedDate
+        if (typeof plannedDate !== 'string' || plannedDate.length !== 10) {
+          return httpError(400, 'Invalid plannedDate')
+        }
+        const updated = planRepo.updateDate(params.planItemId, plannedDate)
+        if (!updated) return httpError(404, 'Plan item not found')
+        return json({ plannedDate: updated.plannedDate })
+      })
+    }
+  }
+})
+
