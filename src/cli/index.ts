@@ -4,7 +4,7 @@ import { readFile } from 'node:fs/promises'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { dirname, join } from 'node:path'
 
-type CliCommand = 'help' | 'version' | 'ping' | 'login' | 'whoami'
+type CliCommand = 'help' | 'version' | 'ping' | 'login' | 'whoami' | 'billing-checkout' | 'billing-portal'
 
 export async function runCli(args: string[] = process.argv.slice(2)) {
   const command = normalizeCommand(args[0])
@@ -48,6 +48,42 @@ export async function runCli(args: string[] = process.argv.slice(2)) {
       }
       return
     }
+    case 'billing-checkout': {
+      const baseUrl = process.env.SEO_AGENT_BASE_URL || 'http://localhost:5173'
+      const url = new URL('/api/billing/checkout', baseUrl).toString()
+      const orgId = getFlag(args, '--org') || 'org-dev'
+      const plan = getFlag(args, '--plan') || 'growth'
+      const successUrl = getFlag(args, '--success') || `${baseUrl}/dashboard`
+      const cancelUrl = getFlag(args, '--cancel') || `${baseUrl}/dashboard?billing=cancel`
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ orgId, plan, successUrl, cancelUrl })
+      })
+      if (!res.ok) {
+        console.error(`checkout failed: HTTP ${res.status}`)
+        process.exitCode = 1
+        return
+      }
+      const data = (await res.json()) as { url?: string }
+      console.log(data?.url ?? '')
+      return
+    }
+    case 'billing-portal': {
+      const baseUrl = process.env.SEO_AGENT_BASE_URL || 'http://localhost:5173'
+      const orgId = getFlag(args, '--org') || 'org-dev'
+      const returnUrl = getFlag(args, '--return') || `${baseUrl}/dashboard`
+      const url = new URL(`/api/billing/portal?orgId=${encodeURIComponent(orgId)}&returnUrl=${encodeURIComponent(returnUrl)}`, baseUrl).toString()
+      const res = await fetch(url)
+      if (!res.ok) {
+        console.error(`portal failed: HTTP ${res.status}`)
+        process.exitCode = 1
+        return
+      }
+      const data = (await res.json()) as { url?: string }
+      console.log(data?.url ?? '')
+      return
+    }
     case 'version': {
       const pkg = await readPackageJson()
       console.log(`${pkg.name ?? 'seo-agent'} v${pkg.version ?? '0.0.0'}`)
@@ -68,6 +104,8 @@ function normalizeCommand(input?: string): CliCommand {
   if (input.toLowerCase() === 'ping') return 'ping'
   if (input.toLowerCase() === 'login') return 'login'
   if (input.toLowerCase() === 'whoami') return 'whoami'
+  if (input.toLowerCase() === 'billing-checkout') return 'billing-checkout'
+  if (input.toLowerCase() === 'billing-portal') return 'billing-portal'
   return 'help'
 }
 
@@ -101,6 +139,8 @@ function printHelp() {
       '  ping        Call /api/health on SEO_AGENT_BASE_URL (default http://localhost:5173)',
       '  login       Print sign-in URL (browser flow)',
       '  whoami      Show session user from /api/me',
+      '  billing-checkout [--org id] [--plan growth] [--success url] [--cancel url]',
+      '  billing-portal [--org id] [--return url] ',
       '',
       'Examples:',
       '  seo version',
@@ -108,6 +148,12 @@ function printHelp() {
       '  seo help'
     ].join('\n')
   )
+}
+
+function getFlag(argv: string[], name: string) {
+  const idx = argv.indexOf(name)
+  if (idx >= 0 && idx + 1 < argv.length) return argv[idx + 1]
+  return ''
 }
 
 const cliImportMeta = import.meta as ImportMeta & { main?: boolean }
