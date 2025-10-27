@@ -25,6 +25,7 @@ type CliCommand =
   | 'article-publish'
   | 'integration-add-webhook'
   | 'integration-test'
+  | 'integration-add-webflow'
 
 export async function runCli(args: string[] = process.argv.slice(2)) {
   const command = normalizeCommand(args[0])
@@ -375,6 +376,32 @@ export async function runCli(args: string[] = process.argv.slice(2)) {
       console.log(`integration ${data?.id ?? ''}`)
       return
     }
+    case 'integration-add-webflow': {
+      const baseUrl = process.env.SEO_AGENT_BASE_URL || 'http://localhost:5173'
+      const projectId = getFlag(args, '--project') || ''
+      const siteId = getFlag(args, '--site') || ''
+      const collectionId = getFlag(args, '--collection') || ''
+      const draft = getFlag(args, '--draft') || 'true'
+      if (!projectId || !siteId || !collectionId) {
+        console.error('usage: seo integration-add-webflow --project <id> --site <id> --collection <id> [--draft true|false]')
+        process.exitCode = 1
+        return
+      }
+      const api = new URL('/api/integrations', baseUrl).toString()
+      const res = await fetch(api, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ projectId, type: 'webflow', status: 'connected', config: { siteId, collectionId, draft: draft === 'true' } })
+      })
+      if (!res.ok) {
+        console.error(`integration add failed: HTTP ${res.status}`)
+        process.exitCode = 1
+        return
+      }
+      const data = (await res.json()) as { id?: string }
+      console.log(`integration ${data?.id ?? ''}`)
+      return
+    }
     case 'integration-test': {
       const baseUrl = process.env.SEO_AGENT_BASE_URL || 'http://localhost:5173'
       const id = getFlag(args, '--integration') || ''
@@ -427,6 +454,7 @@ function normalizeCommand(input?: string): CliCommand {
   if (input.toLowerCase() === 'article-ls') return 'article-ls'
   if (input.toLowerCase() === 'article-publish') return 'article-publish'
   if (input.toLowerCase() === 'integration-add-webhook') return 'integration-add-webhook'
+  if (input.toLowerCase() === 'integration-add-webflow') return 'integration-add-webflow'
   if (input.toLowerCase() === 'integration-test') return 'integration-test'
   return 'help'
 }
@@ -475,6 +503,7 @@ function printHelp() {
       '  article-ls --project <id> [--limit 90]',
       '  article-publish --article <id> --integration <id>',
       '  integration-add-webhook --project <id> --url <target> [--secret s]',
+      '  integration-add-webflow --project <id> --site <id> --collection <id> [--draft true|false]',
       '  integration-test --integration <id>',
       '',
       'Examples:',

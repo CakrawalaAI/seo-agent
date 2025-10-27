@@ -30,5 +30,12 @@ describe('cli integrations', () => {
     await runCli(['integration-test', '--integration', 'int_1'])
     expect(logs.join('\n')).toContain('ok')
   })
-})
 
+  it('integration-add-webflow prints id', async () => {
+    globalThis.fetch = vi.fn(async () =>
+      new Response(JSON.stringify({ id: 'int_wf' }), { headers: { 'content-type': 'application/json' } })
+    ) as any
+    await runCli(['integration-add-webflow', '--project', 'proj_1', '--site', 'site1', '--collection', 'col1'])
+    expect(logs.join('\n')).toContain('integration int_wf')
+  })
+})
