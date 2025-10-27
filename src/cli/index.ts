@@ -26,6 +26,8 @@ type CliCommand =
   | 'integration-add-webhook'
   | 'integration-test'
   | 'integration-add-webflow'
+  | 'article-generate'
+  | 'article-edit'
 
 export async function runCli(args: string[] = process.argv.slice(2)) {
   const command = normalizeCommand(args[0])
@@ -351,6 +353,59 @@ export async function runCli(args: string[] = process.argv.slice(2)) {
       console.log(`publish job ${data?.jobId ?? ''}`)
       return
     }
+    case 'article-generate': {
+      const baseUrl = process.env.SEO_AGENT_BASE_URL || 'http://localhost:5173'
+      const planItemId = getFlag(args, '--plan') || ''
+      if (!planItemId) {
+        console.error('usage: seo article-generate --plan <planItemId>')
+        process.exitCode = 1
+        return
+      }
+      const api = new URL('/api/articles/generate', baseUrl).toString()
+      const res = await fetch(api, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ planItemId })
+      })
+      if (!res.ok) {
+        console.error(`article generate failed: HTTP ${res.status}`)
+        process.exitCode = 1
+        return
+      }
+      const data = (await res.json()) as { articleId?: string }
+      console.log(`generated ${data?.articleId ?? ''}`)
+      return
+    }
+    case 'article-edit': {
+      const baseUrl = process.env.SEO_AGENT_BASE_URL || 'http://localhost:5173'
+      const articleId = getFlag(args, '--article') || ''
+      const file = getFlag(args, '--file') || ''
+      if (!articleId) {
+        console.error('usage: seo article-edit --article <id> [--file path] (reads stdin if no file)')
+        process.exitCode = 1
+        return
+      }
+      let bodyHtml = ''
+      if (file) {
+        const fs = await import('node:fs/promises')
+        bodyHtml = await fs.readFile(file, 'utf-8')
+      } else {
+        bodyHtml = await readStdin()
+      }
+      const api = new URL(`/api/articles/${encodeURIComponent(articleId)}`, baseUrl).toString()
+      const res = await fetch(api, {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ bodyHtml })
+      })
+      if (!res.ok) {
+        console.error(`article edit failed: HTTP ${res.status}`)
+        process.exitCode = 1
+        return
+      }
+      console.log('ok')
+      return
+    }
     case 'integration-add-webhook': {
       const baseUrl = process.env.SEO_AGENT_BASE_URL || 'http://localhost:5173'
       const projectId = getFlag(args, '--project') || ''
@@ -456,6 +511,8 @@ function normalizeCommand(input?: string): CliCommand {
   if (input.toLowerCase() === 'integration-add-webhook') return 'integration-add-webhook'
   if (input.toLowerCase() === 'integration-add-webflow') return 'integration-add-webflow'
   if (input.toLowerCase() === 'integration-test') return 'integration-test'
+  if (input.toLowerCase() === 'article-generate') return 'article-generate'
+  if (input.toLowerCase() === 'article-edit') return 'article-edit'
   return 'help'
 }
 
@@ -502,6 +559,8 @@ function printHelp() {
       '  schedule-run --project <id>',
       '  article-ls --project <id> [--limit 90]',
       '  article-publish --article <id> --integration <id>',
+      '  article-generate --plan <planItemId>',
+      '  article-edit --article <id> [--file path] (reads stdin if no file)',
       '  integration-add-webhook --project <id> --url <target> [--secret s]',
       '  integration-add-webflow --project <id> --site <id> --collection <id> [--draft true|false]',
       '  integration-test --integration <id>',
@@ -518,6 +577,16 @@ function getFlag(argv: string[], name: string) {
   const idx = argv.indexOf(name)
   if (idx >= 0 && idx + 1 < argv.length) return argv[idx + 1]
   return ''
+}
+
+async function readStdin() {
+  const { stdin } = process as any
+  if (stdin.isTTY) return ''
+  const chunks: Array<Buffer> = []
+  for await (const chunk of stdin) {
+    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk)))
+  }
+  return Buffer.concat(chunks).toString('utf-8')
 }
 
 const cliImportMeta = import.meta as ImportMeta & { main?: boolean }

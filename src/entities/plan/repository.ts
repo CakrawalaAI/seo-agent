@@ -40,9 +40,16 @@ export const planRepo = {
     }
     return null
   }
+  ,
+  findById(planItemId: string): { projectId: string; item: PlanItem } | null {
+    for (const [projectId, items] of byProject.entries()) {
+      const found = items.find((i) => i.id === planItemId)
+      if (found) return { projectId, item: found }
+    }
+    return null
+  }
 }
 
 function genId(prefix: string) {
   return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`
 }
-
