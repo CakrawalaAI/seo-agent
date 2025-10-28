@@ -23,7 +23,8 @@ export const Route = createFileRoute('/api/crawl/pages')({
             // @ts-ignore
             const rows = await (db.select().from(crawlPages).where(eq(crawlPages.projectId, projectId)).limit(Number.isFinite(limit) ? limit : 100) as any)
             const filtered = q ? rows.filter((r: any) => String(r.url || '').includes(q) || String(r?.metaJson?.title || '').includes(q)) : rows
-            return json({ items: filtered })
+            if (filtered.length > 0) return json({ items: filtered })
+            // else fall through to in-memory repo
           } catch {}
         }
         const items = crawlRepo.list(projectId, Number.isFinite(limit) ? limit : 100).filter((r: any) => !q || r.url.includes(q) || String((r as any)?.metaJson?.title || '').includes(q))

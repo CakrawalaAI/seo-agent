@@ -52,8 +52,11 @@ export function DashboardScreen(): JSX.Element {
 
   const portalMutation = useMutation({
     mutationFn: async () => {
-      // Redirect handled by Better Auth client
-      await authClient.customer.portal()
+      const res = await fetch('/api/billing/portal', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({}) })
+      if (!res.ok) return null
+      const data = (await res.json().catch(() => ({}))) as any
+      const url = data?.url
+      if (url && typeof window !== 'undefined') window.location.href = url
       return null
     }
   })

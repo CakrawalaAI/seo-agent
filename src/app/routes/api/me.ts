@@ -10,6 +10,17 @@ export const Route = createFileRoute('/api/me')({
   server: {
     handlers: {
       GET: async ({ request }) => {
+        if (process.env.E2E_NO_AUTH === '1') {
+          const today = new Date().toISOString()
+          const devOrg = { id: 'org-dev', name: 'Development Org', plan: 'starter' }
+          return json({
+            user: { email: 'dev@example.com', name: 'Dev User' },
+            activeOrg: { id: devOrg.id, plan: devOrg.plan },
+            entitlements: { monthlyPostCredits: 1, projectQuota: 5 },
+            usage: { postsUsed: 0, monthlyPostCredits: 1, cycleStart: today },
+            orgs: [devOrg]
+          })
+        }
         const s = await auth.api.getSession({ headers: request.headers as any })
         if (!s) return json({ user: null, activeOrg: null, entitlements: null, orgs: [] })
         let activeOrg: { id: string; plan?: string } | null = null

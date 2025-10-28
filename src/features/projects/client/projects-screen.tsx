@@ -131,13 +131,6 @@ export function ProjectsScreen(): JSX.Element {
         <section className="rounded-lg border bg-card p-6 text-sm text-destructive shadow-sm">
           Unable to load projects. Refresh the page or check the API logs.
         </section>
-      ) : projects.length === 0 ? (
-        <section className="rounded-lg border bg-card p-6 shadow-sm">
-          <h2 className="text-lg font-semibold">No projects yet</h2>
-          <p className="mt-2 text-sm text-muted-foreground">
-            Run <code>seo project create</code> from the CLI to register your first site, or use the web dashboard once the creation flow is wired.
-          </p>
-        </section>
       ) : (
         <>
           <section className="rounded-lg border bg-card p-6 shadow-sm">
@@ -208,35 +201,44 @@ export function ProjectsScreen(): JSX.Element {
             </form>
           </section>
 
-          <section className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-            {projects.map((project) => (
-              <article key={project.id} className="flex flex-col gap-3 rounded-lg border bg-card p-4 shadow-sm">
-                <div className="space-y-1">
-                  <h2 className="text-lg font-semibold text-primary">{project.name}</h2>
-                  <p className="text-sm text-muted-foreground">{project.siteUrl}</p>
-                </div>
-                <dl className="space-y-1 text-xs text-muted-foreground">
-                  <div className="flex justify-between gap-4">
-                    <dt>Locale</dt>
-                    <dd className="font-medium text-foreground">{project.defaultLocale}</dd>
+          {projects.length === 0 ? (
+            <section className="rounded-lg border bg-card p-6 shadow-sm">
+              <h2 className="text-lg font-semibold">No projects yet</h2>
+              <p className="mt-2 text-sm text-muted-foreground">
+                Use the form above to add your first site. A crawl job starts automatically after creation.
+              </p>
+            </section>
+          ) : (
+            <section className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+              {projects.map((project) => (
+                <article key={project.id} className="flex flex-col gap-3 rounded-lg border bg-card p-4 shadow-sm">
+                  <div className="space-y-1">
+                    <h2 className="text-lg font-semibold text-primary">{project.name}</h2>
+                    <p className="text-sm text-muted-foreground">{project.siteUrl}</p>
                   </div>
-                  <div className="flex justify-between gap-4">
-                    <dt>Created</dt>
-                    <dd className="font-medium text-foreground">{formatDateTime(project.createdAt)}</dd>
+                  <dl className="space-y-1 text-xs text-muted-foreground">
+                    <div className="flex justify-between gap-4">
+                      <dt>Locale</dt>
+                      <dd className="font-medium text-foreground">{project.defaultLocale}</dd>
+                    </div>
+                    <div className="flex justify-between gap-4">
+                      <dt>Created</dt>
+                      <dd className="font-medium text-foreground">{formatDateTime(project.createdAt)}</dd>
+                    </div>
+                  </dl>
+                  <div className="mt-auto pt-2">
+                    <Link
+                      to="/projects/$projectId"
+                      params={{ projectId: project.id }}
+                      className="inline-flex items-center justify-center rounded-md border border-input px-3 py-1.5 text-sm font-medium transition hover:bg-muted"
+                    >
+                      View project
+                    </Link>
                   </div>
-                </dl>
-                <div className="mt-auto pt-2">
-                  <Link
-                    to="/projects/$projectId"
-                    params={{ projectId: project.id }}
-                    className="inline-flex items-center justify-center rounded-md border border-input px-3 py-1.5 text-sm font-medium transition hover:bg-muted"
-                  >
-                    View project
-                  </Link>
-                </div>
-              </article>
-            ))}
-          </section>
+                </article>
+              ))}
+            </section>
+          )}
         </>
       )}
     </main>

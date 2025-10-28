@@ -5,8 +5,7 @@ import { reactStartCookies } from 'better-auth/react-start'
 import { organization } from 'better-auth/plugins'
 import { getDb, hasDatabase } from '@common/infra/db'
 import { schema } from '@common/infra/schema'
-import { polar, checkout, portal, usage, webhooks } from '@polar-sh/better-auth'
-import { Polar } from '@polar-sh/sdk'
+// Decoupled: we no longer use Better Auth Polar plugin
 import { orgs, orgUsage } from '@entities/org/db/schema'
 
 // Server-side Better Auth instance
@@ -28,12 +27,7 @@ const databaseAdapter = hasDatabase()
 const googleClientId = process.env.GOOGLE_CLIENT_ID || ''
 const googleClientSecret = process.env.GOOGLE_CLIENT_SECRET || ''
 
-// Note: better-auth will infer baseURL from incoming requests.
-const polarServer = process.env.POLAR_SERVER === 'sandbox' ? 'sandbox' : process.env.POLAR_SERVER === 'production' ? 'production' : undefined
-const polarClient = new Polar({
-  accessToken: process.env.POLAR_ACCESS_TOKEN || '',
-  server: polarServer
-})
+// Note: Polar SDK handled in our own /api/billing/* endpoints
 
 export const auth = betterAuth({
   // Provide adapter factory directly (no async wrapper)
@@ -53,29 +47,7 @@ export const auth = betterAuth({
         // We keep member/invitation/teams on plugin defaults (new tables)
       }
     }),
-    polar({
-      client: polarClient,
-      // Avoid duplicate-customer errors in dev/sandbox by default.
-      // Override with POLAR_CREATE_CUSTOMER_ON_SIGNUP=1 to force creation.
-      createCustomerOnSignUp:
-        process.env.POLAR_CREATE_CUSTOMER_ON_SIGNUP === '1' ||
-        (process.env.POLAR_CREATE_CUSTOMER_ON_SIGNUP !== '0' && process.env.POLAR_SERVER !== 'sandbox'),
-      use: [
-        // Keep Checkout enabled (for portal compat), but we won't use product slugs.
-        checkout({
-          successUrl: '/dashboard?billing=success&checkout_id={CHECKOUT_ID}',
-          authenticatedUsersOnly: true
-        }),
-        portal(),
-        usage(),
-        webhooks({
-          secret: process.env.POLAR_WEBHOOK_SECRET || '',
-          onOrderPaid: async (payload) => { await handleSubscriptionUpsert(payload as any).catch(() => {}) },
-          onSubscriptionActive: async (payload) => { await handleSubscriptionUpsert(payload as any).catch(() => {}) },
-          onSubscriptionUpdated: async (payload) => { await handleSubscriptionUpsert(payload as any).catch(() => {}) }
-        })
-      ]
-    }),
+    // Polar plugin removed; we manage billing via REST endpoints
     // keep cookie plugin last
     reactStartCookies()
   ],

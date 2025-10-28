@@ -34,7 +34,8 @@ export const Route = createFileRoute('/api/projects/$projectId/link-graph')({
             for (const u of Array.from(urls)) {
               nodes.push({ id: u, url: u, title: titleByUrl.get(u) ?? null })
             }
-            return json({ nodes, edges })
+            if (nodes.length > 0 || edges.length > 0) return json({ nodes, edges })
+            // else fall through to in-memory
           } catch {}
         }
 
