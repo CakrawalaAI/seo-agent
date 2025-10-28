@@ -51,6 +51,11 @@ export function PlanTab({
 
   return (
     <section className="space-y-4">
+      <div className="rounded-md border border-dashed bg-muted/30 p-3 text-xs text-muted-foreground">
+        <p>
+          Buffer policy: drafts auto-publish after the buffer window unless edited or skipped. Default buffer is 3 days.
+        </p>
+      </div>
       <div className="flex flex-wrap items-center gap-3">
         <button
           type="button"

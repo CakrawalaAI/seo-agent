@@ -65,7 +65,8 @@ export function DashboardScreen(): JSX.Element {
         label: 'Workspace',
         items: [
           { key: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, active: true, element: <Link to="/dashboard" /> },
-          { key: 'projects', label: 'Projects', icon: SquareStack, element: <Link to="/projects" /> }
+          { key: 'projects', label: 'Projects', icon: SquareStack, element: <Link to="/projects" /> },
+          { key: 'settings', label: 'Settings', icon: FileText, element: <Link to="/settings" /> }
         ]
       },
       {
@@ -84,8 +85,10 @@ export function DashboardScreen(): JSX.Element {
           key: 'shortcuts',
           label: 'Shortcuts',
           items: [
-            { key: 'keywords', label: 'Keywords', icon: FileText, element: <Link to={`/projects/${firstProjectId}`} search={{ tab: 'keywords' }} /> },
-            { key: 'calendar', label: 'Content calendar', icon: CalendarRange, element: <Link to={`/projects/${firstProjectId}`} search={{ tab: 'plan' }} /> }
+            { key: 'keywords', label: 'Keywords', icon: FileText, element: <Link to="/projects/$projectId" params={{ projectId: firstProjectId }} search={{ tab: 'keywords' }} /> },
+            { key: 'calendar', label: 'Content calendar', icon: CalendarRange, element: <Link to="/projects/$projectId" params={{ projectId: firstProjectId }} search={{ tab: 'plan' }} /> },
+            { key: 'articles', label: 'Articles', icon: FileText, element: <Link to="/projects/$projectId" params={{ projectId: firstProjectId }} search={{ tab: 'articles' }} /> },
+            { key: 'integrations', label: 'Integrations', icon: FileText, element: <Link to="/projects/$projectId" params={{ projectId: firstProjectId }} search={{ tab: 'integrations' }} /> }
           ]
         })
       }

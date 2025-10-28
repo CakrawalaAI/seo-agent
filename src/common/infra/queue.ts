@@ -1,7 +1,6 @@
-import type { Connection, Channel } from 'amqplib'
-
-let conn: Connection | null = null
-let chan: Channel | null = null
+// Relax types to avoid amqplib type variance issues across versions
+let conn: any = null
+let chan: any = null
 
 const PREFIX = process.env.RABBITMQ_QUEUE_PREFIX || ''
 const BASE_QUEUE = process.env.SEOA_QUEUE_NAME || 'seo_jobs'
@@ -25,13 +24,13 @@ export function queueEnabled() {
   return Boolean(process.env.RABBITMQ_URL)
 }
 
-export async function getChannel(): Promise<Channel> {
+export async function getChannel(): Promise<any> {
   if (chan) return chan
   if (!process.env.RABBITMQ_URL) {
     throw new Error('RABBITMQ_URL not set')
   }
   const amqp = await import('amqplib')
-  conn = await amqp.connect(process.env.RABBITMQ_URL)
+  conn = await (amqp as any).connect(process.env.RABBITMQ_URL)
   chan = await conn.createChannel()
   // Topic exchange for routing by type.projectId
   await chan.assertExchange(EXCHANGE_NAME, 'topic', { durable: true })
@@ -67,7 +66,7 @@ export async function consumeJobs(
   const ch = await getChannel()
   const prefetch = Math.max(1, Number(process.env.RABBITMQ_PREFETCH || '1'))
   await ch.prefetch(prefetch)
-  ch.consume(QUEUE_NAME, async (msg) => {
+  ch.consume(QUEUE_NAME, async (msg: any) => {
     if (!msg) return
     try {
       const parsed = JSON.parse(msg.content.toString()) as JobMessage & { id: string }

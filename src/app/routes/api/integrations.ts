@@ -9,7 +9,7 @@ export const Route = createFileRoute('/api/integrations')({
   server: {
     handlers: {
       POST: safeHandler(async ({ request }) => {
-        requireSession(request)
+        await requireSession(request)
         const body = await request.json().catch(() => ({}))
         const { projectId, type, status, config } = body ?? {}
         if (!projectId || !type) return httpError(400, 'Missing fields')

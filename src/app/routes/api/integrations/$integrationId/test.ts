@@ -9,7 +9,7 @@ export const Route = createFileRoute('/api/integrations/$integrationId/test')({
   server: {
     handlers: {
       POST: async ({ params, request }) => {
-        requireSession(request)
+        await requireSession(request)
         const integration = integrationsRepo.get(params.integrationId)
         if (!integration) return new Response('Not found', { status: 404 })
         let ok = false

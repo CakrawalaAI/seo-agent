@@ -1,7 +1,7 @@
 // @ts-nocheck
 import { createFileRoute } from '@tanstack/react-router'
 import { json, httpError, safeHandler, requireSession } from '@app/api-utils'
-import { session } from '@common/infra/session'
+import { auth } from '@common/auth/server'
 import { hasDatabase, getDb } from '@common/infra/db'
 import { orgs, orgMembers } from '@entities/org/db/schema'
 
@@ -21,7 +21,7 @@ export const Route = createFileRoute('/api/orgs/invites/$token/accept')({
   server: {
     handlers: {
       POST: safeHandler(async ({ params, request }) => {
-        const sess = requireSession(request)
+        const sess = await requireSession(request)
         const parsed = parseToken(params.token)
         if (!parsed) return httpError(400, 'Invalid token')
         const orgId = parsed.orgId
@@ -35,11 +35,10 @@ export const Route = createFileRoute('/api/orgs/invites/$token/accept')({
             }
           } catch {}
         }
-        const next = { ...sess, activeOrg: { id: orgId, plan: 'starter' } }
-        const cookie = session.set(next)
-        return new Response(null, { status: 204, headers: { 'Set-Cookie': cookie } })
+        // Set Better Auth active organization on session
+        const resp = await auth.api.setActiveOrganization({ headers: request.headers as any, body: { organizationId: orgId }, asResponse: true })
+        return resp
       })
     }
   }
 })
-

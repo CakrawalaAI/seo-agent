@@ -15,7 +15,7 @@ export const Route = createFileRoute('/api/crawl/pages')({
         const limit = Number(url.searchParams.get('limit') || '100')
         const q = url.searchParams.get('q') || ''
         if (!projectId) return httpError(400, 'Missing projectId')
-        requireSession(request)
+        await requireSession(request)
         await requireProjectAccess(request, String(projectId))
         if (hasDatabase()) {
           try {

@@ -10,7 +10,7 @@ export const Route = createFileRoute('/api/crawl/runs')({
         const url = new URL(request.url)
         const projectId = url.searchParams.get('projectId')
         if (!projectId) return httpError(400, 'Missing projectId')
-        requireSession(request)
+        await requireSession(request)
         await requireProjectAccess(request, String(projectId))
         const latest = discoveryRepo.latest(String(projectId))
         return json({ items: latest ? [latest] : [] })
@@ -18,4 +18,3 @@ export const Route = createFileRoute('/api/crawl/runs')({
     }
   }
 })
-

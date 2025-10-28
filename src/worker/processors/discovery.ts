@@ -24,8 +24,8 @@ export async function processDiscovery(payload: { projectId: string; locale?: st
         const topUrls = Array.from(indeg.entries()).sort((a, b) => b[1] - a[1]).slice(0, 50).map(([u]) => u)
         // @ts-ignore
         const rows = await (db.select().from(crawlPages).where(eq(crawlPages.projectId, projectId)).limit(1000) as any)
-        const byUrl = new Map(rows.map((r: any) => [r.url, r]))
-        pages = topUrls.map((u) => ({ url: u, title: (byUrl.get(u)?.metaJson as any)?.title }))
+        const byUrl = new Map<string, any>(rows.map((r: any) => [r.url, r]))
+        pages = topUrls.map((u) => ({ url: u, title: ((byUrl.get(u) as any)?.metaJson)?.title }))
       }
       if (pages.length === 0) {
         // @ts-ignore

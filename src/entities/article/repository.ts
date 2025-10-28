@@ -38,7 +38,7 @@ export const articlesRepo = {
       createdAt: now,
       updatedAt: now
     }
-    if (hasDatabase()) void (async () => { try { const db = getDb(); await db.insert(articles).values(article).onConflictDoNothing(); } catch {} })()
+    if (hasDatabase()) void (async () => { try { const db = getDb(); await db.insert(articles).values(article as any).onConflictDoNothing?.(); } catch {} })()
     const current = byProject.get(input.projectId) ?? []
     byProject.set(input.projectId, [article, ...current])
     byId.set(article.id, article)
@@ -48,7 +48,7 @@ export const articlesRepo = {
     const current = this.get(id)
     if (!current) return null
     const updated: Article = { ...current, ...patch, updatedAt: new Date().toISOString() }
-    if (hasDatabase()) void (async () => { try { const db = getDb(); await db.update(articles).set(updated).where(eq(articles.id, id)); } catch {} })()
+    if (hasDatabase()) void (async () => { try { const db = getDb(); await db.update(articles).set(updated as any).where(eq(articles.id, id)); } catch {} })()
     byId.set(id, updated)
     const list = byProject.get(updated.projectId) ?? []
     const idx = list.findIndex((a) => a.id === id)

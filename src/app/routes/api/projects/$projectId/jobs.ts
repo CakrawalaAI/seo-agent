@@ -11,7 +11,7 @@ export const Route = createFileRoute('/api/projects/$projectId/jobs')({
   server: {
     handlers: {
       GET: async ({ params, request }) => {
-        requireSession(request)
+        await requireSession(request)
         await requireProjectAccess(request, params.projectId)
         const url = new URL(request.url)
         const limit = Number(url.searchParams.get('limit') || '25')

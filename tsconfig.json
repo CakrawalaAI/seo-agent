@@ -10,7 +10,7 @@
     "forceConsistentCasingInFileNames": true,
     "allowSyntheticDefaultImports": true,
     "resolveJsonModule": true,
-    "types": ["node"],
+    "types": ["node", "vitest/globals"],
     "baseUrl": ".",
     "paths": {
       "@/*": ["src/*"],

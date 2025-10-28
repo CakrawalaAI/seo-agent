@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { Link } from '@tanstack/react-router'
 
 import type { PublishState } from '@features/plan/shared/state-machines'
@@ -31,11 +31,32 @@ export function ArticlesTab({
   isLoading
 }: ArticlesTabProps) {
   const [selections, setSelections] = useState<Record<string, string>>({})
+  const [tab, setTab] = useState<'drafts' | 'published'>('drafts')
 
   const connected = integrations.filter((integration) => integration.status === 'connected')
 
+  const drafts = useMemo(() => articles.filter((a) => a.status !== 'published'), [articles])
+  const published = useMemo(() => articles.filter((a) => a.status === 'published'), [articles])
+  const visible = tab === 'drafts' ? drafts : published
+
   return (
     <section className="space-y-4">
+      <div className="flex items-center gap-2 text-xs">
+        <button
+          type="button"
+          className={`rounded-full px-3 py-1 font-semibold ${tab === 'drafts' ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground'}`}
+          onClick={() => setTab('drafts')}
+        >
+          Drafts ({drafts.length})
+        </button>
+        <button
+          type="button"
+          className={`rounded-full px-3 py-1 font-semibold ${tab === 'published' ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground'}`}
+          onClick={() => setTab('published')}
+        >
+          Published ({published.length})
+        </button>
+      </div>
       <div className="flex flex-wrap items-center gap-3">
         <button
           type="button"
@@ -54,9 +75,11 @@ export function ArticlesTab({
 
       {isLoading ? (
         <p className="text-sm text-muted-foreground">Loading articles…</p>
-      ) : articles.length === 0 ? (
+      ) : visible.length === 0 ? (
         <p className="text-sm text-muted-foreground">
-          No drafts yet. Run the daily schedule to generate a draft for today’s plan item.
+          {tab === 'drafts'
+            ? 'No drafts yet. Run the daily schedule to generate a draft for today’s plan item.'
+            : 'No published articles yet.'}
         </p>
       ) : (
         <div className="overflow-x-auto rounded-lg border bg-card shadow-sm">
@@ -71,7 +94,7 @@ export function ArticlesTab({
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
-              {articles.map((article) => {
+              {visible.map((article) => {
                 const planItem = planItemMap.get(article.planItemId ?? '')
                 const chosenIntegration = selections[article.id] ?? connected[0]?.id ?? ''
                 const status = article.status ?? 'unknown'

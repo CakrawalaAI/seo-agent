@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { authClient } from '@common/auth/client'
 
 export function Page() {
   const [loading, setLoading] = useState(false)
@@ -8,28 +9,15 @@ export function Page() {
     setLoading(true)
     setError(null)
     try {
-      const response = await fetch('/api/auth/sign-in/social', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({
-          provider: 'google',
-          callbackURL: '/dashboard',
-          errorCallbackURL: '/login?error=oauth'
-        })
+      const res = await authClient.signIn.social({
+        provider: 'google',
+        callbackURL: '/dashboard',
+        errorCallbackURL: '/login?error=oauth'
       })
-
-      if (!response.ok) {
-        throw new Error(`Failed with status ${response.status}`)
+      // better-auth client auto-redirects if res.data.url present
+      if (!res?.data?.url && res?.error) {
+        setError(res.error.message || 'Could not start Google sign-in.')
       }
-
-      const data = (await response.json()) as { url?: string; redirect?: boolean }
-      if (typeof data?.url === 'string') {
-        window.location.href = data.url
-        return
-      }
-
-      setError('Unexpected sign-in response. Please try again.')
     } catch (err) {
       console.error('google sign-in failed', err)
       setError('Could not start Google sign-in. Please try again.')
@@ -60,4 +48,3 @@ export function Page() {
     </main>
   )
 }
-

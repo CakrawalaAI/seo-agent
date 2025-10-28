@@ -10,4 +10,5 @@ export type Job = {
   finishedAt?: string | null
   resultJson?: Record<string, unknown> | null
   errorJson?: Record<string, unknown> | null
+  retries?: number | null
 }

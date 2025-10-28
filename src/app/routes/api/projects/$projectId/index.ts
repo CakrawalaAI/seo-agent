@@ -59,7 +59,7 @@ export const Route = createFileRoute('/api/projects/$projectId/')({
       })
       ,
       DELETE: safeHandler(async ({ params, request }) => {
-        requireSession(request)
+        await requireSession(request)
         await requireProjectAccess(request, params.projectId)
         if (hasDatabase()) {
           try {

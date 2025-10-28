@@ -10,7 +10,7 @@ export const Route = createFileRoute('/api/jobs/$jobId')({
   server: {
     handlers: {
       GET: safeHandler(async ({ params, request }) => {
-        requireSession(request)
+        await requireSession(request)
         const id = params.jobId
         if (hasDatabase()) {
           try {
@@ -28,4 +28,3 @@ export const Route = createFileRoute('/api/jobs/$jobId')({
     }
   }
 })
-

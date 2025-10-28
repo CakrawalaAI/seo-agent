@@ -10,7 +10,7 @@ export const Route = createFileRoute('/api/articles/$articleId/')({
   server: {
     handlers: {
       GET: async ({ params, request }) => {
-        requireSession(request)
+        await requireSession(request)
         const article = articlesRepo.get(params.articleId)
         if (!article) {
           if (hasDatabase()) {

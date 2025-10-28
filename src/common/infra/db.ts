@@ -1,5 +1,6 @@
 import { drizzle } from 'drizzle-orm/postgres-js'
 import postgres from 'postgres'
+import { schema } from './schema'
 
 let dbSingleton: ReturnType<typeof drizzle> | null = null
 
@@ -13,7 +14,6 @@ export function getDb() {
   }
   if (dbSingleton) return dbSingleton
   const client = postgres(process.env.DATABASE_URL, { prepare: true, max: 1 })
-  dbSingleton = drizzle(client)
+  dbSingleton = drizzle(client, { schema })
   return dbSingleton
 }
-

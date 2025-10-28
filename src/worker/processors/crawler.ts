@@ -37,8 +37,11 @@ export async function processCrawl(payload: { projectId: string }) {
     } catch { usePlaywright = false }
   }
 
-  const visitLimit = Math.max(1, Math.min(500, Number((project as any)?.crawlBudgetPages ?? env.crawlBudgetPages || 50)))
-  const maxDepth = Math.max(0, Number((project as any)?.crawlMaxDepth ?? env.crawlMaxDepth ?? 2))
+  const visitLimit = Math.max(
+    1,
+    Math.min(500, Number((project as any)?.crawlBudgetPages ?? (env.crawlBudgetPages ?? 50)))
+  )
+  const maxDepth = Math.max(0, Number((project as any)?.crawlMaxDepth ?? (env.crawlMaxDepth ?? 2)))
   const seen = new Set<string>()
   const queue: Array<{ url: string; depth: number }> = [...initialSeeds]
   for (let qi = 0; qi < queue.length && seen.size < visitLimit; qi++) {
@@ -58,7 +61,12 @@ export async function processCrawl(payload: { projectId: string }) {
         title = await page.title().catch(() => '')
         try { pageHtml = await page.content() } catch {}
         // discover more links (same host)
-        const anchors = await page.$$eval('a[href]', (els) => els.map((a) => ({ href: (a as HTMLAnchorElement).getAttribute('href') || '', text: (a as HTMLAnchorElement).textContent || '' })))
+        const anchors = await page.$$eval('a[href]', (els: any[]) =>
+          els.map((a: any) => ({
+            href: (a as HTMLAnchorElement).getAttribute('href') || '',
+            text: (a as HTMLAnchorElement).textContent || ''
+          }))
+        )
         const base = new URL(url)
         for (const anchor of anchors) {
           const href = anchor.href
@@ -70,8 +78,12 @@ export async function processCrawl(payload: { projectId: string }) {
             }
           } catch {}
         }
-        const hNodes: Array<{ level: number; text: string }> = []
-        const h1s = await page.$$eval('h1, h2, h3', (nodes) => nodes.map((n) => ({ level: Number(n.tagName.slice(1)), text: (n.textContent || '').trim() })))
+        const h1s = await page.$$eval('h1, h2, h3', (nodes: any[]) =>
+          nodes.map((n: any) => ({
+            level: Number((n.tagName as string).slice(1)),
+            text: ((n.textContent as string) || '').trim()
+          }))
+        )
         headings = h1s
       } else {
         const res = await fetch(url)

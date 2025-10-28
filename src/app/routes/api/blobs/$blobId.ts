@@ -11,7 +11,7 @@ export const Route = createFileRoute('/api/blobs/$blobId')({
       GET: async ({ params, request }) => {
         // Basic auth: require a session unless explicitly allowed via env
         if (process.env.SEOA_BLOBS_PUBLIC !== '1') {
-          try { requireSession(request as any) } catch (e) { return e as Response }
+          try { await requireSession(request as any) } catch (e) { return e as Response }
           if (hasDatabase()) {
             try {
               const db = getDb()

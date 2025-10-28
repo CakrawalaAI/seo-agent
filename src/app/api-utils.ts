@@ -33,33 +33,60 @@ export const safeHandler = (
 }
 
 // Auth helpers (cookie-based session)
-import { session } from '@common/infra/session'
 import { hasDatabase, getDb } from '@common/infra/db'
 import { projects } from '@entities/project/db/schema'
-import { orgMembers } from '@entities/org/db/schema'
+import { orgMembers, orgs } from '@entities/org/db/schema'
 import { projectsRepo } from '@entities/project/repository'
 import { eq } from 'drizzle-orm'
+import { auth } from '@common/auth/server'
+import { session } from '@common/infra/session'
 
-export function requireSession(request: Request) {
+export async function requireSession(request: Request) {
   if (process.env.E2E_NO_AUTH === '1') {
-    // bypass in e2e/dev if explicitly allowed
     return { user: { email: 'e2e@example.com' }, activeOrg: { id: 'org-dev' } }
   }
-  const sess = session.read(request)
-  if (!sess || !sess.user) {
+  const result = await auth.api.getSession({ headers: request.headers as any })
+  // Fallback to dev/session cookie for tests
+  if (!result) {
+    const fallback = session.read(request)
+    if (fallback?.user) {
+      return { user: fallback.user, activeOrg: fallback.activeOrg }
+    }
     throw httpError(401, 'Unauthorized')
   }
-  return sess
+  const user = result.user
+  // derive active org heuristically (first membership) or via Better Auth session activeOrganizationId
+  let activeOrg: { id: string; plan?: string } | undefined
+  const activeId = (result as any)?.session?.activeOrganizationId as string | undefined
+  if (hasDatabase()) {
+    try {
+      const db = getDb()
+      // @ts-ignore
+      const membs = (await db.select().from(orgMembers).where(eq(orgMembers.userEmail, user.email)).limit(25)) as any
+      const ids = new Set<string>(membs.map((m: any) => String(m.orgId)))
+      // @ts-ignore
+      const rows = (await db.select().from(orgs).limit(100)) as any
+      if (activeId) {
+        const found = rows.find((o: any) => String(o.id) === String(activeId))
+        if (found) activeOrg = { id: found.id, plan: found.plan }
+      }
+      if (!activeOrg && ids.size) {
+        const joined = rows.filter((o: any) => ids.has(String(o.id)))
+        if (joined.length) activeOrg = { id: joined[0]!.id, plan: joined[0]!.plan }
+      }
+    } catch {}
+  }
+  return { user: { email: user.email, name: user.name }, activeOrg }
 }
 
-export function requireActiveOrg(request: Request) {
-  const sess = requireSession(request)
+export async function requireActiveOrg(request: Request) {
+  const sess = await requireSession(request)
   if (!sess.activeOrg?.id) throw httpError(403, 'Organization not selected')
   return sess.activeOrg.id
 }
 
 export async function requireProjectAccess(request: Request, projectId: string) {
-  const sess = requireSession(request)
+  const sess = await requireSession(request)
   const activeOrgId = sess.activeOrg?.id
   if (!activeOrgId) throw httpError(403, 'Organization not selected')
   let projectOrg: string | null = null

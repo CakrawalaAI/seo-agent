@@ -12,7 +12,7 @@ export const Route = createFileRoute('/api/crawl/run')({
   server: {
     handlers: {
       POST: safeHandler(async ({ request }) => {
-        requireSession(request)
+        await requireSession(request)
         const body = await request.json().catch(() => ({}))
         const projectId = body?.projectId
         const force = body?.force === true

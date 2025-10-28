@@ -1,7 +1,7 @@
 // @ts-nocheck
 import { createFileRoute } from '@tanstack/react-router'
 import { json, httpError, safeHandler, requireSession } from '@app/api-utils'
-import { session } from '@common/infra/session'
+import { auth } from '@common/auth/server'
 import { hasDatabase, getDb } from '@common/infra/db'
 import { orgs, orgMembers } from '@entities/org/db/schema'
 import { eq } from 'drizzle-orm'
@@ -10,7 +10,7 @@ export const Route = createFileRoute('/api/orgs')({
   server: {
     handlers: {
       GET: safeHandler(async ({ request }) => {
-        const sess = requireSession(request)
+        const sess = await requireSession(request)
         if (hasDatabase()) {
           try {
             const db = getDb()
@@ -22,26 +22,19 @@ export const Route = createFileRoute('/api/orgs')({
         return json({ items: sess.orgs ?? [] })
       }),
       POST: safeHandler(async ({ request }) => {
-        const sess = requireSession(request)
+        const sess = await requireSession(request)
         const body = await request.json().catch(() => ({}))
         const action = body?.action
         if (action === 'switch') {
           const orgId = String(body?.orgId || '')
           if (!orgId) return httpError(400, 'Missing orgId')
-          const next = {
-            ...sess,
-            activeOrg: { id: orgId, plan: 'starter' }
-          }
-          if (hasDatabase()) {
-            try {
-              const db = getDb()
-              // @ts-ignore
-              const rows = await (db.select().from(orgs).where(eq(orgs.id, orgId)).limit(1) as any)
-              if (rows[0]) next.activeOrg.plan = rows[0].plan
-            } catch {}
-          }
-          const cookie = session.set(next)
-          return new Response(null, { status: 204, headers: { 'Set-Cookie': cookie } })
+          // Set Better Auth active organization in session
+          const resp = await auth.api.setActiveOrganization({
+            headers: request.headers as any,
+            body: { organizationId: orgId },
+            asResponse: true
+          })
+          return resp
         }
         if (action === 'invite') {
           const email = String(body?.email || '')

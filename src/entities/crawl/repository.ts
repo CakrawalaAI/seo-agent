@@ -31,7 +31,7 @@ export const crawlRepo = {
     if (idx >= 0) list[idx] = record
     else list.unshift(record)
     byProject.set(projectId, list)
-    if (hasDatabase()) void (async () => { try { const db = getDb(); await db.insert(crawlPagesTable).values(record).onConflictDoNothing(); } catch {} })()
+    if (hasDatabase()) void (async () => { try { const db = getDb(); await db.insert(crawlPagesTable).values(record as any).onConflictDoNothing?.(); } catch {} })()
     return record
   },
   seedRun(projectId: string): { jobId: string; added: number } {

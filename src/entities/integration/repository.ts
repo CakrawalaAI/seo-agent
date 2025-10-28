@@ -20,7 +20,7 @@ export const integrationsRepo = {
     const list = byProject.get(input.projectId) ?? []
     byProject.set(input.projectId, [integration, ...list])
     byId.set(integration.id, integration)
-    if (hasDatabase()) void (async () => { try { const db = getDb(); await db.insert(projectIntegrations).values(integration).onConflictDoNothing(); } catch {} })()
+    if (hasDatabase()) void (async () => { try { const db = getDb(); await db.insert(projectIntegrations).values(integration as any).onConflictDoNothing?.(); } catch {} })()
     return integration
   },
   get(id: string): ProjectIntegration | null {
@@ -37,7 +37,7 @@ export const integrationsRepo = {
     const list = byProject.get(next.projectId) ?? []
     const idx = list.findIndex((i) => i.id === id)
     if (idx >= 0) { list[idx] = next; byProject.set(next.projectId, list) }
-    if (hasDatabase()) void (async () => { try { const db = getDb(); await db.update(projectIntegrations).set(next).where((projectIntegrations as any).id.eq(id)); } catch {} })()
+    if (hasDatabase()) void (async () => { try { const db = getDb(); await db.update(projectIntegrations).set(next as any).where((projectIntegrations as any).id.eq(id)); } catch {} })()
     return next
   },
   remove(id: string): boolean {

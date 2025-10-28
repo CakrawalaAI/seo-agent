@@ -9,7 +9,7 @@ export const Route = createFileRoute('/api/integrations/$integrationId/')({
   server: {
     handlers: {
       PATCH: safeHandler(async ({ params, request }) => {
-        requireSession(request)
+        await requireSession(request)
         const body = await request.json().catch(() => ({}))
         const current = integrationsRepo.get(params.integrationId)
         if (current) await requireProjectAccess(request, String(current.projectId))
@@ -28,7 +28,7 @@ export const Route = createFileRoute('/api/integrations/$integrationId/')({
         return json(updated ?? { id: params.integrationId })
       }),
       DELETE: safeHandler(async ({ params, request }) => {
-        requireSession(request)
+        await requireSession(request)
         const current = integrationsRepo.get(params.integrationId)
         if (current) await requireProjectAccess(request, String(current.projectId))
         if (hasDatabase()) {
@@ -45,4 +45,3 @@ export const Route = createFileRoute('/api/integrations/$integrationId/')({
     }
   }
 })
-

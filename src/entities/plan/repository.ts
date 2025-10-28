@@ -3,8 +3,6 @@ import { keywordsRepo } from '@entities/keyword/repository'
 import { hasDatabase, getDb } from '@common/infra/db'
 import { planItems as planItemsTable } from './db/schema'
 import { eq } from 'drizzle-orm'
-import { hasDatabase, getDb } from '@common/infra/db'
-import { planItems as planItemsTable } from './db/schema'
 
 const byProject = new Map<string, PlanItem[]>()
 
@@ -28,7 +26,7 @@ export const planRepo = {
       }
     })
     byProject.set(projectId, items)
-    if (hasDatabase()) void (async () => { try { const db = getDb(); await db.insert(planItemsTable).values(items).onConflictDoNothing(); } catch {} })()
+    if (hasDatabase()) void (async () => { try { const db = getDb(); await db.insert(planItemsTable).values(items as any).onConflictDoNothing?.(); } catch {} })()
     return { jobId: genId('job'), created: items.length }
   },
   list(projectId: string, limit = 90): PlanItem[] {

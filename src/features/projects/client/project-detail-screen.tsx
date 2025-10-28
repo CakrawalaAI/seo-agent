@@ -46,6 +46,7 @@ import {
   runSchedule,
   testIntegration
 } from '@entities/project/service'
+import { patchKeyword } from '@entities/keyword/service'
 import { listJobs } from '@entities/job/service'
 import type {
   Article,
@@ -311,6 +312,25 @@ export function ProjectDetailScreen({ projectId, tab }: ProjectDetailScreenProps
     onError: (error) => pushNotice('error', extractErrorMessage(error))
   })
 
+  const planKeywordMutation = useMutation({
+    mutationFn: (keywordId: string) => patchKeyword(keywordId, { status: 'planned' }),
+    onSuccess: () => {
+      pushNotice('success', 'Keyword planned')
+      queryClient.invalidateQueries({ queryKey: ['keywords', projectId] })
+      queryClient.invalidateQueries({ queryKey: ['projectSnapshot', projectId] })
+    },
+    onError: (error) => pushNotice('error', extractErrorMessage(error))
+  })
+
+  const toggleStarKeywordMutation = useMutation({
+    mutationFn: (input: { keywordId: string; starred: boolean }) =>
+      patchKeyword(input.keywordId, { starred: input.starred }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['keywords', projectId] })
+    },
+    onError: (error) => pushNotice('error', extractErrorMessage(error))
+  })
+
   if (projectQuery.isLoading) {
     return (
       <main className="mx-auto flex min-h-screen max-w-6xl flex-col gap-6 px-6 py-12">
@@ -508,6 +528,10 @@ export function ProjectDetailScreen({ projectId, tab }: ProjectDetailScreenProps
           onRefresh={() => keywordsQuery.refetch()}
           onGenerate={() => generateKeywordsMutation.mutate()}
           isGenerating={generateKeywordsMutation.isPending}
+          onPlan={(keywordId) => planKeywordMutation.mutate(keywordId)}
+          onToggleStar={(keywordId, starred) =>
+            toggleStarKeywordMutation.mutate({ keywordId, starred })
+          }
         />
       ) : null}
 

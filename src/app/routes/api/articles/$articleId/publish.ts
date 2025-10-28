@@ -12,7 +12,7 @@ export const Route = createFileRoute('/api/articles/$articleId/publish')({
   server: {
     handlers: {
       POST: safeHandler(async ({ params, request }) => {
-        requireSession(request)
+        await requireSession(request)
         const body = await request.json().catch(() => ({}))
         const integrationId = body?.integrationId
         if (!integrationId) return httpError(400, 'Missing integrationId')

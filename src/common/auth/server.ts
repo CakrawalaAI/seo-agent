@@ -1,8 +1,10 @@
 import { betterAuth } from 'better-auth'
 import { drizzleAdapter } from 'better-auth/adapters/drizzle'
+import { memoryAdapter } from 'better-auth/adapters/memory'
 import { reactStartCookies } from 'better-auth/react-start'
 import { organization } from 'better-auth/plugins'
 import { getDb, hasDatabase } from '@common/infra/db'
+import { schema } from '@common/infra/schema'
 import { polar, checkout, portal, usage, webhooks } from '@polar-sh/better-auth'
 import { Polar } from '@polar-sh/sdk'
 import { orgs, orgUsage } from '@entities/org/db/schema'
@@ -12,18 +14,16 @@ import { orgs, orgUsage } from '@entities/org/db/schema'
 // - Falls back to in-memory adapter for dev without DB
 // - Exposes Google OAuth provider
 
-// Lazy load memory adapter to avoid bundling when not needed
-async function getAdapter() {
-  if (hasDatabase()) {
-    return drizzleAdapter(getDb() as unknown as Record<string, any>, {
+// Choose adapter at module init; Better Auth expects an adapter factory, not an async getter
+const databaseAdapter = hasDatabase()
+  ? drizzleAdapter(getDb() as unknown as Record<string, any>, {
       provider: 'pg',
-      usePlural: true
+      usePlural: true,
+      schema,
+      transaction: true
       // schema: optional — defaults to BetterAuth CLI schema
     })
-  }
-  const { memoryAdapter } = await import('better-auth/adapters/memory')
-  return memoryAdapter({})
-}
+  : memoryAdapter({})
 
 const googleClientId = process.env.GOOGLE_CLIENT_ID || ''
 const googleClientSecret = process.env.GOOGLE_CLIENT_SECRET || ''
@@ -36,10 +36,8 @@ const polarClient = new Polar({
 })
 
 export const auth = betterAuth({
-  // Database adapter (async factory supported)
-  database: async () => {
-    return (await getAdapter()) as any
-  },
+  // Provide adapter factory directly (no async wrapper)
+  database: databaseAdapter as any,
   plugins: [
     organization({
       // Map Better Auth Organization model to our existing `orgs` table
@@ -57,7 +55,11 @@ export const auth = betterAuth({
     }),
     polar({
       client: polarClient,
-      createCustomerOnSignUp: true,
+      // Avoid duplicate-customer errors in dev/sandbox by default.
+      // Override with POLAR_CREATE_CUSTOMER_ON_SIGNUP=1 to force creation.
+      createCustomerOnSignUp:
+        process.env.POLAR_CREATE_CUSTOMER_ON_SIGNUP === '1' ||
+        (process.env.POLAR_CREATE_CUSTOMER_ON_SIGNUP !== '0' && process.env.POLAR_SERVER !== 'sandbox'),
       use: [
         // Keep Checkout enabled (for portal compat), but we won't use product slugs.
         checkout({
@@ -125,7 +127,12 @@ async function handleSubscriptionUpsert(raw: any) {
       }
     } catch {}
   }
-  console.log('[billing] entitlements updated', { orgId, monthlyPostCredits, cycleStart: cycleStart?.toISOString?.?.() ?? cycleStart })
+  console.log('[billing] entitlements updated', {
+    orgId,
+    monthlyPostCredits,
+    // Log ISO string when available
+    cycleStart: cycleStart && typeof (cycleStart as any).toISOString === 'function' ? (cycleStart as Date).toISOString() : cycleStart
+  })
 }
 
 async function getCreditsAndCycleFromPayloadOrFetch(data: any): Promise<{ plan: string; monthlyPostCredits: number; cycleStart: Date | null }> {

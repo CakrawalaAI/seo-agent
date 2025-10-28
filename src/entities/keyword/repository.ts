@@ -26,7 +26,7 @@ export const keywordsRepo = {
     })
     const current = byProject.get(projectId) ?? []
     byProject.set(projectId, dedupe([...items, ...current]))
-    if (hasDatabase()) void (async () => { try { const db = getDb(); await db.insert(keywords).values(items).onConflictDoNothing(); } catch {} })()
+    if (hasDatabase()) void (async () => { try { const db = getDb(); await db.insert(keywords).values(items as any).onConflictDoNothing?.(); } catch {} })()
     discoveryRepo.record(projectId, {
       providersUsed: ['crawl', 'llm'],
       startedAt: now,
@@ -93,7 +93,7 @@ export const keywordsRepo = {
     }
     if (toAdd.length === 0) return 0
     byProject.set(projectId, dedupe([...toAdd, ...current]))
-    if (hasDatabase()) void (async () => { try { const db = getDb(); await db.insert(keywords).values(toAdd).onConflictDoNothing(); } catch {} })()
+    if (hasDatabase()) void (async () => { try { const db = getDb(); await db.insert(keywords).values(toAdd as any).onConflictDoNothing?.(); } catch {} })()
     return toAdd.length
   },
   update(id: string, patch: Partial<Keyword>): Keyword | null {
@@ -104,7 +104,7 @@ export const keywordsRepo = {
         const next: Keyword = { ...items[idx]!, ...patch, updatedAt: new Date().toISOString() }
         items[idx] = next
         byProject.set(projectId, items)
-        if (hasDatabase()) void (async () => { try { const db = getDb(); await db.update(keywords).set({ phrase: next.phrase, status: next.status, starred: Boolean(next.starred), opportunity: next.opportunity ?? null, metricsJson: next.metricsJson, updatedAt: new Date() as any }).where((keywords as any).id.eq(id)); } catch {} })()
+        if (hasDatabase()) void (async () => { try { const db = getDb(); await db.update(keywords).set({ phrase: next.phrase, status: next.status, starred: Boolean(next.starred), opportunity: next.opportunity ?? null, metricsJson: next.metricsJson, updatedAt: new Date() as any } as any).where((keywords as any).id.eq(id)); } catch {} })()
         return next
       }
     }

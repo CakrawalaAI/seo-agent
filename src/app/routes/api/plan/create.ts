@@ -9,7 +9,7 @@ export const Route = createFileRoute('/api/plan/create')({
   server: {
     handlers: {
       POST: safeHandler(async ({ request }) => {
-        requireSession(request)
+        await requireSession(request)
         const body = await request.json().catch(() => ({}))
         const projectId = body?.projectId
         const days = Number(body?.days ?? 30)

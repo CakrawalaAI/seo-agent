@@ -25,12 +25,15 @@
     "shadcn": "bunx shadcn-ui@latest",
     "cli:dev": "bunx tsx src/cli/index.ts",
     "cli:build": "bun build src/cli/index.ts --outdir dist/cli --target node --format esm --entry-naming [name].mjs --external ora --external commander",
+    "polar:setup": "bunx tsx scripts/polar-setup.ts",
     "worker:dev": "bunx tsx src/worker/index.ts",
     "worker:build": "bun build src/worker/index.ts --outdir dist/worker --target bun --format esm --entry-naming [name].mjs --external playwright --external playwright-core --external electron --external chromium-bidi/lib/cjs/bidiMapper/BidiMapper --external chromium-bidi/lib/cjs/cdp/CdpConnection",
     "worker:test": "vitest run src/worker",
     "e2e": "playwright test"
   },
   "dependencies": {
+    "@polar-sh/better-auth": "^1.1.11",
+    "@polar-sh/sdk": "^0.40.2",
     "@radix-ui/react-dropdown-menu": "^2.1.16",
     "@radix-ui/react-label": "^2.1.7",
     "@radix-ui/react-slot": "^1.2.3",
@@ -70,6 +73,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.13.0",
+    "@playwright/test": "^1.45.0",
     "@tanstack/eslint-plugin-router": "^1.133.3",
     "@tanstack/router-generator": "^1.133.15",
     "@testing-library/jest-dom": "^6.4.2",
@@ -81,7 +85,8 @@
     "@types/tapable": "^2.2.8",
     "@typescript-eslint/eslint-plugin": "^7.0.0",
     "@typescript-eslint/parser": "^7.0.0",
-    "drizzle-kit": "^0.24.2",
+    "dotenv": "^17.2.3",
+    "drizzle-kit": "^0.31.5",
     "eslint": "^9.13.0",
     "eslint-config-prettier": "^9.1.0",
     "eslint-plugin-react-hooks": "^5.1.0",
@@ -94,7 +99,6 @@
     "typescript": "^5.4.5",
     "vite": "^7.0.0",
     "vite-tsconfig-paths": "^5.0.0",
-    "vitest": "^1.6.0",
-    "@playwright/test": "^1.45.0"
+    "vitest": "^1.6.0"
   }
 }

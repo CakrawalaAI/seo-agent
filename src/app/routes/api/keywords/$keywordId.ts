@@ -9,7 +9,7 @@ export const Route = createFileRoute('/api/keywords/$keywordId')({
   server: {
     handlers: {
       PATCH: safeHandler(async ({ params, request }) => {
-        requireSession(request)
+        await requireSession(request)
         const body = await request.json().catch(() => ({}))
         // we need projectId to check RBAC; get via in-memory lookup
         let projId: string | null = null
@@ -32,7 +32,7 @@ export const Route = createFileRoute('/api/keywords/$keywordId')({
         return json(updated ?? { id: params.keywordId })
       }),
       DELETE: safeHandler(async ({ params, request }) => {
-        requireSession(request)
+        await requireSession(request)
         let projId: string | null = null
         for (const [pid, list] of (keywordsRepo as any).byProject?.entries?.() || []) {
           if (list.find((k: any) => k.id === params.keywordId)) { projId = pid; break }

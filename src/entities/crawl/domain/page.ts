@@ -15,6 +15,9 @@ export type CrawlPage = {
   status?: CrawlPageStatus | null
   extractedAt?: string | null
   metaJson?: CrawlPageMeta | null
+  headingsJson?: unknown | null
+  linksJson?: unknown | null
+  contentBlobUrl?: string | null
   createdAt?: string | null
   updatedAt?: string | null
 }
