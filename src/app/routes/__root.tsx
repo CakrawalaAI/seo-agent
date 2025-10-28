@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import appCss from '@app/styles/app.css?url'
 import { TanStackRouterDevtools } from '@tanstack/react-router-devtools'
-import { Outlet, createRootRouteWithContext } from '@tanstack/react-router'
+import { HeadContent, Scripts, Outlet, createRootRouteWithContext } from '@tanstack/react-router'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { RouterContext } from '@app/router'
 
@@ -32,11 +32,27 @@ export const Route = createRootRouteWithContext<RouterContext>()({
 function RootComponent(): JSX.Element {
   const [queryClient] = useState(() => new QueryClient())
   return (
-    <QueryClientProvider client={queryClient}>
-      <div className="min-h-screen bg-background text-foreground">
-        <Outlet />
-        <TanStackRouterDevtools position="bottom-right" />
-      </div>
-    </QueryClientProvider>
+    <RootDocument>
+      <QueryClientProvider client={queryClient}>
+        <div className="min-h-screen bg-background text-foreground">
+          <Outlet />
+          <TanStackRouterDevtools position="bottom-right" />
+        </div>
+      </QueryClientProvider>
+    </RootDocument>
+  )
+}
+
+function RootDocument({ children }: Readonly<{ children: React.ReactNode }>) {
+  return (
+    <html>
+      <head>
+        <HeadContent />
+      </head>
+      <body>
+        {children}
+        <Scripts />
+      </body>
+    </html>
   )
 }

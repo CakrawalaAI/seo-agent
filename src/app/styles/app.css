@@ -1,4 +1,5 @@
-@import "tailwindcss" source("../");
+/* Scan the entire src tree for class usage */
+@import "tailwindcss" source("../../");
 
 :root {
   color-scheme: light dark;
@@ -22,4 +23,3 @@
   --sidebar-border: oklch(1 0 0 / 10%);
   --sidebar-ring: oklch(0.439 0 0);
 }
-
