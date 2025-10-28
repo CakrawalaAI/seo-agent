@@ -3,6 +3,7 @@ import type { LucideIcon } from 'lucide-react'
 import { CircleUserRound } from 'lucide-react'
 import clsx from 'clsx'
 import { authClient } from '@common/auth/client'
+import { ProjectSwitcher } from './project-switcher'
 
 import {
   Sidebar,
@@ -56,17 +57,19 @@ export type DashboardShellProps = {
   nav: DashboardNavGroup[]
   user?: DashboardUserSummary | null
   usage?: { postsUsed?: number; monthlyPostCredits?: number } | null
+  projectSwitcher?: boolean
   children: React.ReactNode
 }
 
-export function DashboardShell({ title, subtitle, actions, nav, user, usage, children }: DashboardShellProps) {
+export function DashboardShell({ title, subtitle, actions, nav, user, usage, projectSwitcher = true, children }: DashboardShellProps) {
   return (
     <SidebarProvider>
       <div className="flex min-h-screen bg-background text-foreground">
         <Sidebar className="flex">
-          <SidebarHeader className="flex items-center gap-2 text-base">
+          <SidebarHeader className="flex flex-col gap-2 text-base">
             <CircleUserRound className="h-5 w-5 text-sidebar-primary" />
             <span>SEO Agent</span>
+            {projectSwitcher ? <ProjectSwitcher /> : null}
           </SidebarHeader>
           <SidebarContent>
             {nav.map((group) => (

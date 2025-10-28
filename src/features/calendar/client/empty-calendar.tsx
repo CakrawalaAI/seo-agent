@@ -23,7 +23,9 @@ function getMonthMatrix(base: Date): DayCell[] {
   return cells
 }
 
-export function EmptyCalendar(): JSX.Element {
+export type CalendarChip = { date: string; title: string; status: 'published' | 'scheduled' | 'queued'; href?: string }
+
+export function EmptyCalendar({ chips = [] }: { chips?: CalendarChip[] }): JSX.Element {
   const [cursor, setCursor] = useState(() => new Date())
   const matrix = useMemo(() => getMonthMatrix(cursor), [cursor])
   const monthLabel = cursor.toLocaleDateString(undefined, { month: 'long', year: 'numeric' })
@@ -68,16 +70,24 @@ export function EmptyCalendar(): JSX.Element {
         {matrix.map((cell) => {
           if (!cell.date) return <div key={cell.key} className="h-24 rounded-md border border-dashed border-muted/60 bg-muted/20" />
           const t = isToday(cell.date)
+          const dayStr = cell.date.toISOString().slice(0, 10)
+          const items = chips.filter((c) => c.date.slice(0, 10) === dayStr).slice(0, 2)
           return (
             <div
               key={cell.key}
-              className={`h-24 rounded-md border bg-card ${t ? 'border-primary/60' : 'border-border'}`}
+              className={`h-24 rounded-md border bg-card ${t ? 'border-primary/60' : 'border-border'} sm:h-28`}
             >
               <div className="flex items-center justify-end px-2 py-1 text-xs text-muted-foreground">
                 {cell.date.getDate()}
               </div>
-              <div className="px-2 pb-2">
-                <div className="h-4 w-full rounded bg-muted/50" />
+              <div className="flex flex-col gap-1 px-2 pb-2">
+                {items.length === 0 ? (
+                  <div className="h-4 w-full rounded bg-muted/50" />
+                ) : (
+                  items.map((it, idx) => (
+                    <Chip key={idx} {...it} />
+                  ))
+                )}
               </div>
             </div>
           )
@@ -87,3 +97,20 @@ export function EmptyCalendar(): JSX.Element {
   )
 }
 
+function Chip({ title, status, href }: CalendarChip) {
+  const color = status === 'published' ? 'bg-emerald-600' : status === 'scheduled' ? 'bg-blue-600' : 'bg-amber-600'
+  const content = (
+    <span className="inline-flex w-full items-center gap-2 truncate rounded px-2 py-0.5 text-[11px] font-medium text-white">
+      <span className={`h-2 w-2 rounded-full ${color}`} />
+      <span className="truncate">{title}</span>
+    </span>
+  )
+  if (href) {
+    return (
+      <a href={href} className="block">
+        {content}
+      </a>
+    )
+  }
+  return content
+}

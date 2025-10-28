@@ -23,6 +23,9 @@ export const Route = createFileRoute('/api/me')({
         }
         const s = await auth.api.getSession({ headers: request.headers as any })
         if (!s) return json({ user: null, activeOrg: null, entitlements: null, orgs: [] })
+        // read our app session cookie for activeProjectId
+        const appSess = (await import('@common/infra/session')).session.read(request)
+        const activeProjectId = appSess?.activeProjectId ?? null
         let activeOrg: { id: string; plan?: string } | null = null
         let entitlements: any = null
         let usage: { postsUsed?: number; monthlyPostCredits?: number; cycleStart?: string | null } | null = null
@@ -77,7 +80,7 @@ export const Route = createFileRoute('/api/me')({
             }
           } catch {}
         }
-        return json({ user: { email: s.user.email, name: s.user.name }, activeOrg, entitlements, usage, orgs: orgList })
+        return json({ user: { email: s.user.email, name: s.user.name }, activeOrg, entitlements, usage, orgs: orgList, activeProjectId })
       }
     }
   }

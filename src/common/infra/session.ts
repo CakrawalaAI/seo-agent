@@ -5,6 +5,7 @@ export type SessionPayload = {
   user: { email: string; name?: string | null } | null
   orgs?: Array<{ id: string; name: string; plan?: string }>
   activeOrg?: { id: string; plan?: string }
+  activeProjectId?: string | null
   entitlements?: { projectQuota?: number; dailyArticles?: number; monthlyPostCredits?: number }
 }
 
