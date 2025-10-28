@@ -1,4 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
+import { Label } from '@src/common/ui/label'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@src/common/ui/select'
 import { useActiveProject } from '@common/state/active-project'
 import { listProjects } from '@entities/project/service'
 import { fetchSession } from '@entities/org/service'
@@ -20,21 +22,22 @@ export function ProjectSwitcher() {
 
   return (
     <div className="px-2 pb-2 pt-1 text-xs">
-      <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-sidebar-foreground/60">
+      <Label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-sidebar-foreground/60">
         Switch your project
-      </label>
+      </Label>
       {items.length > 0 ? (
-        <select
-          value={id ?? ''}
-          onChange={(e) => setId(e.target.value || null)}
-          className="w-full rounded-md border border-sidebar-border bg-background px-2 py-1 text-sm text-sidebar-foreground"
-        >
-          {items.map((p: any) => (
-            <option key={p.id} value={p.id}>
-              {p.name}
-            </option>
-          ))}
-        </select>
+        <Select value={id || undefined} onValueChange={(v) => setId(v || null)}>
+          <SelectTrigger className="w-full text-sm">
+            <SelectValue placeholder="Select project" />
+          </SelectTrigger>
+          <SelectContent>
+            {items.map((p: any) => (
+              <SelectItem key={p.id} value={p.id}>
+                {p.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       ) : (
         <Link to="/projects" className="text-sidebar-primary underline">
           Create project
@@ -43,4 +46,3 @@ export function ProjectSwitcher() {
     </div>
   )
 }
-

@@ -1,4 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { Button } from '@src/common/ui/button'
+import { Input } from '@src/common/ui/input'
+import { Label } from '@src/common/ui/label'
 import { Link } from '@tanstack/react-router'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
@@ -462,13 +465,13 @@ export function ProjectDetailScreen({ projectId, tab }: ProjectDetailScreenProps
               )}`}
             >
               <p className="leading-snug">{notice.text}</p>
-              <button
+              <Button
                 type="button"
                 className="text-xs font-medium text-muted-foreground hover:text-foreground"
                 onClick={() => dismissNotice(notice.id)}
               >
                 Dismiss
-              </button>
+              </Button>
             </div>
           ))}
         </section>
@@ -602,9 +605,9 @@ export function ProjectDetailScreen({ projectId, tab }: ProjectDetailScreenProps
                 })
               }}
             >
-              <label className="flex flex-col gap-1 text-sm font-medium text-muted-foreground">
+              <Label className="flex flex-col gap-1 text-sm font-medium text-muted-foreground">
                 Planned date
-                <input
+                <Input
                   type="date"
                   value={planEditDate}
                   onChange={(event) => updatePlanEditDate(event.target.value)}
@@ -612,23 +615,23 @@ export function ProjectDetailScreen({ projectId, tab }: ProjectDetailScreenProps
                   disabled={planEditSubmitting}
                   required
                 />
-              </label>
+              </Label>
               <div className="flex items-center justify-end gap-2">
-                <button
+                <Button
                   type="button"
                   className="rounded-md border border-input px-3 py-1.5 text-sm font-medium text-muted-foreground hover:bg-muted"
                   onClick={closePlanEdit}
                   disabled={planEditSubmitting}
                 >
                   Cancel
-                </button>
-                <button
+                </Button>
+                <Button
                   type="submit"
                   className="rounded-md bg-primary px-3 py-1.5 text-sm font-semibold text-primary-foreground shadow-sm disabled:opacity-60"
                   disabled={!planEditItem || !planEditDate || planEditSubmitting}
                 >
                   {planEditSubmitting ? 'Updating…' : 'Save'}
-                </button>
+                </Button>
               </div>
             </form>
           </div>

@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import { Button } from '@src/common/ui/button'
 
 type DayCell = { date: Date | null; key: string }
 
@@ -36,27 +37,27 @@ export function EmptyCalendar({ chips = [] }: { chips?: CalendarChip[] }): JSX.E
     <section className="rounded-lg border bg-card p-5 shadow-sm">
       <div className="mb-4 flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <button
+          <Button
             type="button"
             className="rounded-md border border-input px-2 py-1 text-sm hover:bg-muted"
             onClick={() => setCursor((d) => new Date(d.getFullYear(), d.getMonth() - 1, 1))}
           >
             ◀
-          </button>
-          <button
+          </Button>
+          <Button
             type="button"
             className="rounded-md border border-input px-2 py-1 text-sm hover:bg-muted"
             onClick={() => setCursor(new Date())}
           >
             Today
-          </button>
-          <button
+          </Button>
+          <Button
             type="button"
             className="rounded-md border border-input px-2 py-1 text-sm hover:bg-muted"
             onClick={() => setCursor((d) => new Date(d.getFullYear(), d.getMonth() + 1, 1))}
           >
             ▶
-          </button>
+          </Button>
           <span className="ml-3 text-sm text-muted-foreground">{monthLabel}</span>
         </div>
         <div className="text-xs text-muted-foreground">Calendar Guide</div>

@@ -14,8 +14,8 @@
     "components": "@src/common",
     "utils": "@src/common/ui/cn",
     "ui": "@src/common/ui",
-    "lib": "@/lib",
-    "hooks": "@/hooks"
+    "lib": "@/common/ui/lib",
+    "hooks": "@/common/hooks"
   },
   "iconLibrary": "lucide"
 }

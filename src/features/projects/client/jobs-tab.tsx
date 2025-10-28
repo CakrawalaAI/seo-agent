@@ -1,4 +1,6 @@
 import { useMemo, useState } from 'react'
+import { Button } from '@src/common/ui/button'
+import { Table, TableBody, TableHead, TableHeader, TableRow, TableCell } from '@src/common/ui/table'
 
 import { formatDateTime } from '@features/projects/shared/helpers'
 import type { Job } from '@entities'
@@ -31,18 +33,18 @@ export function ProjectJobsTab({ jobs, isLoading, onRefresh }: ProjectJobsTabPro
   return (
     <section className="space-y-4">
       <div className="flex flex-wrap items-center gap-3">
-        <button
+        <Button
           type="button"
           className="rounded-md border border-input px-4 py-2 text-sm font-medium hover:bg-muted disabled:cursor-not-allowed disabled:opacity-60"
           onClick={onRefresh}
           disabled={isLoading}
         >
           {isLoading ? 'Refreshing…' : 'Refresh jobs'}
-        </button>
+        </Button>
 
         <div className="flex flex-wrap items-center gap-2">
           {STATUS_FILTERS.map((option) => (
-            <button
+            <Button
               key={option}
               type="button"
               onClick={() => setStatusFilter(option)}
@@ -58,7 +60,7 @@ export function ProjectJobsTab({ jobs, isLoading, onRefresh }: ProjectJobsTabPro
                 : jobCounts[option] != null
                   ? ` (${jobCounts[option]})`
                   : ''}
-            </button>
+            </Button>
           ))}
         </div>
       </div>
@@ -71,32 +73,32 @@ export function ProjectJobsTab({ jobs, isLoading, onRefresh }: ProjectJobsTabPro
         <p className="text-sm text-muted-foreground">No jobs matching this filter.</p>
       ) : (
         <div className="overflow-x-auto rounded-lg border bg-card shadow-sm">
-          <table className="min-w-full divide-y divide-border text-sm">
-            <thead className="bg-muted/40 text-xs uppercase tracking-wide text-muted-foreground">
-              <tr>
-                <th className="px-4 py-2 text-left font-semibold">Type</th>
-                <th className="px-4 py-2 text-left font-semibold">Status</th>
-                <th className="px-4 py-2 text-left font-semibold">Queued</th>
-                <th className="px-4 py-2 text-left font-semibold">Started</th>
-                <th className="px-4 py-2 text-left font-semibold">Finished</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-border">
+          <Table className="min-w-full divide-y divide-border text-sm">
+            <TableHeader className="bg-muted/40 text-xs uppercase tracking-wide text-muted-foreground">
+              <TableRow>
+                <TableHead className="px-4 py-2 text-left font-semibold">Type</TableHead>
+                <TableHead className="px-4 py-2 text-left font-semibold">Status</TableHead>
+                <TableHead className="px-4 py-2 text-left font-semibold">Queued</TableHead>
+                <TableHead className="px-4 py-2 text-left font-semibold">Started</TableHead>
+                <TableHead className="px-4 py-2 text-left font-semibold">Finished</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody className="divide-y divide-border">
               {filteredJobs.map((job) => (
-                <tr key={job.id} className="odd:bg-muted/30">
-                  <td className="px-4 py-3 text-sm font-medium text-foreground">{job.type}</td>
-                  <td className="px-4 py-3">
+                <TableRow key={job.id} className="odd:bg-muted/30">
+                  <TableCell className="px-4 py-3 text-sm font-medium text-foreground">{job.type}</TableCell>
+                  <TableCell className="px-4 py-3">
                     <span className={`rounded-full px-2 py-0.5 text-xs font-semibold uppercase ${statusBadgeClass(job.status)}`}>
                       {job.status.toUpperCase()}
                     </span>
-                  </td>
-                  <td className="px-4 py-3 text-xs text-muted-foreground">{formatDateTime(job.queuedAt)}</td>
-                  <td className="px-4 py-3 text-xs text-muted-foreground">{formatDateTime(job.startedAt)}</td>
-                  <td className="px-4 py-3 text-xs text-muted-foreground">{formatDateTime(job.finishedAt)}</td>
-                </tr>
+                  </TableCell>
+                  <TableCell className="px-4 py-3 text-xs text-muted-foreground">{formatDateTime(job.queuedAt)}</TableCell>
+                  <TableCell className="px-4 py-3 text-xs text-muted-foreground">{formatDateTime(job.startedAt)}</TableCell>
+                  <TableCell className="px-4 py-3 text-xs text-muted-foreground">{formatDateTime(job.finishedAt)}</TableCell>
+                </TableRow>
               ))}
-            </tbody>
-          </table>
+            </TableBody>
+          </Table>
         </div>
       )}
     </section>

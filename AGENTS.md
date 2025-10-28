@@ -50,3 +50,11 @@ PostgreSQL
 - Feature components remain declarative, relying on hydrated loader data or TanStack Query cache (`useSuspenseQuery`).
 - Component-scoped fetches are reserved for purely client-side concerns; all SSR-critical data originates in the loader.
 
+## UI Components
+- Use shadcn/ui components from `@src/common/ui/*`.
+- When a needed component is missing, add via CLI: `bunx --bun shadcn@latest add <component>`.
+- New UI components must live in `src/common/ui/` and import `cn` from `@src/common/ui/cn`.
+- Data tables: use TanStack Table with `@src/common/ui/data-table` patterns (sorting, pagination, filtering via columns). Do not hand-roll table behavior.
+- Date pickers: compose `@src/common/ui/date-picker` (Calendar + Popover).
+- Combobox: compose `@src/common/ui/combobox` (Popover + Command).
+- Selects: use `@src/common/ui/select` (no native `<select>`).

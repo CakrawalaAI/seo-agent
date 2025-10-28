@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { Button } from '@src/common/ui/button'
 import { Link } from '@tanstack/react-router'
 
 import type { PlanEditState } from '@features/plan/shared/state-machines'
@@ -57,22 +58,22 @@ export function PlanTab({
         </p>
       </div>
       <div className="flex flex-wrap items-center gap-3">
-        <button
+        <Button
           type="button"
           className="rounded-md bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground shadow-sm transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
           onClick={onCreatePlan}
           disabled={isCreatingPlan}
         >
           {isCreatingPlan ? 'Rebuilding…' : 'Regenerate plan'}
-        </button>
-        <button
+        </Button>
+        <Button
           type="button"
           className="rounded-md border border-input px-4 py-2 text-sm font-medium hover:bg-muted disabled:cursor-not-allowed disabled:opacity-60"
           onClick={onRunSchedule}
           disabled={isRunningSchedule}
         >
           {isRunningSchedule ? 'Running…' : 'Run schedule now'}
-        </button>
+        </Button>
         <span className="text-xs text-muted-foreground">Queue depth: {queueDepth}</span>
         <span className="text-xs text-muted-foreground">
           Next generation:{' '}
@@ -135,14 +136,14 @@ export function PlanTab({
                           </div>
                           <div className="flex flex-col gap-1">
                             <div className="flex flex-wrap items-center gap-2 text-[11px]">
-                              <button
+                              <Button
                                 type="button"
                                 className="font-medium text-primary hover:underline disabled:cursor-not-allowed disabled:opacity-60"
                                 onClick={() => onReschedule(item)}
                                 disabled={isSubmitting}
                               >
                                 {isSubmitting ? 'Saving…' : 'Reschedule'}
-                              </button>
+                              </Button>
                               {relatedArticle ? (
                                 <Link
                                   to="/projects/$projectId/articles/$articleId"

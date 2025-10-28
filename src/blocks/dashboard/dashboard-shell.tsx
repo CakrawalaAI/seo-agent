@@ -2,6 +2,7 @@ import * as React from 'react'
 import type { LucideIcon } from 'lucide-react'
 import { CircleUserRound } from 'lucide-react'
 import clsx from 'clsx'
+import { Button } from '@src/common/ui/button'
 import { authClient } from '@common/auth/client'
 import { ProjectSwitcher } from './project-switcher'
 
@@ -180,7 +181,7 @@ function UserSummary({ user }: { user?: DashboardUserSummary | null }) {
           <span className="text-xs text-sidebar-foreground/70">{user.email}</span>
         ) : null}
       </div>
-      <button
+      <Button
         type="button"
         onClick={async () => {
           try {
@@ -196,7 +197,7 @@ function UserSummary({ user }: { user?: DashboardUserSummary | null }) {
         className="ml-auto text-xs text-sidebar-foreground/70 underline hover:text-sidebar-foreground"
       >
         Sign out
-      </button>
+      </Button>
     </div>
   )
 }

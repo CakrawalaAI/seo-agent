@@ -1,4 +1,6 @@
 import { formatDateTime } from '@features/projects/shared/helpers'
+import { Button } from '@src/common/ui/button'
+import { Table, TableBody, TableHead, TableHeader, TableRow, TableCell } from '@src/common/ui/table'
 import type { CrawlPage } from '@entities'
 
 type CrawlTabProps = {
@@ -15,22 +17,22 @@ export function CrawlTab({ items, isLoading, onRefresh, onStartCrawl, isStarting
   return (
     <section className="space-y-4">
       <div className="flex flex-wrap items-center gap-3">
-        <button
+        <Button
           type="button"
           className="rounded-md bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground shadow-sm transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
           onClick={onStartCrawl}
           disabled={isStarting}
         >
           {isStarting ? 'Starting…' : 'Start crawl'}
-        </button>
-        <button
+        </Button>
+        <Button
           type="button"
           className="rounded-md border border-input px-4 py-2 text-sm font-medium hover:bg-muted disabled:cursor-not-allowed disabled:opacity-60"
           onClick={onRefresh}
           disabled={isLoading}
         >
           {isLoading ? 'Refreshing…' : 'Refresh list'}
-        </button>
+        </Button>
         {lastExtractedAt ? (
           <span className="text-xs text-muted-foreground">
             Last fetched {formatDateTime(lastExtractedAt)}
@@ -46,34 +48,34 @@ export function CrawlTab({ items, isLoading, onRefresh, onStartCrawl, isStarting
         </p>
       ) : (
         <div className="overflow-x-auto rounded-lg border bg-card shadow-sm">
-          <table className="min-w-full divide-y divide-border text-sm">
-            <thead className="bg-muted/40 text-xs uppercase tracking-wide text-muted-foreground">
-              <tr>
-                <th className="px-4 py-2 text-left font-semibold">URL</th>
-                <th className="px-4 py-2 text-left font-semibold">Status</th>
-                <th className="px-4 py-2 text-left font-semibold">Title</th>
-                <th className="px-4 py-2 text-left font-semibold">Extracted</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-border">
+          <Table className="min-w-full divide-y divide-border text-sm">
+            <TableHeader className="bg-muted/40 text-xs uppercase tracking-wide text-muted-foreground">
+              <TableRow>
+                <TableHead className="px-4 py-2 text-left font-semibold">URL</TableHead>
+                <TableHead className="px-4 py-2 text-left font-semibold">Status</TableHead>
+                <TableHead className="px-4 py-2 text-left font-semibold">Title</TableHead>
+                <TableHead className="px-4 py-2 text-left font-semibold">Extracted</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody className="divide-y divide-border">
               {items.map((page) => (
-                <tr key={page.id} className="odd:bg-muted/30">
-                  <td className="break-all px-4 py-3 text-sm font-medium text-primary">
+                <TableRow key={page.id} className="odd:bg-muted/30">
+                  <TableCell className="break-all px-4 py-3 text-sm font-medium text-primary">
                     {page.url}
-                  </td>
-                  <td className="px-4 py-3 text-sm text-muted-foreground">
+                  </TableCell>
+                  <TableCell className="px-4 py-3 text-sm text-muted-foreground">
                     {page.httpStatus ?? '—'}
-                  </td>
-                  <td className="px-4 py-3 text-sm text-foreground">
+                  </TableCell>
+                  <TableCell className="px-4 py-3 text-sm text-foreground">
                     {page.metaJson?.title ?? '—'}
-                  </td>
-                  <td className="px-4 py-3 text-sm text-muted-foreground">
+                  </TableCell>
+                  <TableCell className="px-4 py-3 text-sm text-muted-foreground">
                     {formatDateTime(page.extractedAt)}
-                  </td>
-                </tr>
+                  </TableCell>
+                </TableRow>
               ))}
-            </tbody>
-          </table>
+            </TableBody>
+          </Table>
         </div>
       )}
     </section>

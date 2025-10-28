@@ -1,4 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
+import { Button } from '@src/common/ui/button'
+import { Input } from '@src/common/ui/input'
+import { Label } from '@src/common/ui/label'
+import { Textarea } from '@src/common/ui/textarea'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@src/common/ui/select'
 import { Link } from '@tanstack/react-router'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEditor, EditorContent } from '@tiptap/react'
@@ -179,14 +184,14 @@ export function ArticleEditorScreen({ projectId, articleId }: ArticleEditorScree
             >
               ← Back to articles
             </Link>
-            <button
+            <Button
               type="button"
               className="rounded-md bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground shadow-sm disabled:cursor-not-allowed disabled:opacity-60"
               onClick={handleSave}
               disabled={saveMutation.isPending || articleQuery.isLoading}
             >
               {saveMutation.isPending ? 'Saving…' : 'Save changes'}
-            </button>
+            </Button>
           </div>
         </div>
       </header>
@@ -199,13 +204,13 @@ export function ArticleEditorScreen({ projectId, articleId }: ArticleEditorScree
               className={`flex items-start justify-between gap-3 rounded-md border p-3 text-sm ${noticeKindClass(notice.kind)}`}
             >
               <p className="leading-snug">{notice.text}</p>
-              <button
+              <Button
                 type="button"
                 className="text-xs font-medium text-muted-foreground hover:text-foreground"
                 onClick={() => dismissNotice(notice.id)}
               >
                 Dismiss
-              </button>
+              </Button>
             </div>
           ))}
         </section>
@@ -222,41 +227,41 @@ export function ArticleEditorScreen({ projectId, articleId }: ArticleEditorScree
       ) : (
         <div className="space-y-6">
           <section className="grid gap-4 md:grid-cols-2">
-            <label className="flex flex-col gap-1 text-sm font-medium text-muted-foreground">
+            <Label className="flex flex-col gap-1 text-sm font-medium text-muted-foreground">
               Title
-              <input
+              <Input
                 type="text"
                 value={title}
                 onChange={(event) => setTitle(event.target.value)}
                 className="rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2"
               />
-            </label>
+            </Label>
             <div className="grid gap-3 sm:grid-cols-2">
-              <label className="flex flex-col gap-1 text-xs font-medium text-muted-foreground">
+              <Label className="flex flex-col gap-1 text-xs font-medium text-muted-foreground">
                 Language
-                <input
+                <Input
                   type="text"
                   value={language}
                   onChange={(event) => setLanguage(event.target.value)}
                   className="rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2"
                 />
-              </label>
-              <label className="flex flex-col gap-1 text-xs font-medium text-muted-foreground">
+              </Label>
+              <Label className="flex flex-col gap-1 text-xs font-medium text-muted-foreground">
                 Tone
-                <input
+                <Input
                   type="text"
                   value={tone}
                   onChange={(event) => setTone(event.target.value)}
                   className="rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2"
                 />
-              </label>
+              </Label>
             </div>
           </section>
 
           <section className="space-y-3">
             <header className="flex items-center justify-between gap-2">
               <h2 className="text-sm font-semibold text-foreground">Outline</h2>
-              <button
+              <Button
                 type="button"
                 className="rounded-md border border-input px-3 py-1 text-xs font-medium hover:bg-muted"
                 onClick={() =>
@@ -264,7 +269,7 @@ export function ArticleEditorScreen({ projectId, articleId }: ArticleEditorScree
                 }
               >
                 Add section
-              </button>
+              </Button>
             </header>
             {outline.length === 0 ? (
               <p className="text-xs text-muted-foreground">
@@ -278,7 +283,7 @@ export function ArticleEditorScreen({ projectId, articleId }: ArticleEditorScree
                       <span className="text-xs font-semibold uppercase text-muted-foreground">
                         Section {index + 1}
                       </span>
-                      <button
+                      <Button
                         type="button"
                         className="text-xs font-medium text-destructive hover:underline"
                         onClick={() =>
@@ -286,11 +291,11 @@ export function ArticleEditorScreen({ projectId, articleId }: ArticleEditorScree
                         }
                       >
                         Remove
-                      </button>
+                      </Button>
                     </div>
-                    <label className="mt-2 flex flex-col gap-1 text-xs font-medium text-muted-foreground">
+                    <Label className="mt-2 flex flex-col gap-1 text-xs font-medium text-muted-foreground">
                       Heading
-                      <input
+                      <Input
                         type="text"
                         value={section.heading}
                         onChange={(event) =>
@@ -302,10 +307,10 @@ export function ArticleEditorScreen({ projectId, articleId }: ArticleEditorScree
                         }
                         className="rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2"
                       />
-                    </label>
-                    <label className="mt-3 flex flex-col gap-1 text-xs font-medium text-muted-foreground">
+                    </Label>
+                    <Label className="mt-3 flex flex-col gap-1 text-xs font-medium text-muted-foreground">
                       Bullet points (one per line)
-                      <textarea
+                      <Textarea
                         value={section.subpointsText}
                         onChange={(event) =>
                           setOutline((prev) =>
@@ -317,7 +322,7 @@ export function ArticleEditorScreen({ projectId, articleId }: ArticleEditorScree
                         rows={4}
                         className="rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2"
                       />
-                    </label>
+                    </Label>
                   </div>
                 ))}
               </div>
@@ -345,20 +350,23 @@ export function ArticleEditorScreen({ projectId, articleId }: ArticleEditorScree
                 </p>
               </div>
               <div className="flex flex-wrap items-center gap-2">
-                <select
-                  className="rounded-md border border-input bg-background px-2 py-1 text-xs shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2"
-                  value={selectedIntegration}
-                  onChange={(event) => setSelectedIntegration(event.target.value)}
+                <Select
+                  value={selectedIntegration || undefined}
+                  onValueChange={(v) => setSelectedIntegration(v)}
                   disabled={connectedIntegrations.length === 0 || publishMutation.isPending}
                 >
-                  <option value="">Select integration</option>
-                  {connectedIntegrations.map((integration: ProjectIntegration) => (
-                    <option key={integration.id} value={integration.id}>
-                      {integration.type} · {formatIntegrationLabel(integration)}
-                    </option>
-                  ))}
-                </select>
-                <button
+                  <SelectTrigger className="w-[240px] text-xs">
+                    <SelectValue placeholder="Select integration" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {connectedIntegrations.map((integration: ProjectIntegration) => (
+                      <SelectItem key={integration.id} value={integration.id}>
+                        {integration.type} · {formatIntegrationLabel(integration)}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Button
                   type="button"
                   className="rounded-md bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground shadow-sm disabled:cursor-not-allowed disabled:opacity-60"
                   onClick={handlePublish}
@@ -369,7 +377,7 @@ export function ArticleEditorScreen({ projectId, articleId }: ArticleEditorScree
                   }
                 >
                   {publishMutation.isPending ? 'Publishing…' : 'Publish'}
-                </button>
+                </Button>
               </div>
             </header>
             {connectedIntegrations.length === 0 ? (

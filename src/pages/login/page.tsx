@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { Button } from '@src/common/ui/button'
 import { authClient } from '@common/auth/client'
 
 export function Page() {
@@ -34,14 +35,14 @@ export function Page() {
         <p className="text-sm text-muted-foreground">Continue with Google to manage your projects and automation.</p>
       </header>
       <div className="flex flex-col items-center gap-4">
-        <button
+        <Button
           type="button"
           onClick={handleGoogleSignIn}
           className="w-full rounded-md bg-primary px-4 py-3 text-sm font-medium text-primary-foreground shadow-sm transition hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2"
           disabled={loading}
         >
           {loading ? 'Opening Google...' : 'Sign in with Google'}
-        </button>
+        </Button>
         {error ? <p className="text-xs text-destructive">{error}</p> : null}
         <p className="text-xs text-muted-foreground">You will be redirected to Google to continue.</p>
       </div>

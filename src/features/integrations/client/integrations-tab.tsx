@@ -1,4 +1,7 @@
 import { useState } from 'react'
+import { Button } from '@src/common/ui/button'
+import { Input } from '@src/common/ui/input'
+import { Label } from '@src/common/ui/label'
 
 import { formatIntegrationLabel, maskSecret } from '@features/projects/shared/helpers'
 import type { ProjectIntegration } from '@entities'
@@ -40,14 +43,14 @@ export function IntegrationsTab({
                     {integration.type.toUpperCase()} · {String(integration.status ?? 'unknown').toUpperCase()}
                   </p>
                 </div>
-                <button
+                <Button
                   type="button"
                   className="rounded-md border border-input px-3 py-1 text-xs font-medium hover:bg-muted disabled:cursor-not-allowed disabled:opacity-60"
                   onClick={() => onTest(integration.id)}
                   disabled={testingIntegrationId === integration.id}
                 >
                   {testingIntegrationId === integration.id ? 'Testing…' : 'Send test'}
-                </button>
+                </Button>
               </header>
               {integration.type === 'webhook' ? (
                 <dl className="mt-3 space-y-1 text-xs text-muted-foreground">
@@ -87,9 +90,9 @@ export function IntegrationsTab({
             }
           }}
         >
-          <label className="flex flex-col gap-1 text-xs font-medium text-muted-foreground">
+          <Label className="flex flex-col gap-1 text-xs font-medium text-muted-foreground">
             Target URL
-            <input
+            <Input
               type="url"
               required
               value={targetUrl}
@@ -98,10 +101,10 @@ export function IntegrationsTab({
               className="rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2"
               disabled={creatingWebhook}
             />
-          </label>
-          <label className="flex flex-col gap-1 text-xs font-medium text-muted-foreground">
+          </Label>
+          <Label className="flex flex-col gap-1 text-xs font-medium text-muted-foreground">
             Secret
-            <input
+            <Input
               type="text"
               required
               value={secret}
@@ -110,14 +113,14 @@ export function IntegrationsTab({
               className="rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2"
               disabled={creatingWebhook}
             />
-          </label>
-          <button
+          </Label>
+          <Button
             type="submit"
             className="w-full rounded-md bg-primary px-3 py-2 text-sm font-semibold text-primary-foreground shadow-sm disabled:cursor-not-allowed disabled:opacity-60"
             disabled={!targetUrl || !secret || creatingWebhook}
           >
             {creatingWebhook ? 'Creating…' : 'Create webhook'}
-          </button>
+          </Button>
         </form>
       </aside>
     </section>

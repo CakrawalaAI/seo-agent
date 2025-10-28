@@ -1,4 +1,14 @@
 import { useMemo, useState } from 'react'
+import { Button } from '@src/common/ui/button'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@src/common/ui/select'
+import {
+  Table,
+  TableBody,
+  TableHead,
+  TableHeader,
+  TableRow,
+  TableCell
+} from '@src/common/ui/table'
 import { Link } from '@tanstack/react-router'
 
 import type { PublishState } from '@features/plan/shared/state-machines'
@@ -42,30 +52,30 @@ export function ArticlesTab({
   return (
     <section className="space-y-4">
       <div className="flex items-center gap-2 text-xs">
-        <button
+        <Button
           type="button"
           className={`rounded-full px-3 py-1 font-semibold ${tab === 'drafts' ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground'}`}
           onClick={() => setTab('drafts')}
         >
           Drafts ({drafts.length})
-        </button>
-        <button
+        </Button>
+        <Button
           type="button"
           className={`rounded-full px-3 py-1 font-semibold ${tab === 'published' ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground'}`}
           onClick={() => setTab('published')}
         >
           Published ({published.length})
-        </button>
+        </Button>
       </div>
       <div className="flex flex-wrap items-center gap-3">
-        <button
+        <Button
           type="button"
           className="rounded-md border border-input px-4 py-2 text-sm font-medium hover:bg-muted disabled:cursor-not-allowed disabled:opacity-60"
           onClick={onRefresh}
           disabled={isLoading}
         >
           {isLoading ? 'Refreshing…' : 'Refresh'}
-        </button>
+        </Button>
         {connected.length === 0 ? (
           <span className="text-xs text-muted-foreground">
             Connect a webhook or CMS integration to publish drafts.
@@ -83,17 +93,17 @@ export function ArticlesTab({
         </p>
       ) : (
         <div className="overflow-x-auto rounded-lg border bg-card shadow-sm">
-          <table className="min-w-full divide-y divide-border text-sm">
-            <thead className="bg-muted/40 text-xs uppercase tracking-wide text-muted-foreground">
-              <tr>
-                <th className="px-4 py-2 text-left font-semibold">Title</th>
-                <th className="px-4 py-2 text-left font-semibold">Planned date</th>
-                <th className="px-4 py-2 text-left font-semibold">Status</th>
-                <th className="px-4 py-2 text-left font-semibold">Generated</th>
-                <th className="px-4 py-2 text-left font-semibold">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-border">
+          <Table className="min-w-full divide-y divide-border text-sm">
+            <TableHeader className="bg-muted/40 text-xs uppercase tracking-wide text-muted-foreground">
+              <TableRow>
+                <TableHead className="px-4 py-2 text-left font-semibold">Title</TableHead>
+                <TableHead className="px-4 py-2 text-left font-semibold">Planned date</TableHead>
+                <TableHead className="px-4 py-2 text-left font-semibold">Status</TableHead>
+                <TableHead className="px-4 py-2 text-left font-semibold">Generated</TableHead>
+                <TableHead className="px-4 py-2 text-left font-semibold">Actions</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody className="divide-y divide-border">
               {visible.map((article) => {
                 const planItem = planItemMap.get(article.planItemId ?? '')
                 const chosenIntegration = selections[article.id] ?? connected[0]?.id ?? ''
@@ -114,14 +124,14 @@ export function ArticlesTab({
                     : null
 
                 return (
-                  <tr key={article.id} className="odd:bg-muted/30">
-                    <td className="px-4 py-3 text-sm font-medium text-foreground">
+                  <TableRow key={article.id} className="odd:bg-muted/30">
+                    <TableCell className="px-4 py-3 text-sm font-medium text-foreground">
                       {article.title}
-                    </td>
-                    <td className="px-4 py-3 text-sm text-muted-foreground">
+                    </TableCell>
+                    <TableCell className="px-4 py-3 text-sm text-muted-foreground">
                       {planItem ? planItem.plannedDate : '—'}
-                    </td>
-                    <td className="px-4 py-3">
+                    </TableCell>
+                    <TableCell className="px-4 py-3">
                       <span
                         className={`rounded-full px-2 py-0.5 text-xs font-semibold uppercase ${badgeClassForTone(
                           statusTone
@@ -129,11 +139,11 @@ export function ArticlesTab({
                       >
                         {status.toUpperCase()}
                       </span>
-                    </td>
-                    <td className="px-4 py-3 text-xs text-muted-foreground">
+                    </TableCell>
+                    <TableCell className="px-4 py-3 text-xs text-muted-foreground">
                       {formatDateTime(article.generationDate ?? article.createdAt)}
-                    </td>
-                    <td className="px-4 py-3">
+                    </TableCell>
+                    <TableCell className="px-4 py-3">
                       <div className="flex flex-wrap items-center gap-2">
                         <Link
                           to="/projects/$projectId/articles/$articleId"
@@ -142,25 +152,25 @@ export function ArticlesTab({
                         >
                           Edit
                         </Link>
-                        <select
-                          className="rounded-md border border-input bg-background px-2 py-1 text-xs shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2"
-                          value={chosenIntegration}
-                          onChange={(event) =>
-                            setSelections((prev) => ({
-                              ...prev,
-                              [article.id]: event.target.value
-                            }))
+                        <Select
+                          value={chosenIntegration || undefined}
+                          onValueChange={(v) =>
+                            setSelections((prev) => ({ ...prev, [article.id]: v }))
                           }
                           disabled={connected.length === 0}
                         >
-                          <option value="">Select integration</option>
-                          {connected.map((integration) => (
-                            <option key={integration.id} value={integration.id}>
-                              {integration.type} · {formatIntegrationLabel(integration)}
-                            </option>
-                          ))}
-                        </select>
-                        <button
+                          <SelectTrigger className="w-[220px] text-xs">
+                            <SelectValue placeholder="Select integration" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {connected.map((integration) => (
+                              <SelectItem key={integration.id} value={integration.id}>
+                                {integration.type} · {formatIntegrationLabel(integration)}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <Button
                           type="button"
                           className="rounded-md bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground shadow-sm disabled:cursor-not-allowed disabled:opacity-60"
                           onClick={() => {
@@ -170,7 +180,7 @@ export function ArticlesTab({
                           disabled={!chosenIntegration || publishSubmitting || connected.length === 0}
                         >
                           {publishSubmitting ? 'Publishing…' : publishQueued ? 'Queued' : 'Publish'}
-                        </button>
+                        </Button>
                         {publishQueued && publishState.jobId ? (
                           <span className="text-[10px] text-muted-foreground">
                             Job {publishState.jobId} queued
@@ -180,12 +190,12 @@ export function ArticlesTab({
                           <span className="text-[10px] font-medium text-destructive">{publishError}</span>
                         ) : null}
                       </div>
-                    </td>
-                  </tr>
+                    </TableCell>
+                  </TableRow>
                 )
               })}
-            </tbody>
-          </table>
+            </TableBody>
+          </Table>
         </div>
       )}
     </section>

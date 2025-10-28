@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react'
+import { Button } from '@src/common/ui/button'
 
 import { formatDateTime } from '@features/projects/shared/helpers'
 import type { Job, ProjectSnapshot } from '@entities'
@@ -163,7 +164,7 @@ type ActionButtonProps = {
 
 function ActionButton({ label, description, onClick, disabled, loading, icon }: ActionButtonProps) {
   return (
-    <button
+    <Button
       type="button"
       onClick={onClick}
       disabled={disabled}
@@ -174,6 +175,6 @@ function ActionButton({ label, description, onClick, disabled, loading, icon }: 
         {loading ? `${label}…` : label}
       </span>
       <span className="text-xs text-muted-foreground">{description}</span>
-    </button>
+    </Button>
   )
 }

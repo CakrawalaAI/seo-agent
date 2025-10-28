@@ -1,4 +1,5 @@
 import { useMutation, useQuery } from '@tanstack/react-query'
+import { Button } from '@src/common/ui/button'
 import type { MeSession } from '@entities'
 import { fetchSession } from '@entities/org/service'
 
@@ -109,22 +110,22 @@ function BillingSummaryCard({
           ) : null}
         </div>
         <div className="flex flex-col gap-2 md:flex-row">
-          <button
+          <Button
             type="button"
             className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground shadow-sm transition hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60"
             disabled={disableSubscribe}
             onClick={onSubscribe}
           >
             {subscribePending ? 'Redirecting…' : 'Subscribe'}
-          </button>
-          <button
+          </Button>
+          <Button
             type="button"
             className="rounded-md border border-input px-4 py-2 text-sm font-medium transition hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60"
             disabled={disablePortal}
             onClick={onOpenPortal}
           >
             {portalPending ? 'Opening…' : 'Open Billing Portal'}
-          </button>
+          </Button>
         </div>
       </div>
     </section>

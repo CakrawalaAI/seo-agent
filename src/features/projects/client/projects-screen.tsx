@@ -1,4 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
+import { Button } from '@src/common/ui/button'
+import { Input } from '@src/common/ui/input'
+import { Label } from '@src/common/ui/label'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@src/common/ui/select'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
 import type { MeSession, Project } from '@entities'
@@ -91,22 +95,25 @@ export function ProjectsScreen(): JSX.Element {
           Create a project per domain to crawl, discover keywords, plan content, and publish directly from the dashboard.
         </p>
         <div className="mt-4 flex flex-wrap items-center gap-3">
-          <label className="flex items-center gap-2 text-sm text-muted-foreground">
+          <Label className="flex items-center gap-2 text-sm text-muted-foreground">
             Organization
-            <select
-              className="rounded-md border border-input bg-background px-3 py-1.5 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2"
-              value={selectedOrgId ?? ''}
-              onChange={(event) => setSelectedOrgId(event.target.value || null)}
+            <Select
+              value={selectedOrgId ?? undefined}
+              onValueChange={(v) => setSelectedOrgId(v || null)}
               disabled={meQuery.isLoading || orgs.length === 0}
             >
-              {orgs.length === 0 ? <option value="">No organizations available</option> : null}
-              {orgs.map((org) => (
-                <option key={org.id} value={org.id}>
-                  {org.name}
-                </option>
-              ))}
-            </select>
-          </label>
+              <SelectTrigger className="w-[260px]">
+                <SelectValue placeholder="Select organization" />
+              </SelectTrigger>
+              <SelectContent>
+                {orgs.map((org) => (
+                  <SelectItem key={org.id} value={org.id}>
+                    {org.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </Label>
           {meQuery.isFetching ? (
             <span className="text-xs text-muted-foreground">Refreshing orgs…</span>
           ) : null}
@@ -146,9 +153,9 @@ export function ProjectsScreen(): JSX.Element {
                 createMutation.mutateAsync().catch(() => {})
               }}
             >
-              <label className="flex flex-col gap-1 text-sm font-medium text-muted-foreground">
+              <Label className="flex flex-col gap-1 text-sm font-medium text-muted-foreground">
                 Project name
-                <input
+                <Input
                   type="text"
                   required
                   value={name}
@@ -157,10 +164,10 @@ export function ProjectsScreen(): JSX.Element {
                   className="rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-primary"
                   disabled={createMutation.isPending || !selectedOrgId}
                 />
-              </label>
-              <label className="flex flex-col gap-1 text-sm font-medium text-muted-foreground">
+              </Label>
+              <Label className="flex flex-col gap-1 text-sm font-medium text-muted-foreground">
                 Site URL
-                <input
+                <Input
                   type="url"
                   required
                   value={siteUrl}
@@ -169,10 +176,10 @@ export function ProjectsScreen(): JSX.Element {
                   className="rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-primary"
                   disabled={createMutation.isPending || !selectedOrgId}
                 />
-              </label>
-              <label className="flex flex-col gap-1 text-sm font-medium text-muted-foreground">
+              </Label>
+              <Label className="flex flex-col gap-1 text-sm font-medium text-muted-foreground">
                 Default locale
-                <input
+                <Input
                   type="text"
                   value={locale}
                   onChange={(event) => setLocale(event.target.value)}
@@ -180,15 +187,15 @@ export function ProjectsScreen(): JSX.Element {
                   className="rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-primary"
                   disabled={createMutation.isPending || !selectedOrgId}
                 />
-              </label>
+              </Label>
               <div className="flex items-end">
-                <button
+                <Button
                   type="submit"
                   className="inline-flex items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground shadow-sm transition hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60"
                   disabled={createMutation.isPending || !selectedOrgId}
                 >
                   {createMutation.isPending ? 'Creating…' : 'Create project'}
-                </button>
+                </Button>
               </div>
               {createMutation.isError ? (
                 <p className="col-span-full text-sm text-destructive">

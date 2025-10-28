@@ -5,6 +5,7 @@ import appCss from '@app/styles/app.css?url'
 import { TanStackRouterDevtools } from '@tanstack/react-router-devtools'
 import { HeadContent, Scripts, Outlet, createRootRouteWithContext, useRouterState } from '@tanstack/react-router'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { Toaster } from '@src/common/ui/sonner'
 import type { RouterContext } from '@app/router'
 import { DashboardLayout } from '@blocks/layouts/dashboard-layout'
 
@@ -23,7 +24,12 @@ function NotFound() {
 export const Route = createRootRouteWithContext<RouterContext>()({
   head: () => ({
     links: [
-      { rel: 'stylesheet', href: appCss }
+      { rel: 'stylesheet', href: appCss },
+      {
+        rel: 'icon',
+        href:
+          'data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 128 128%22%3E%3Crect width=%22128%22 height=%22128%22 rx=%2224%22 fill=%22%23111%22/%3E%3Ctext x=%2264%22 y=%2274%22 font-size=%2272%22 text-anchor=%22middle%22 fill=%22%23fff%22 font-family=%22Arial, Helvetica, sans-serif%22%3ES%3C/text%3E%3C/svg%3E'
+      }
     ]
   }),
   component: RootComponent,
@@ -52,6 +58,7 @@ function RootDocument({ children }: Readonly<{ children: React.ReactNode }>) {
       </head>
       <body>
         {children}
+        <Toaster />
         <Scripts />
       </body>
     </html>
