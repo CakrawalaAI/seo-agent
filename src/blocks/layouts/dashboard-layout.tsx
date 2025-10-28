@@ -53,8 +53,8 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
   const userSummary: DashboardUserSummary | null = user ? { name: user.name, email: user.email } : null
 
   return (
-    <DashboardShell nav={nav} user={userSummary} usage={meQuery.data?.usage ?? null}>
-      <ActiveProjectProvider initialId={(meQuery.data as any)?.activeProjectId ?? null}>
+    <ActiveProjectProvider initialId={(meQuery.data as any)?.activeProjectId ?? null}>
+      <DashboardShell nav={nav} user={userSummary} usage={meQuery.data?.usage ?? null}>
         {/* Global callout when org exists but no projects */}
         {activeOrg?.id && projects.length === 0 ? (
           <section className="mb-6 rounded-lg border border-dashed bg-muted/30 p-6 text-center">
@@ -73,7 +73,7 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
           </section>
         ) : null}
         {children}
-      </ActiveProjectProvider>
-    </DashboardShell>
+      </DashboardShell>
+    </ActiveProjectProvider>
   )
 }

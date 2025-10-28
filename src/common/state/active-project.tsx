@@ -1,4 +1,4 @@
-import { createContext, useContext, useMemo, useState } from 'react'
+import { createContext, useContext, useEffect, useMemo, useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 
 type Ctx = { id: string | null; setId: (id: string | null) => void }
@@ -7,6 +7,10 @@ const ActiveProjectContext = createContext<Ctx | null>(null)
 
 export function ActiveProjectProvider({ initialId, children }: { initialId: string | null; children: React.ReactNode }) {
   const [id, setLocal] = useState<string | null>(initialId)
+  // keep id in sync if server reports later
+  useEffect(() => {
+    if (initialId && initialId !== id) setLocal(initialId)
+  }, [initialId])
   const qc = useQueryClient()
   const mutate = useMutation({
     mutationFn: async (next: string | null) => {
@@ -31,4 +35,3 @@ export function useActiveProject(): Ctx {
   if (!ctx) throw new Error('useActiveProject must be used within ActiveProjectProvider')
   return ctx
 }
-
