@@ -104,14 +104,17 @@ export const Sidebar = React.forwardRef<HTMLDivElement, SidebarProps>(function S
         ref={ref}
         data-state={expanded ? 'expanded' : 'collapsed'}
         className={cn(
-          'group/sidebar fixed inset-y-0 left-0 z-40 flex h-full flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground transition-all duration-200 ease-in-out',
+          'group/sidebar z-40 flex h-full flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground transition-all duration-200 ease-in-out',
+          // Mobile: off-canvas, fixed overlay
           isMobile
-            ? expanded
-              ? 'translate-x-0 shadow-lg'
-              : '-translate-x-full'
-            : expanded
-              ? `w-[var(--sidebar-width,${SIDEBAR_WIDTH})]`
-              : `w-[var(--sidebar-icon-width,${SIDEBAR_WIDTH_ICON})]`,
+            ? ['fixed inset-y-0 left-0', expanded ? 'translate-x-0 shadow-lg' : '-translate-x-full']
+            : [
+                // Desktop: participate in layout (no overlay)
+                'sticky top-0 h-screen',
+                expanded
+                  ? `w-[var(--sidebar-width,${SIDEBAR_WIDTH})]`
+                  : `w-[var(--sidebar-icon-width,${SIDEBAR_WIDTH_ICON})]`
+              ],
           className
         )}
         {...props}
@@ -333,15 +336,7 @@ export const SidebarInset = React.forwardRef<HTMLDivElement, SidebarInsetProps>(
     ? `pl-[var(--sidebar-width,${SIDEBAR_WIDTH})]`
     : `pl-[var(--sidebar-icon-width,${SIDEBAR_WIDTH_ICON})]`
     return (
-      <div
-        ref={ref}
-        className={cn(
-          'flex min-h-screen flex-col',
-          isMobile ? 'pl-0' : desktopMargin,
-          className
-        )}
-        {...props}
-      >
+      <div ref={ref} className={cn('flex min-h-screen flex-col', className)} {...props}>
         {children}
       </div>
     )
