@@ -3,3 +3,4 @@
 /edit*
 .test-results/
 test-results/
+**/routeTree.gen.ts
