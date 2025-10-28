@@ -5,7 +5,7 @@ export type SessionPayload = {
   user: { email: string; name?: string | null } | null
   orgs?: Array<{ id: string; name: string; plan?: string }>
   activeOrg?: { id: string; plan?: string }
-  entitlements?: { projectQuota?: number; dailyArticles?: number }
+  entitlements?: { projectQuota?: number; dailyArticles?: number; monthlyPostCredits?: number }
 }
 
 export const session = {
@@ -71,4 +71,3 @@ function serializeCookie(
   if (typeof opts.maxAge === 'number') attrs.push(`Max-Age=${Math.max(0, Math.floor(opts.maxAge))}`)
   return attrs.join('; ')
 }
-

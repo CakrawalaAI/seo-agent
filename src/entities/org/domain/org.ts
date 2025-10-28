@@ -11,6 +11,7 @@ export type Org = {
 export type OrgEntitlements = {
   projectQuota?: number | null
   dailyArticles?: number | null
+  monthlyPostCredits?: number | null
   [key: string]: unknown
 }
 
@@ -18,5 +19,6 @@ export type MeSession = {
   user: { name?: string | null; email: string } | null
   activeOrg: { id: string; plan: OrgPlan } | null
   entitlements: OrgEntitlements | null
+  usage?: { postsUsed?: number; monthlyPostCredits?: number; cycleStart?: string | null } | null
   orgs: Org[]
 }

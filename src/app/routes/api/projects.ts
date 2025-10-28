@@ -2,9 +2,9 @@
 import { createFileRoute } from '@tanstack/react-router'
 import { json, httpError, safeHandler, requireSession } from '@app/api-utils'
 import { projectsRepo } from '@entities/project/repository'
-import { session } from '@common/infra/session'
 import { hasDatabase, getDb } from '@common/infra/db'
 import { projects } from '@entities/project/db/schema'
+import { orgs } from '@entities/org/db/schema'
 import { queueEnabled, publishJob } from '@common/infra/queue'
 import { recordJobQueued } from '@common/infra/jobs'
 import { crawlRepo } from '@entities/crawl/repository'
@@ -31,20 +31,12 @@ export const Route = createFileRoute('/api/projects')({
         return json({ items })
       }),
       POST: safeHandler(async ({ request }) => {
-        requireSession(request)
+        await requireSession(request)
         const body = await request.json().catch(() => ({}))
         if (!body?.orgId || !body?.name || !body?.siteUrl || !body?.defaultLocale) {
           return httpError(400, 'Missing required fields')
         }
-        // org quota enforcement
-        const sess = session.read(request)
-        const quota = Number(sess?.entitlements?.projectQuota ?? 0)
-        if (quota > 0) {
-          const existing = projectsRepo.list({ orgId: String(body.orgId), limit: 10_000 }).length
-          if (existing >= quota) {
-            return httpError(403, 'Project quota exceeded')
-          }
-        }
+        // No project quota — unlimited projects per new seat model
         const project = projectsRepo.create({
           orgId: String(body.orgId),
           name: String(body.name),

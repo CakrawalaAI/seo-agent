@@ -8,6 +8,7 @@ import { DashboardShell } from '@blocks/dashboard/dashboard-shell'
 import type { MeSession } from '@entities'
 import { fetchSession } from '@entities/org/service'
 import { listProjects } from '@entities/project/service'
+import { authClient } from '@common/auth/client'
 
 export function DashboardScreen(): JSX.Element {
   const { data, isLoading } = useQuery<MeSession>({
@@ -18,6 +19,7 @@ export function DashboardScreen(): JSX.Element {
   const user = data?.user ?? null
   const activeOrg = data?.activeOrg ?? null
   const entitlements = data?.entitlements ?? null
+  const usage = data?.usage ?? null
 
   const projectsQuery = useQuery<{ items: any[] }>({
     queryKey: ['projects', activeOrg?.id ?? 'none'],
@@ -26,61 +28,33 @@ export function DashboardScreen(): JSX.Element {
   })
   const firstProjectId = (projectsQuery.data?.items?.[0]?.id as string | undefined) || undefined
 
-  const upgradeMutation = useMutation({
+  const subscribeMutation = useMutation({
     mutationFn: async () => {
-      if (!activeOrg) {
-        throw new Error('No organization selected')
-      }
-      const origin = typeof window !== 'undefined' ? window.location.origin : 'http://localhost:5173'
-      const payload = {
-        orgId: activeOrg.id,
-        plan: 'growth',
-        successUrl: `${origin}/dashboard?billing=success`,
-        cancelUrl: `${origin}/dashboard?billing=cancel`
-      }
-      const response = await fetch('/api/billing/checkout', {
+      const res = await fetch('/api/billing/checkout', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify(payload)
+        body: JSON.stringify({})
       })
-      if (!response.ok) {
-        throw new Error('Failed to create checkout session')
+      if (res.status === 302) {
+        const location = res.headers.get('Location')
+        if (location && typeof window !== 'undefined') window.location.href = location
+        return null
       }
-      const result = (await response.json()) as { url: string }
-      return result.url
-    },
-    onSuccess: (url) => {
-      if (typeof window !== 'undefined') {
-        window.location.href = url
+      if (res.ok) {
+        // Fallback: if backend ever returns JSON URL
+        const data = (await res.json().catch(() => ({}))) as any
+        const url = data?.url
+        if (url && typeof window !== 'undefined') window.location.href = url
       }
+      return null
     }
   })
 
   const portalMutation = useMutation({
     mutationFn: async () => {
-      if (!activeOrg) {
-        throw new Error('No organization selected')
-      }
-      const params = new URLSearchParams()
-      params.set('orgId', activeOrg.id)
-      if (typeof window !== 'undefined') {
-        params.set('returnUrl', `${window.location.origin}/dashboard`)
-      }
-      const response = await fetch(`/api/billing/portal?${params.toString()}`, {
-        method: 'GET',
-        credentials: 'include'
-      })
-      if (!response.ok) {
-        throw new Error('Failed to load portal link')
-      }
-      const result = (await response.json()) as { url: string }
-      return result.url
-    },
-    onSuccess: (url) => {
-      if (typeof window !== 'undefined') {
-        window.open(url, '_blank', 'noopener,noreferrer')
-      }
+      // Redirect handled by Better Auth client
+      await authClient.customer.portal()
+      return null
     }
   })
 
@@ -144,12 +118,13 @@ export function DashboardScreen(): JSX.Element {
         <BillingSummaryCard
           activeOrg={activeOrg}
           entitlements={entitlements}
-          onUpgrade={() => upgradeMutation.mutate()}
+          onSubscribe={() => subscribeMutation.mutate()}
           onOpenPortal={() => portalMutation.mutate()}
-          disableUpgrade={!activeOrg || upgradeMutation.isPending}
+          disableSubscribe={!activeOrg || subscribeMutation.isPending}
           disablePortal={!activeOrg || portalMutation.isPending}
-          upgradePending={upgradeMutation.isPending}
+          subscribePending={subscribeMutation.isPending}
           portalPending={portalMutation.isPending}
+          usage={usage}
         />
       </div>
     </DashboardShell>
@@ -188,26 +163,31 @@ function EmptyProjectsCallout({ message }: EmptyProjectsCalloutProps = {}) {
 type BillingSummaryCardProps = {
   activeOrg: MeSession['activeOrg'] | null | undefined
   entitlements: MeSession['entitlements'] | null | undefined
-  onUpgrade: () => void
+  onSubscribe: () => void
   onOpenPortal: () => void
-  disableUpgrade: boolean
+  disableSubscribe: boolean
   disablePortal: boolean
-  upgradePending: boolean
+  subscribePending: boolean
   portalPending: boolean
+  usage: MeSession['usage'] | null | undefined
 }
 
 function BillingSummaryCard({
   activeOrg,
   entitlements,
-  onUpgrade,
+  onSubscribe,
   onOpenPortal,
-  disableUpgrade,
+  disableSubscribe,
   disablePortal,
-  upgradePending,
-  portalPending
+  subscribePending,
+  portalPending,
+  usage
 }: BillingSummaryCardProps) {
+  const total = Number(entitlements?.monthlyPostCredits || usage?.monthlyPostCredits || 0)
+  const used = Number(usage?.postsUsed || 0)
+  const pct = total > 0 ? Math.min(100, Math.round((used / total) * 100)) : 0
   const quotaText = activeOrg
-    ? `Current plan: ${activeOrg.plan}. Projects: ${entitlements?.projectQuota ?? 0}, articles/day: ${entitlements?.dailyArticles ?? 0}.`
+    ? `Posts this month: ${used}/${total > 0 ? total : '∞'}`
     : 'Connect an organization to manage billing.'
 
   return (
@@ -216,15 +196,20 @@ function BillingSummaryCard({
         <div>
           <h2 className="text-lg font-semibold">Plan &amp; Billing</h2>
           <p className="text-sm text-muted-foreground">{quotaText}</p>
+          {total > 0 ? (
+            <div className="mt-3 h-2 w-64 rounded bg-muted">
+              <div className="h-2 rounded bg-primary" style={{ width: `${pct}%` }} />
+            </div>
+          ) : null}
         </div>
         <div className="flex flex-col gap-2 md:flex-row">
           <button
             type="button"
             className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground shadow-sm transition hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60"
-            disabled={disableUpgrade}
-            onClick={onUpgrade}
+            disabled={disableSubscribe}
+            onClick={onSubscribe}
           >
-            {upgradePending ? 'Redirecting…' : 'Upgrade Plan'}
+            {subscribePending ? 'Redirecting…' : 'Subscribe'}
           </button>
           <button
             type="button"

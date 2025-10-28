@@ -36,6 +36,80 @@ Providers: everything swappable (LLM, discovery metrics, CMS publishing).
 
 CLI (seo) + Web FE share the same REST API.
 
+1.6 Auth, Orgs, Payments — Mental Model (Better Auth + Organization + Polar)
+
+- Identity: Better Auth handles sign‑in (Google), sessions, cookies (`/api/auth/**`).
+- Storage: Drizzle adapter persists all auth/plugin data in our Postgres using the existing Drizzle client.
+- Organizations: Better Auth Organization plugin manages orgs/members/invitations/roles. We map the plugin's Organization model to our existing `orgs` table; membership uses plugin tables (for now).
+- Payments: Polar plugin (SDK + webhooks) ties a Better Auth user to a Polar customer. Checkouts/portal/usage run through Better Auth; webhooks update our org entitlements.
+- Entitlements: source of truth is DB `orgs.entitlementsJson` (updated by Polar webhooks). Server endpoints read plan/entitlements from DB to avoid live Polar calls.
+
+Single plan credits (v1)
+
+- One subscription product with a fixed monthly price (e.g., $50/mo).
+- Monthly post credits per org = 30 (base). Future 2x/10x via price metadata `multiplier` or subscription quantity.
+- Checkout uses a server endpoint `/api/billing/checkout` that calls Polar `/v1/checkouts` with `{ product_price_id: POLAR_PRICE_POSTS_30, metadata.referenceId=orgId }` and 302-redirects to the URL.
+- Webhooks (`onSubscriptionActive/Updated` and renewals via `onOrderPaid`) recompute credits and reset `org_usage.postsUsed` when `current_period_start` changes.
+- Enforcement: article generation and schedule runner stop when `postsUsed ≥ monthlyPostCredits`; increments usage on success.
+- Free trial: on first sign-in, seed `monthlyPostCredits=1` and ensure `org_usage` row exists.
+
+Implementation decisions
+
+- Drizzle adapter: `betterAuth({ database: drizzleAdapter(db,{ provider:'pg', usePlural:true }) })` so Better Auth uses our Postgres.
+- Route integration: catch‑all `/api/auth/$` delegates GET/POST to Better Auth handler.
+- Google OAuth: redirect `http(s)://{host}/api/auth/callback/google`.
+- Organization mapping: plugin schema maps to our table names/fields:
+  - `organization.modelName = "orgs"`
+  - Additional fields exposed on the Better Auth API: `plan (string)`, `entitlementsJson (json)`
+  - Membership stays in plugin tables (Better Auth `member`) to leverage userId/roles; we will gradually retire legacy `org_members` reads.
+- Active organization: stored on Better Auth session (`activeOrganizationId`). Client exposes `useActiveOrganization()` and `organization.setActive()`; API derives `orgId` from session when not provided.
+- Polar: pass `referenceId = activeOrganizationId` to `checkout()` so orders/subscriptions bind to an org. Webhooks resolve org by referenceId and update `orgs.plan` + `orgs.entitlementsJson`.
+
+1.7 Installation (Better Auth + TanStack Start)
+
+- Install packages
+  - `bun add better-auth @polar-sh/better-auth @polar-sh/sdk`
+- Environment variables
+  - `BETTER_AUTH_SECRET=…` (required)
+  - `BETTER_AUTH_URL=http://localhost:3000` (optional base URL)
+  - `GOOGLE_CLIENT_ID=…`, `GOOGLE_CLIENT_SECRET=…`
+  - `POLAR_ACCESS_TOKEN=…`, `POLAR_WEBHOOK_SECRET=…`
+  - `DATABASE_URL=postgres://…`
+- Server instance
+  - `src/common/auth/server.ts` uses `better-auth`, `drizzleAdapter`, `reactStartCookies`, `organization({ schema.organization.modelName='orgs', additionalFields:{ plan, entitlementsJson } })`, `socialProviders.google`.
+  - Teams disabled.
+- Mount handler (TanStack Start)
+  - `src/app/routes/api/auth/$.ts` delegates GET/POST to `auth.handler` (catch‑all).
+- Create database tables
+  - `npx @better-auth/cli generate`
+  - `npx drizzle-kit generate && npx drizzle-kit migrate`
+  - Ensure `orgs` has optional fields used by plugin (e.g., `slug`, `logo`, `metadata`) as needed.
+- Client instance
+  - `src/common/auth/client.ts` → `createAuthClient()`
+  - Later enable client plugins when UI needs them: `organizationClient()` and `polarClient()`
+- Google redirect URIs
+  - Dev: `http://localhost:3000/api/auth/callback/google`
+  - Prod: `https://YOUR_DOMAIN/api/auth/callback/google`
+
+ENV (dev)
+
+- `BETTER_AUTH_SECRET` — random 32+ chars
+- `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`
+- `POLAR_ACCESS_TOKEN`, `POLAR_WEBHOOK_SECRET`
+- `POLAR_PRICE_POSTS_30` (seat-based price id)
+- `DATABASE_URL` (Postgres)
+
+DB migration plan
+
+- Generate Better Auth schema with Organization plugin (it will create `member`, `invitation`, optional `team` tables); we map Organization to `orgs`.
+- Keep `orgs` as authoritative for plan/entitlements; add columns if needed by plugin (`slug`, `logo`, `metadata` optional).
+- Backfill: if existing orgs lack `slug`, derive from name.
+
+1.8 Teams vs Organizations
+
+- Organization = top‑level workspace (billing boundary, projects live here, members invited here).
+- Team (optional) = subgroup inside an organization for finer permission scoping (e.g., Marketing vs Dev). Teams do not own billing; they inherit org plan. Enable only if we need team‑level roles/visibility. Initial rollout: teams disabled.
+
 1.1 Execution model & data loading
 
 - Route‑level loaders live in `src/pages/**/loader.ts` (or `controller.ts`). They SSR critical data, compose multiple entity calls in parallel, and prime TanStack Query (e.g., `ensureQueryData`).
@@ -375,29 +449,28 @@ All functionality must be available both in Web and CLI.
 9. API contract (server routes)
 
 All payloads Zod‑validated; errors: {code, message, details?}.
-Auth: cookie session (better‑auth). Org determined from session + X‑Org‑Id or active selection.
+Auth: Better Auth (session cookie, `/api/auth/**`). Organization plugin for org/members; Polar plugin for checkout/portal/usage/webhooks. Org determined from Better Auth active organization in session or explicit `orgId`.
 
 Auth & User
 
-GET /api/auth/google/login → redirect
-
-GET /api/auth/google/callback → cookie session
-
-POST /api/auth/logout
-
-GET /api/me → { user, orgs, activeOrg, entitlements }
+- POST/GET /api/auth/** → Better Auth handler (catch‑all)
+- Sign‑in social: client uses `authClient.signIn.social({ provider:'google' })`
+- Sign‑out: client `authClient.signOut()` (POST /api/auth/sign-out)
+- GET /api/me → merges Better Auth session with DB:
+  - `user`: from Better Auth
+  - `activeOrg`: from Better Auth `activeOrganizationId` (resolved to `orgs` row)
+  - `entitlements`: from `orgs.entitlementsJson`
+  - `orgs`: list from `orgs` table (or Organization plugin list)
 
 Orgs & Billing (Polar)
 
-POST /api/orgs/:id/invites → {inviteUrl}
-
-POST /api/orgs/invites/:token/accept
-
-POST /api/billing/checkout → {url}
-
-GET /api/billing/portal?orgId=... → {url}
-
-POST /api/webhooks/polar → updates org.plan/entitlements
+- Organizations via Better Auth Organization plugin:
+  - `authClient.organization.create/list/setActive/invite/accept/...`
+  - Active org stored in Better Auth session
+- Billing (single plan):
+  - Checkout: POST `/api/billing/checkout` with `{ priceId?: POLAR_PRICE_POSTS_30 }` → 302 redirect to Polar Checkout
+  - Portal: `authClient.customer.portal()` → {redirect}
+  - Webhooks: verified by plugin; on paid/updated → update `orgs.plan` + `orgs.entitlementsJson.monthlyPostCredits`, reset `org_usage` on new cycle
 
 Projects
 
@@ -592,7 +665,7 @@ Web: Sign‑in → profile chip visible.
 
 C02. Orgs & Billing (Polar)
 
-API: invites; checkout → redirect; /webhooks/polar updates entitlements.
+API: invites; checkout → redirect; Better Auth Polar webhooks at `/api/auth/polar/webhooks` update entitlements.
 
 CLI: seo org invite, seo billing checkout.
 

@@ -7,24 +7,42 @@ import { integrationsRepo } from '@entities/integration/repository'
 import { env } from '@common/infra/env'
 import { hasDatabase, getDb } from '@common/infra/db'
 import { projects } from '@entities/project/db/schema'
+import { orgs, orgUsage } from '@entities/org/db/schema'
 import { eq } from 'drizzle-orm'
 import { publishViaWebhook } from '@common/publishers/webhook'
 import { publishViaWebflow } from '@common/publishers/webflow'
 import { queueEnabled, publishJob } from '@common/infra/queue'
-import { session } from '@common/infra/session'
 
 export const Route = createFileRoute('/api/schedules/run')({
   server: {
     handlers: {
       POST: safeHandler(async ({ request }) => {
-        requireSession(request)
+        await requireSession(request)
         const body = await request.json().catch(() => ({}))
         const projectId = body?.projectId
         if (!projectId) return httpError(400, 'Missing projectId')
         await requireProjectAccess(request, String(projectId))
         const today = new Date().toISOString().slice(0, 10)
-        const sess = session.read(request)
-        const dailyCap = Math.max(0, Number(sess?.entitlements?.dailyArticles ?? 0)) || Infinity
+        // Pull monthly credits and usage from DB (fallback: unlimited)
+        let remainingCredits = Infinity
+        let activeOrgId: string | null = null
+        try {
+          const sess = await requireSession(request)
+          activeOrgId = sess.activeOrg?.id ?? null
+          if (activeOrgId && hasDatabase()) {
+            const db = getDb()
+            // @ts-ignore
+            const orgRows = await (db.select().from(orgs).where(eq(orgs.id, activeOrgId)).limit(1) as any)
+            const ent = orgRows?.[0]?.entitlementsJson
+            const total = Number(ent?.monthlyPostCredits || 0)
+            if (Number.isFinite(total) && total > 0) {
+              // @ts-ignore
+              const urows = await (db.select().from(orgUsage).where((orgUsage as any).orgId.eq(activeOrgId)).limit(1) as any)
+              const used = Number(urows?.[0]?.postsUsed || 0)
+              remainingCredits = Math.max(0, total - used)
+            }
+          }
+        } catch {}
         // project-level policy overrides env
         let policy = env.autopublishPolicy
         let bufferDays = env.bufferDays
@@ -46,7 +64,7 @@ export const Route = createFileRoute('/api/schedules/run')({
         let publishedArticles = 0
         for (const item of plan) {
           if (item.plannedDate === today && !existing.has(item.id)) {
-            if (generatedDrafts >= dailyCap) continue
+            if (generatedDrafts >= remainingCredits) continue
             // Inline draft generation to keep UI responsive
             articlesRepo.createDraft({ projectId: String(projectId), planItemId: item.id, title: item.title })
             generatedDrafts++
@@ -91,6 +109,25 @@ export const Route = createFileRoute('/api/schedules/run')({
               }
             }
           }
+        }
+        // Persist usage increment if credits were limited
+        if (hasDatabase() && activeOrgId && Number.isFinite(remainingCredits)) {
+          try {
+            const db = getDb()
+            // @ts-ignore
+            const urows = await (db.select().from(orgUsage).where((orgUsage as any).orgId.eq(activeOrgId)).limit(1) as any)
+            const used = Number(urows?.[0]?.postsUsed || 0)
+            await db
+              .update(orgUsage)
+              .set({ postsUsed: used + generatedDrafts, updatedAt: new Date() as any })
+              // @ts-ignore
+              .where((orgUsage as any).orgId.eq(activeOrgId))
+            const total = Number.isFinite(remainingCredits) ? used + generatedDrafts + (remainingCredits as number) : 0
+            const newUsed = used + generatedDrafts
+            if (total > 0 && newUsed / total >= 0.9) {
+              console.warn('[billing] usage high', { orgId: activeOrgId, used: newUsed, total })
+            }
+          } catch {}
         }
         return json({ result: { generatedDrafts, publishedArticles } })
       })

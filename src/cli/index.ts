@@ -53,7 +53,7 @@ export async function runCli(args: string[] = process.argv.slice(2)) {
     }
     case 'login': {
       const baseUrl = process.env.SEO_AGENT_BASE_URL || 'http://localhost:5173'
-      const url = new URL('/api/auth/sign-in/social', baseUrl).toString()
+      const url = new URL('/login', baseUrl).toString()
       console.log(`Open this URL in your browser to sign in:\n${url}`)
       return
     }
@@ -164,39 +164,65 @@ export async function runCli(args: string[] = process.argv.slice(2)) {
       return
     }
     case 'billing-checkout': {
-      const baseUrl = process.env.SEO_AGENT_BASE_URL || 'http://localhost:5173'
-      const url = new URL('/api/billing/checkout', baseUrl).toString()
+      const server = (process.env.POLAR_SERVER || '').toLowerCase() === 'sandbox' ? 'https://sandbox-api.polar.sh/v1' : 'https://api.polar.sh/v1'
+      const token = process.env.POLAR_ACCESS_TOKEN || ''
+      const priceId = getFlag(args, '--price') || process.env.POLAR_PRICE_POSTS_30 || ''
       const orgId = getFlag(args, '--org') || 'org-dev'
-      const plan = getFlag(args, '--plan') || 'growth'
-      const successUrl = getFlag(args, '--success') || `${baseUrl}/dashboard`
-      const cancelUrl = getFlag(args, '--cancel') || `${baseUrl}/dashboard?billing=cancel`
-      const res = await fetch(url, {
+      if (!token || !priceId) {
+        console.error('missing POLAR_ACCESS_TOKEN or --price / POLAR_PRICE_POSTS_30')
+        process.exitCode = 1
+        return
+      }
+      const res = await fetch(`${server}/checkouts`, {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ orgId, plan, successUrl, cancelUrl })
+        headers: { 'content-type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ product_price_id: priceId, metadata: { referenceId: orgId } })
       })
       if (!res.ok) {
         console.error(`checkout failed: HTTP ${res.status}`)
         process.exitCode = 1
         return
       }
-      const data = (await res.json()) as { url?: string }
-      console.log(data?.url ?? '')
+      const data = (await res.json().catch(() => ({}))) as any
+      const url = data?.url || data?.data?.url || ''
+      console.log(url)
       return
     }
     case 'billing-portal': {
+      const server = (process.env.POLAR_SERVER || '').toLowerCase() === 'sandbox' ? 'https://sandbox-api.polar.sh/v1' : 'https://api.polar.sh/v1'
+      const token = process.env.POLAR_ACCESS_TOKEN || ''
+      const orgSlug = process.env.POLAR_ORG_SLUG || ''
+      const customerId = process.env.POLAR_CUSTOMER_ID || ''
       const baseUrl = process.env.SEO_AGENT_BASE_URL || 'http://localhost:5173'
-      const orgId = getFlag(args, '--org') || 'org-dev'
       const returnUrl = getFlag(args, '--return') || `${baseUrl}/dashboard`
-      const url = new URL(`/api/billing/portal?orgId=${encodeURIComponent(orgId)}&returnUrl=${encodeURIComponent(returnUrl)}`, baseUrl).toString()
-      const res = await fetch(url)
-      if (!res.ok) {
-        console.error(`portal failed: HTTP ${res.status}`)
+      if (!token) {
+        console.error('missing POLAR_ACCESS_TOKEN')
         process.exitCode = 1
         return
       }
-      const data = (await res.json()) as { url?: string }
-      console.log(data?.url ?? '')
+      if (customerId) {
+        const res = await fetch(`${server}/billing_portal/sessions`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ customer_id: customerId, return_url: returnUrl })
+        })
+        if (!res.ok) {
+          console.error(`portal failed: HTTP ${res.status}`)
+          process.exitCode = 1
+          return
+        }
+        const data = (await res.json().catch(() => ({}))) as any
+        const url = data?.url || data?.data?.url || ''
+        console.log(url)
+        return
+      }
+      if (orgSlug) {
+        // Fallback to generic portal URL
+        console.log(`https://polar.sh/${orgSlug}/portal`)
+        return
+      }
+      console.error('Set POLAR_CUSTOMER_ID or POLAR_ORG_SLUG for portal URL')
+      process.exitCode = 1
       return
     }
     case 'project-create': {
@@ -642,8 +668,8 @@ function printHelp() {
       '  ping        Call /api/health on SEO_AGENT_BASE_URL (default http://localhost:5173)',
       '  login       Print sign-in URL (browser flow)',
       '  whoami      Show session user from /api/me',
-      '  billing-checkout [--org id] [--plan growth] [--success url] [--cancel url]',
-      '  billing-portal [--org id] [--return url] ',
+      '  billing-checkout --org <id> [--price <priceId>]  # uses POLAR_PRICE_POSTS_30 if omitted',
+      '  billing-portal [--return url]                       # uses POLAR_CUSTOMER_ID or POLAR_ORG_SLUG',
       '  project-create --org <id> --name "Acme" --site https://acme.com [--locale en-US]',
       '  project-ls --org <id> [--limit 50]',
       '  crawl-run --project <id>',

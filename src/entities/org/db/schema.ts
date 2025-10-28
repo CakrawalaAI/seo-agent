@@ -1,4 +1,4 @@
-import { jsonb, pgTable, text, timestamp } from 'drizzle-orm/pg-core'
+import { jsonb, pgTable, text, timestamp, integer } from 'drizzle-orm/pg-core'
 
 export const orgs = pgTable('orgs', {
   id: text('id').primaryKey(),
@@ -16,3 +16,10 @@ export const orgMembers = pgTable('org_members', {
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow()
 })
 
+// Monthly usage tracking per organization
+export const orgUsage = pgTable('org_usage', {
+  orgId: text('org_id').primaryKey(),
+  cycleStart: timestamp('cycle_start', { withTimezone: true }).defaultNow(),
+  postsUsed: integer('posts_used').notNull().default(0),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow()
+})
