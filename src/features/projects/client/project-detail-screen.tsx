@@ -332,16 +332,12 @@ export function ProjectDetailScreen({ projectId, tab }: ProjectDetailScreenProps
   })
 
   if (projectQuery.isLoading) {
-    return (
-      <main className="mx-auto flex min-h-screen max-w-6xl flex-col gap-6 px-6 py-12">
-        <p className="text-sm text-muted-foreground">Loading project…</p>
-      </main>
-    )
+    return <p className="text-sm text-muted-foreground">Loading project…</p>
   }
 
   if (projectQuery.isError || !project) {
     return (
-      <main className="mx-auto flex min-h-screen max-w-4xl flex-col gap-6 px-6 py-12">
+      <div className="flex flex-col gap-4">
         <p className="text-sm text-destructive">Project not found. Try returning to the projects list.</p>
         <Link
           to="/projects"
@@ -349,7 +345,7 @@ export function ProjectDetailScreen({ projectId, tab }: ProjectDetailScreenProps
         >
           ← Back to projects
         </Link>
-      </main>
+      </div>
     )
   }
 
@@ -398,7 +394,7 @@ export function ProjectDetailScreen({ projectId, tab }: ProjectDetailScreenProps
   const planEditSubmitting = planEditState.status === 'submitting'
 
   return (
-    <main className="mx-auto flex min-h-screen max-w-6xl flex-col gap-6 px-6 py-12">
+    <div className="mx-auto flex w-full max-w-6xl flex-col gap-6">
       <header className="space-y-3">
         <p className="text-xs uppercase tracking-wide text-muted-foreground">
           <Link to="/projects" className="text-xs text-primary hover:underline">
@@ -638,7 +634,7 @@ export function ProjectDetailScreen({ projectId, tab }: ProjectDetailScreenProps
           </div>
         </div>
       ) : null}
-    </main>
+    </div>
   )
 }
 

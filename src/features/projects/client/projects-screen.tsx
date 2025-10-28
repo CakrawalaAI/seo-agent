@@ -83,7 +83,7 @@ export function ProjectsScreen(): JSX.Element {
   }, [creationResult])
 
   return (
-    <main className="mx-auto flex min-h-screen max-w-6xl flex-col gap-8 px-6 py-12">
+    <div className="mx-auto flex w-full max-w-6xl flex-col gap-8">
       <header className="space-y-2">
         <p className="text-sm font-medium uppercase tracking-wide text-muted-foreground">Projects</p>
         <h1 className="text-3xl font-semibold">Sites monitored by SEO Agent</h1>
@@ -241,6 +241,6 @@ export function ProjectsScreen(): JSX.Element {
           )}
         </>
       )}
-    </main>
+    </div>
   )
 }

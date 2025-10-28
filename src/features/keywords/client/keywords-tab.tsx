@@ -6,6 +6,7 @@ import {
   formatNumber
 } from '@features/projects/shared/helpers'
 import type { Keyword } from '@entities'
+import { Star } from 'lucide-react'
 import { useMemo, useState } from 'react'
 
 type KeywordsTabProps = {
@@ -57,51 +58,42 @@ export function KeywordsTab({
   return (
     <section className="space-y-4">
       <div className="flex flex-wrap items-center gap-3">
-        <button
-          type="button"
-          className="rounded-md bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground shadow-sm transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
-          onClick={onGenerate}
-          disabled={isGenerating}
-        >
-          {isGenerating ? 'Generating…' : 'Generate keywords'}
-        </button>
-        <button
-          type="button"
-          className="rounded-md border border-input px-4 py-2 text-sm font-medium hover:bg-muted disabled:cursor-not-allowed disabled:opacity-60"
-          onClick={onRefresh}
-          disabled={isLoading}
-        >
-          {isLoading ? 'Refreshing…' : 'Refresh'}
-        </button>
-        <div className="flex flex-wrap items-center gap-2 text-xs">
+        <div className="flex items-center gap-2">
           <button
             type="button"
-            className={`rounded-full px-2.5 py-1 font-semibold ${statusFilter === 'all' ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground'}`}
-            onClick={() => setStatusFilter('all')}
+            className="rounded-md bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground shadow-sm transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
+            onClick={onGenerate}
+            disabled={isGenerating}
           >
-            All ({counts.all})
+            {isGenerating ? 'Generating…' : 'Generate keywords'}
           </button>
           <button
             type="button"
-            className={`rounded-full px-2.5 py-1 font-semibold ${statusFilter === 'recommended' ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground'}`}
-            onClick={() => setStatusFilter('recommended')}
+            className="rounded-md border border-input px-4 py-2 text-sm font-medium hover:bg-muted disabled:cursor-not-allowed disabled:opacity-60"
+            onClick={onRefresh}
+            disabled={isLoading}
           >
-            Recommended ({counts.recommended})
+            {isLoading ? 'Refreshing…' : 'Refresh'}
           </button>
-          <button
-            type="button"
-            className={`rounded-full px-2.5 py-1 font-semibold ${statusFilter === 'planned' ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground'}`}
-            onClick={() => setStatusFilter('planned')}
-          >
-            Planned ({counts.planned})
-          </button>
-          <button
-            type="button"
-            className={`rounded-full px-2.5 py-1 font-semibold ${statusFilter === 'generated' ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground'}`}
-            onClick={() => setStatusFilter('generated')}
-          >
-            Generated ({counts.generated})
-          </button>
+        </div>
+        <div className="flex items-center gap-1 rounded-lg border bg-card p-1 text-xs">
+          {([
+            ['all', `All (${counts.all})`],
+            ['recommended', `Recommended (${counts.recommended})`],
+            ['planned', `Planned (${counts.planned})`],
+            ['generated', `Generated (${counts.generated})`]
+          ] as const).map(([key, label]) => (
+            <button
+              key={key}
+              type="button"
+              className={`rounded-md px-2.5 py-1 font-semibold ${
+                statusFilter === key ? 'bg-muted text-foreground' : 'text-muted-foreground hover:bg-muted/60'
+              }`}
+              onClick={() => setStatusFilter(key as any)}
+            >
+              {label}
+            </button>
+          ))}
         </div>
         <div className="ml-auto flex items-center gap-2">
           <input
@@ -133,13 +125,14 @@ export function KeywordsTab({
           <table className="min-w-full divide-y divide-border text-sm">
             <thead className="bg-muted/40 text-xs uppercase tracking-wide text-muted-foreground">
               <tr>
-                <th className="px-4 py-2 text-left font-semibold">Keyword</th>
-                <th className="px-4 py-2 text-left font-semibold">Opportunity</th>
-                <th className="px-4 py-2 text-left font-semibold">Difficulty</th>
-                <th className="px-4 py-2 text-left font-semibold">Volume</th>
-                <th className="px-4 py-2 text-left font-semibold">CPC</th>
-                <th className="px-4 py-2 text-left font-semibold">Updated</th>
-                <th className="px-4 py-2 text-left font-semibold">Actions</th>
+                <th className="w-10 px-4 py-2 text-left font-semibold">★</th>
+                <th className="px-2 py-2 text-left font-semibold">Keyword</th>
+                <th className="px-2 py-2 text-left font-semibold">Opportunity</th>
+                <th className="px-2 py-2 text-left font-semibold">Difficulty</th>
+                <th className="px-2 py-2 text-left font-semibold">Volume</th>
+                <th className="px-2 py-2 text-left font-semibold">CPC</th>
+                <th className="px-2 py-2 text-left font-semibold">Updated</th>
+                <th className="px-2 py-2 text-left font-semibold">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
@@ -148,46 +141,39 @@ export function KeywordsTab({
                 const metrics = keyword.metricsJson ?? {}
                 const starred = Boolean(keyword.starred)
                 return (
-                  <tr key={keyword.id} className="odd:bg-muted/30">
-                    <td className="px-4 py-3 text-sm font-medium text-foreground">{keyword.phrase}</td>
+                  <tr key={keyword.id} className="hover:bg-muted/30">
                     <td className="px-4 py-3">
+                      <button
+                        type="button"
+                        aria-label={starred ? 'Unstar' : 'Star'}
+                        className={`rounded p-1 ${starred ? 'text-yellow-400' : 'text-muted-foreground hover:text-foreground'}`}
+                        onClick={() => onToggleStar(keyword.id, !starred)}
+                      >
+                        <Star className={`h-4 w-4 ${starred ? 'fill-yellow-400' : ''}`} />
+                      </button>
+                    </td>
+                    <td className="px-2 py-3 text-sm font-medium text-foreground">{keyword.phrase}</td>
+                    <td className="px-2 py-3">
                       <span
-                        className={`rounded-full px-2 py-0.5 text-xs font-semibold uppercase ${badgeClassForTone(
+                        className={`rounded-full px-2 py-0.5 text-[11px] font-semibold uppercase ${badgeClassForTone(
                           badge.tone
                         )}`}
                       >
                         {badge.label}
                       </span>
                     </td>
-                    <td className="px-4 py-3 text-sm text-muted-foreground">
-                      {metrics?.difficulty ?? '—'}
-                    </td>
-                    <td className="px-4 py-3 text-sm text-muted-foreground">
-                      {formatNumber(metrics?.searchVolume)}
-                    </td>
-                    <td className="px-4 py-3 text-sm text-muted-foreground">
-                      {formatCurrency(metrics?.cpc)}
-                    </td>
-                    <td className="px-4 py-3 text-xs text-muted-foreground">
-                      {formatDateTime(metrics?.asOf)}
-                    </td>
-                    <td className="px-4 py-3">
-                      <div className="flex flex-wrap items-center gap-2 text-xs">
-                        <button
-                          type="button"
-                          className="rounded-md bg-primary px-2.5 py-1 font-semibold text-primary-foreground shadow-sm"
-                          onClick={() => onPlan(keyword.id)}
-                        >
-                          Plan
-                        </button>
-                        <button
-                          type="button"
-                          className="rounded-md border border-input px-2.5 py-1 font-medium hover:bg-muted"
-                          onClick={() => onToggleStar(keyword.id, !starred)}
-                        >
-                          {starred ? '★ Starred' : '☆ Star'}
-                        </button>
-                      </div>
+                    <td className="px-2 py-3 text-sm text-muted-foreground">{metrics?.difficulty ?? '—'}</td>
+                    <td className="px-2 py-3 text-sm text-muted-foreground">{formatNumber(metrics?.searchVolume)}</td>
+                    <td className="px-2 py-3 text-sm text-muted-foreground">{formatCurrency(metrics?.cpc)}</td>
+                    <td className="px-2 py-3 text-xs text-muted-foreground">{formatDateTime(metrics?.asOf)}</td>
+                    <td className="px-2 py-3">
+                      <button
+                        type="button"
+                        className="rounded-md bg-primary px-2.5 py-1 text-xs font-semibold text-primary-foreground shadow-sm"
+                        onClick={() => onPlan(keyword.id)}
+                      >
+                        Plan
+                      </button>
                     </td>
                   </tr>
                 )

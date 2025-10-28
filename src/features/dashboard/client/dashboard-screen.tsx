@@ -1,32 +1,12 @@
-import { useMemo } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
-import { Link } from '@tanstack/react-router'
-import { LayoutDashboard, SquareStack, FileText, CalendarRange, RefreshCcw } from 'lucide-react'
-
-import type { DashboardNavGroup, DashboardUserSummary } from '@blocks/dashboard/dashboard-shell'
-import { DashboardShell } from '@blocks/dashboard/dashboard-shell'
 import type { MeSession } from '@entities'
 import { fetchSession } from '@entities/org/service'
-import { listProjects } from '@entities/project/service'
-import { authClient } from '@common/auth/client'
 
 export function DashboardScreen(): JSX.Element {
-  const { data, isLoading } = useQuery<MeSession>({
-    queryKey: ['me'],
-    queryFn: fetchSession
-  })
-
-  const user = data?.user ?? null
+  const { data } = useQuery<MeSession>({ queryKey: ['me'], queryFn: fetchSession })
   const activeOrg = data?.activeOrg ?? null
   const entitlements = data?.entitlements ?? null
   const usage = data?.usage ?? null
-
-  const projectsQuery = useQuery<{ items: any[] }>({
-    queryKey: ['projects', activeOrg?.id ?? 'none'],
-    queryFn: () => listProjects(activeOrg?.id),
-    enabled: Boolean(activeOrg?.id)
-  })
-  const firstProjectId = (projectsQuery.data?.items?.[0]?.id as string | undefined) || undefined
 
   const subscribeMutation = useMutation({
     mutationFn: async () => {
@@ -61,66 +41,15 @@ export function DashboardScreen(): JSX.Element {
     }
   })
 
-  const navGroups = useMemo<DashboardNavGroup[]>(() => {
-    const items: DashboardNavGroup[] = [
-      {
-        key: 'workspace',
-        label: 'Workspace',
-        items: [
-          { key: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, active: true, element: <Link to="/dashboard" /> },
-          { key: 'projects', label: 'Projects', icon: SquareStack, element: <Link to="/projects" /> },
-          { key: 'settings', label: 'Settings', icon: FileText, element: <Link to="/settings" /> }
-        ]
-      },
-      {
-        key: 'project',
-        label: 'Project',
-        items: [
-          { key: 'project-home', label: 'Project', icon: SquareStack, element: <Link to="/projects" /> },
-          { key: 'switch-project', label: 'Switch active project', icon: RefreshCcw, element: <Link to="/projects" /> }
-        ]
-      }
-    ]
-    // Deep links to first project if present (keywords/calendar tabs)
-    try {
-      if (firstProjectId) {
-        items.push({
-          key: 'shortcuts',
-          label: 'Shortcuts',
-          items: [
-            { key: 'keywords', label: 'Keywords', icon: FileText, element: <Link to="/projects/$projectId" params={{ projectId: firstProjectId }} search={{ tab: 'keywords' }} /> },
-            { key: 'calendar', label: 'Content calendar', icon: CalendarRange, element: <Link to="/projects/$projectId" params={{ projectId: firstProjectId }} search={{ tab: 'plan' }} /> },
-            { key: 'articles', label: 'Articles', icon: FileText, element: <Link to="/projects/$projectId" params={{ projectId: firstProjectId }} search={{ tab: 'articles' }} /> },
-            { key: 'integrations', label: 'Integrations', icon: FileText, element: <Link to="/projects/$projectId" params={{ projectId: firstProjectId }} search={{ tab: 'integrations' }} /> }
-          ]
-        })
-      }
-    } catch {}
-    return items
-  }, [firstProjectId])
-
-  const topAction = user ? (
-    <Link to="/projects" className="text-sm font-medium text-primary hover:underline">
-      View projects
-    </Link>
-  ) : isLoading ? (
-    <span className="text-xs text-muted-foreground">Loading account…</span>
-  ) : (
-    <a href="/login" className="text-sm font-medium text-primary hover:underline">
-      Sign in
-    </a>
-  )
-
   return (
-    <DashboardShell
-      title="Dashboard"
-      subtitle="Monitor crawls, planning, and publishing progress once projects are connected."
-      actions={topAction}
-      nav={navGroups}
-      user={normalizeUser(user)}
-    >
+    <div className="mx-auto flex w-full max-w-6xl flex-col gap-6">
+      <header className="space-y-1">
+        <h1 className="text-2xl font-semibold">Dashboard</h1>
+        <p className="text-sm text-muted-foreground">
+          Monitor crawls, planning, and publishing progress once projects are connected.
+        </p>
+      </header>
       <div className="grid gap-6">
-        <EmptyProjectsCallout />
         <BillingSummaryCard
           activeOrg={activeOrg}
           entitlements={entitlements}
@@ -133,36 +62,7 @@ export function DashboardScreen(): JSX.Element {
           usage={usage}
         />
       </div>
-    </DashboardShell>
-  )
-}
-
-function normalizeUser(user: MeSession['user'] | null): DashboardUserSummary | null {
-  if (!user) return null
-  return { name: user.name, email: user.email }
-}
-
-type EmptyProjectsCalloutProps = {
-  message?: string
-}
-
-function EmptyProjectsCallout({ message }: EmptyProjectsCalloutProps = {}) {
-  return (
-    <section className="rounded-lg border border-dashed bg-muted/30 p-8 text-center">
-      <h2 className="text-xl font-semibold">No projects yet</h2>
-      <p className="mt-2 text-sm text-muted-foreground">
-        {message ??
-          'Create your first project to start crawling a site and building the 30-day content plan.'}
-      </p>
-      <div className="mt-6 flex justify-center">
-        <Link
-          to="/projects"
-          className="inline-flex items-center justify-center rounded-md bg-primary px-5 py-2 text-sm font-medium text-primary-foreground shadow-sm transition hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2"
-        >
-          Create project
-        </Link>
-      </div>
-    </section>
+    </div>
   )
 }
 

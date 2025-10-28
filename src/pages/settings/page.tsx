@@ -1,6 +1,6 @@
 export function Page() {
   return (
-    <main className="mx-auto flex min-h-screen max-w-3xl flex-col gap-6 px-6 py-12">
+    <div className="mx-auto flex w-full max-w-3xl flex-col gap-6">
       <header className="space-y-2">
         <p className="text-sm font-medium uppercase tracking-wide text-muted-foreground">Settings</p>
         <h1 className="text-3xl font-semibold">Account & App Settings</h1>
@@ -16,7 +16,6 @@ export function Page() {
           <li>Default locale: en-US</li>
         </ul>
       </section>
-    </main>
+    </div>
   )
 }
-

@@ -3,9 +3,10 @@
 import { useState } from 'react'
 import appCss from '@app/styles/app.css?url'
 import { TanStackRouterDevtools } from '@tanstack/react-router-devtools'
-import { HeadContent, Scripts, Outlet, createRootRouteWithContext } from '@tanstack/react-router'
+import { HeadContent, Scripts, Outlet, createRootRouteWithContext, useRouterState } from '@tanstack/react-router'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { RouterContext } from '@app/router'
+import { DashboardLayout } from '@blocks/layouts/dashboard-layout'
 
 function NotFound() {
   return (
@@ -34,10 +35,10 @@ function RootComponent(): JSX.Element {
   return (
     <RootDocument>
       <QueryClientProvider client={queryClient}>
-        <div className="min-h-screen bg-background text-foreground">
+        <RouteWrapper>
           <Outlet />
-          <TanStackRouterDevtools position="bottom-right" />
-        </div>
+        </RouteWrapper>
+        <TanStackRouterDevtools position="bottom-right" />
       </QueryClientProvider>
     </RootDocument>
   )
@@ -54,5 +55,18 @@ function RootDocument({ children }: Readonly<{ children: React.ReactNode }>) {
         <Scripts />
       </body>
     </html>
+  )
+}
+
+function RouteWrapper({ children }: { children: React.ReactNode }) {
+  const pathname = useRouterState({ select: (s) => s.location.pathname })
+  const isPublic = pathname === '/' || pathname.startsWith('/login')
+  if (isPublic) {
+    return <div className="min-h-screen bg-background text-foreground">{children}</div>
+  }
+  return (
+    <div className="min-h-screen bg-background text-foreground">
+      <DashboardLayout>{children}</DashboardLayout>
+    </div>
   )
 }

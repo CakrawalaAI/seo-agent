@@ -40,7 +40,7 @@ export type DashboardNavItem = {
 
 export type DashboardNavGroup = {
   key: string
-  label: string
+  label?: string
   items: DashboardNavItem[]
 }
 
@@ -55,10 +55,11 @@ export type DashboardShellProps = {
   actions?: React.ReactNode
   nav: DashboardNavGroup[]
   user?: DashboardUserSummary | null
+  usage?: { postsUsed?: number; monthlyPostCredits?: number } | null
   children: React.ReactNode
 }
 
-export function DashboardShell({ title, subtitle, actions, nav, user, children }: DashboardShellProps) {
+export function DashboardShell({ title, subtitle, actions, nav, user, usage, children }: DashboardShellProps) {
   return (
     <SidebarProvider>
       <div className="flex min-h-screen bg-background text-foreground">
@@ -74,6 +75,7 @@ export function DashboardShell({ title, subtitle, actions, nav, user, children }
           </SidebarContent>
           <SidebarSeparator />
           <SidebarFooter>
+            <Credits usage={usage} />
             <UserSummary user={user} />
           </SidebarFooter>
         </Sidebar>
@@ -100,7 +102,7 @@ function DashboardSidebarGroup({ group }: { group: DashboardNavGroup }) {
 
   return (
     <SidebarGroup>
-      <SidebarGroupLabel>{group.label}</SidebarGroupLabel>
+      {group.label ? <SidebarGroupLabel>{group.label}</SidebarGroupLabel> : null}
       <SidebarGroupContent>
         <SidebarMenu>
           {group.items.map((item) => (
@@ -208,4 +210,25 @@ function getInitials(name?: string | null, email?: string | null) {
     return email.slice(0, 2).toUpperCase()
   }
   return '??'
+}
+
+function Credits({ usage }: { usage?: { postsUsed?: number; monthlyPostCredits?: number } | null }) {
+  const total = Number(usage?.monthlyPostCredits || 0)
+  const used = Number(usage?.postsUsed || 0)
+  if (!total && !used) return null
+  const remaining = Math.max(0, total - used)
+  const pct = total > 0 ? Math.min(100, Math.round((used / total) * 100)) : 0
+  return (
+    <div className="mb-2 rounded-md border border-sidebar-border bg-sidebar-accent p-3 text-xs text-sidebar-foreground">
+      <div className="flex items-center justify-between">
+        <span className="font-semibold">{remaining} credits remaining</span>
+        {total ? <span className="text-sidebar-foreground/70">{used}/{total}</span> : null}
+      </div>
+      {total ? (
+        <div className="mt-2 h-1.5 w-full rounded bg-sidebar-border/60">
+          <div className="h-1.5 rounded bg-sidebar-primary" style={{ width: `${pct}%` }} />
+        </div>
+      ) : null}
+    </div>
+  )
 }

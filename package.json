@@ -26,7 +26,7 @@
     "cli:dev": "bunx tsx src/cli/index.ts",
     "cli:build": "bun build src/cli/index.ts --outdir dist/cli --target node --format esm --entry-naming [name].mjs --external ora --external commander",
     "polar:setup": "bunx tsx scripts/polar-setup.ts",
-    "worker:dev": "bunx tsx src/worker/index.ts",
+    "worker": "bunx tsx src/worker/index.ts",
     "worker:build": "bun build src/worker/index.ts --outdir dist/worker --target bun --format esm --entry-naming [name].mjs --external playwright --external playwright-core --external electron --external chromium-bidi/lib/cjs/bidiMapper/BidiMapper --external chromium-bidi/lib/cjs/cdp/CdpConnection",
     "worker:test": "vitest run src/worker",
     "e2e": "playwright test"
