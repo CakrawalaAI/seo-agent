@@ -8,7 +8,7 @@ export type CreateProjectInput = {
 }
 
 export type PatchProjectInput = Partial<
-  Pick<Project, 'name' | 'defaultLocale' | 'siteUrl' | 'autoPublishPolicy' | 'status'>
+  Pick<Project, 'name' | 'defaultLocale' | 'siteUrl' | 'autoPublishPolicy' | 'status' | 'crawlMaxDepth' | 'crawlBudgetPages' | 'bufferDays'>
 >
 
 const store = new Map<string, Project>()
@@ -54,10 +54,12 @@ export const projectsRepo = {
     }
     store.set(id, updated)
     return updated
+  },
+  remove(id: string): boolean {
+    return store.delete(id)
   }
 }
 
 function genId(prefix: string) {
   return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`
 }
-

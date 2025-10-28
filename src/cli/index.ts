@@ -28,6 +28,10 @@ type CliCommand =
   | 'integration-add-webflow'
   | 'article-generate'
   | 'article-edit'
+  | 'org-ls'
+  | 'org-switch'
+  | 'job-ls'
+  | 'job-watch'
 
 export async function runCli(args: string[] = process.argv.slice(2)) {
   const command = normalizeCommand(args[0])
@@ -51,6 +55,94 @@ export async function runCli(args: string[] = process.argv.slice(2)) {
       const baseUrl = process.env.SEO_AGENT_BASE_URL || 'http://localhost:5173'
       const url = new URL('/api/auth/sign-in/social', baseUrl).toString()
       console.log(`Open this URL in your browser to sign in:\n${url}`)
+      return
+    }
+    case 'org-ls': {
+      const baseUrl = process.env.SEO_AGENT_BASE_URL || 'http://localhost:5173'
+      const url = new URL('/api/orgs', baseUrl).toString()
+      const res = await fetch(url)
+      if (!res.ok) {
+        console.error(`org ls failed: HTTP ${res.status}`)
+        process.exitCode = 1
+        return
+      }
+      const data = (await res.json()) as { items?: Array<{ id: string; name?: string; plan?: string }> }
+      for (const o of data.items ?? []) {
+        console.log(`${o.id}\t${o.name ?? ''}\t${o.plan ?? ''}`)
+      }
+      return
+    }
+    case 'org-switch': {
+      const baseUrl = process.env.SEO_AGENT_BASE_URL || 'http://localhost:5173'
+      const orgId = getFlag(args, '--org') || ''
+      if (!orgId) {
+        console.error('usage: seo org-switch --org <id>')
+        process.exitCode = 1
+        return
+      }
+      const url = new URL('/api/orgs', baseUrl).toString()
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        credentials: 'include' as any,
+        body: JSON.stringify({ action: 'switch', orgId })
+      })
+      if (!res.ok && res.status !== 204) {
+        console.error(`org switch failed: HTTP ${res.status}`)
+        process.exitCode = 1
+        return
+      }
+      console.log('ok')
+      return
+    }
+    case 'job-ls': {
+      const baseUrl = process.env.SEO_AGENT_BASE_URL || 'http://localhost:5173'
+      const projectId = getFlag(args, '--project') || ''
+      const limit = getFlag(args, '--limit') || '25'
+      if (!projectId) {
+        console.error('usage: seo job-ls --project <id> [--limit 25]')
+        process.exitCode = 1
+        return
+      }
+      const url = new URL(`/api/projects/${encodeURIComponent(projectId)}/jobs?limit=${encodeURIComponent(limit)}`, baseUrl).toString()
+      const res = await fetch(url)
+      if (!res.ok) {
+        console.error(`job ls failed: HTTP ${res.status}`)
+        process.exitCode = 1
+        return
+      }
+      const data = (await res.json()) as { items?: Array<{ id: string; status: string; type: string; queuedAt?: string | null }> }
+      for (const j of data.items ?? []) {
+        console.log(`${j.status}\t${j.type}\t${j.id}\t${j.queuedAt ?? ''}`)
+      }
+      return
+    }
+    case 'job-watch': {
+      const baseUrl = process.env.SEO_AGENT_BASE_URL || 'http://localhost:5173'
+      const projectId = getFlag(args, '--project') || ''
+      const id = getFlag(args, '--id') || ''
+      if (!projectId || !id) {
+        console.error('usage: seo job-watch --project <id> --id <jobId>')
+        process.exitCode = 1
+        return
+      }
+      const url = new URL(`/api/projects/${encodeURIComponent(projectId)}/jobs?limit=50`, baseUrl).toString()
+      const started = Date.now()
+      while (Date.now() - started < 120_000) {
+        const res = await fetch(url)
+        if (!res.ok) {
+          await new Promise((r) => setTimeout(r, 1000))
+          continue
+        }
+        const data = (await res.json()) as { items?: Array<{ id: string; status: string }> }
+        const job = (data.items ?? []).find((j) => j.id === id)
+        if (job && (job.status === 'completed' || job.status === 'failed')) {
+          console.log(job.status)
+          return
+        }
+        await new Promise((r) => setTimeout(r, 1000))
+      }
+      console.log('timeout')
       return
     }
     case 'whoami': {
@@ -513,6 +605,10 @@ function normalizeCommand(input?: string): CliCommand {
   if (input.toLowerCase() === 'integration-test') return 'integration-test'
   if (input.toLowerCase() === 'article-generate') return 'article-generate'
   if (input.toLowerCase() === 'article-edit') return 'article-edit'
+  if (input.toLowerCase() === 'org-ls') return 'org-ls'
+  if (input.toLowerCase() === 'org-switch') return 'org-switch'
+  if (input.toLowerCase() === 'job-ls') return 'job-ls'
+  if (input.toLowerCase() === 'job-watch') return 'job-watch'
   return 'help'
 }
 
@@ -564,6 +660,10 @@ function printHelp() {
       '  integration-add-webhook --project <id> --url <target> [--secret s]',
       '  integration-add-webflow --project <id> --site <id> --collection <id> [--draft true|false]',
       '  integration-test --integration <id>',
+      '  org-ls',
+      '  org-switch --org <id>',
+      '  job-ls --project <id> [--limit 25]',
+      '  job-watch --project <id> --id <jobId>',
       '',
       'Examples:',
       '  seo version',

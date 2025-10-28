@@ -19,10 +19,10 @@ export async function publishViaWebhook(options: {
   const body = JSON.stringify(payload)
   const headers: Record<string, string> = {
     'content-type': 'application/json',
-    'x-seoa-idempotency': options.article.id
+    'X-SEOA-Idempotency': options.article.id
   }
   if (options.secret) {
-    headers['x-seoa-signature'] = signHmacSha256(body, options.secret)
+    headers['X-SEOA-Signature'] = signHmacSha256(body, options.secret)
   }
   const res = await fetch(options.targetUrl, { method: 'POST', headers, body })
   if (!res.ok) return null
@@ -56,4 +56,3 @@ function signHmacSha256(body: string, secret: string) {
     return ''
   }
 }
-

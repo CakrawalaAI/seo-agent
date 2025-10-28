@@ -9,13 +9,16 @@
     "allowSyntheticDefaultImports": true,
     "baseUrl": ".",
     "paths": {
-      "@seo-agent/domain": ["packages/domain/src/index"],
-      "@seo-agent/db": ["packages/db/src/index"],
-      "@seo-agent/queue": ["packages/queue/src/index"],
-      "@seo-agent/sdk": ["packages/sdk/src/index"],
-      "@seo-agent/auth": ["packages/auth/src/index"],
-      "@seo-agent/platform": ["packages/platform/src/index"],
-      "@seo-agent/cms": ["packages/cms/src/index"]
+      "@/*": ["src/*"],
+      "~/*": ["src/*"],
+      "@app/*": ["src/app/*"],
+      "@blocks/*": ["src/blocks/*"],
+      "@common/*": ["src/common/*"],
+      "@entities/*": ["src/entities/*"],
+      "@entities": ["src/entities/index.ts"],
+      "@features/*": ["src/features/*"],
+      "@cli/*": ["src/cli/*"],
+      "@worker/*": ["src/worker/*"]
     }
   }
 }

@@ -1,13 +1,10 @@
 // @ts-nocheck
 import { createFileRoute } from '@tanstack/react-router'
-import pkg from '../../../../package.json' assert { type: 'json' }
-import { json, safeHandler } from './utils'
+import { json, safeHandler } from '@app/api-utils'
 
 const SERVICE_NAME = process.env.SEO_AGENT_SERVICE ?? 'seo-agent'
-const VERSION =
-  process.env.SEO_AGENT_VERSION ??
-  (typeof (pkg as any)?.version === 'string' ? (pkg as any).version : undefined) ??
-  '0.0.0-dev'
+// Avoid JSON import attributes in Vite parsing; prefer env with sensible default
+const VERSION = process.env.SEO_AGENT_VERSION ?? '0.0.0-dev'
 
 export const Route = createFileRoute('/api/health')({
   server: {

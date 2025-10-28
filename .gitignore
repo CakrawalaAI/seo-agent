@@ -1,2 +1,8 @@
-apps/web/src/routeTree.gen.ts
-apps/web/src/routes.d.ts
+src/app/routeTree.gen.ts
+src/app/routes.d.ts
+.tanstack/
+node_modules/
+.output/
+.nitro/
+dist/
+.DS_Store

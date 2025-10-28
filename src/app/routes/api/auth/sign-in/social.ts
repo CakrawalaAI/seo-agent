@@ -1,6 +1,6 @@
 // @ts-nocheck
 import { createFileRoute } from '@tanstack/react-router'
-import { json, safeHandler } from '../../utils'
+import { json, safeHandler } from '@app/api-utils'
 
 export const Route = createFileRoute('/api/auth/sign-in/social')({
   server: {
@@ -8,11 +8,13 @@ export const Route = createFileRoute('/api/auth/sign-in/social')({
       POST: safeHandler(async ({ request }) => {
         const body = await request.json().catch(() => ({}))
         const callbackURL = typeof body?.callbackURL === 'string' ? body.callbackURL : '/dashboard'
-        // For MVP dev: redirect to our mock callback which sets a session
-        const url = `/api/auth/callback/mock?next=${encodeURIComponent(callbackURL)}`
+        // Prefer external better-auth sign-in URL if provided
+        const external = process.env.BETTER_AUTH_SIGNIN_URL
+        const url = external
+          ? external
+          : `/api/auth/callback/mock?next=${encodeURIComponent(callbackURL)}`
         return json({ url })
       })
     }
   }
 })
-

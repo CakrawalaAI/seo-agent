@@ -1,13 +1,26 @@
 import '@app/styles.css'
 
 import { useState } from 'react'
-import { TanStackRouterDevtools } from '@tanstack/router-devtools'
+import { TanStackRouterDevtools } from '@tanstack/react-router-devtools'
 import { Outlet, createRootRouteWithContext } from '@tanstack/react-router'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { RouterContext } from '@app/router'
 
+function NotFound() {
+  return (
+    <div className="mx-auto max-w-2xl px-6 py-24 text-center">
+      <h1 className="text-2xl font-semibold">Not Found</h1>
+      <p className="mt-2 text-muted-foreground">The page you’re looking for doesn’t exist.</p>
+      <a href="/" className="mt-6 inline-block text-sm font-medium underline">
+        Go home
+      </a>
+    </div>
+  )
+}
+
 export const Route = createRootRouteWithContext<RouterContext>()({
-  component: RootComponent
+  component: RootComponent,
+  notFoundComponent: NotFound
 })
 
 function RootComponent(): JSX.Element {
