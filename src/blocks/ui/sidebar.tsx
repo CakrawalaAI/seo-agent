@@ -328,7 +328,10 @@ type SidebarInsetProps = React.ComponentPropsWithoutRef<'div'>
 export const SidebarInset = React.forwardRef<HTMLDivElement, SidebarInsetProps>(
   function SidebarInset({ className, children, ...props }, ref) {
     const { expanded, isMobile } = useSidebar()
-    const desktopMargin = expanded ? `lg:pl-[var(--sidebar-width,${SIDEBAR_WIDTH})]` : `lg:pl-[var(--sidebar-icon-width,${SIDEBAR_WIDTH_ICON})]`
+  // Always pad content when not on mobile so constrained containers don't drift under the fixed sidebar
+  const desktopMargin = expanded
+    ? `pl-[var(--sidebar-width,${SIDEBAR_WIDTH})]`
+    : `pl-[var(--sidebar-icon-width,${SIDEBAR_WIDTH_ICON})]`
     return (
       <div
         ref={ref}
