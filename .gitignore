@@ -1,3 +1,5 @@
 .data/
 .github/
 /edit*
+.test-results/
+test-results/

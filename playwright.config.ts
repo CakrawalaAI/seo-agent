@@ -4,6 +4,7 @@ export default defineConfig({
   use: {
     baseURL: process.env.PLAYWRIGHT_BASE_URL || 'http://localhost:4000'
   },
+  outputDir: '.test-results',
   webServer: {
     command: 'bash -c "bunx vite build && E2E_NO_AUTH=1 bunx vite preview --strictPort --port 4000"',
     port: 4000,
