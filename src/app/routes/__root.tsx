@@ -1,6 +1,7 @@
-import '@app/styles.css'
+/// <reference types="vite/client" />
 
 import { useState } from 'react'
+import appCss from '@app/styles/app.css?url'
 import { TanStackRouterDevtools } from '@tanstack/react-router-devtools'
 import { Outlet, createRootRouteWithContext } from '@tanstack/react-router'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
@@ -19,6 +20,11 @@ function NotFound() {
 }
 
 export const Route = createRootRouteWithContext<RouterContext>()({
+  head: () => ({
+    links: [
+      { rel: 'stylesheet', href: appCss }
+    ]
+  }),
   component: RootComponent,
   notFoundComponent: NotFound
 })

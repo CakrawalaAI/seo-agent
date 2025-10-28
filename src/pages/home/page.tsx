@@ -1,3 +1,5 @@
+import { Link } from '@tanstack/react-router'
+
 export function Page() {
   return (
     <main className="mx-auto flex min-h-screen max-w-4xl flex-col gap-6 px-6 py-16">
@@ -8,6 +10,17 @@ export function Page() {
           Connect a site, review the 30-day content plan, and let the worker generate and
           publish one article per day.
         </p>
+        <div className="mt-4 flex items-center gap-3">
+          <Link
+            to="/dashboard"
+            className="inline-flex items-center justify-center rounded-md bg-primary px-5 py-2 text-sm font-medium text-primary-foreground shadow-sm transition hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2"
+          >
+            Open dashboard
+          </Link>
+          <a href="/projects" className="text-sm font-medium text-primary hover:underline">
+            View projects
+          </a>
+        </div>
       </header>
       <section className="grid gap-4 md:grid-cols-2">
         {FEATURES.map((feature) => (
@@ -41,4 +54,3 @@ const FEATURES = [
     description: 'Webhook + Webflow connectors push approved drafts live once the buffer clears.'
   }
 ] as const
-

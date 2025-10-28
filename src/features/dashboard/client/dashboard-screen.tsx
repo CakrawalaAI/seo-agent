@@ -1,12 +1,13 @@
 import { useMemo } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
-import { LayoutDashboard, SquareStack } from 'lucide-react'
+import { LayoutDashboard, SquareStack, FileText, CalendarRange, RefreshCcw } from 'lucide-react'
 
 import type { DashboardNavGroup, DashboardUserSummary } from '@blocks/dashboard/dashboard-shell'
 import { DashboardShell } from '@blocks/dashboard/dashboard-shell'
 import type { MeSession } from '@entities'
 import { fetchSession } from '@entities/org/service'
+import { listProjects } from '@entities/project/service'
 
 export function DashboardScreen(): JSX.Element {
   const { data, isLoading } = useQuery<MeSession>({
@@ -17,6 +18,13 @@ export function DashboardScreen(): JSX.Element {
   const user = data?.user ?? null
   const activeOrg = data?.activeOrg ?? null
   const entitlements = data?.entitlements ?? null
+
+  const projectsQuery = useQuery<{ items: any[] }>({
+    queryKey: ['projects', activeOrg?.id ?? 'none'],
+    queryFn: () => listProjects(activeOrg?.id),
+    enabled: Boolean(activeOrg?.id)
+  })
+  const firstProjectId = (projectsQuery.data?.items?.[0]?.id as string | undefined) || undefined
 
   const upgradeMutation = useMutation({
     mutationFn: async () => {
@@ -76,30 +84,40 @@ export function DashboardScreen(): JSX.Element {
     }
   })
 
-  const navGroups = useMemo<DashboardNavGroup[]>(
-    () => [
+  const navGroups = useMemo<DashboardNavGroup[]>(() => {
+    const items: DashboardNavGroup[] = [
       {
         key: 'workspace',
         label: 'Workspace',
         items: [
-          {
-            key: 'dashboard',
-            label: 'Dashboard',
-            icon: LayoutDashboard,
-            active: true,
-            element: <Link to="/dashboard" />
-          },
-          {
-            key: 'projects',
-            label: 'Projects',
-            icon: SquareStack,
-            element: <Link to="/projects" />
-          }
+          { key: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, active: true, element: <Link to="/dashboard" /> },
+          { key: 'projects', label: 'Projects', icon: SquareStack, element: <Link to="/projects" /> }
+        ]
+      },
+      {
+        key: 'project',
+        label: 'Project',
+        items: [
+          { key: 'project-home', label: 'Project', icon: SquareStack, element: <Link to="/projects" /> },
+          { key: 'switch-project', label: 'Switch active project', icon: RefreshCcw, element: <Link to="/projects" /> }
         ]
       }
-    ],
-    []
-  )
+    ]
+    // Deep links to first project if present (keywords/calendar tabs)
+    try {
+      if (firstProjectId) {
+        items.push({
+          key: 'shortcuts',
+          label: 'Shortcuts',
+          items: [
+            { key: 'keywords', label: 'Keywords', icon: FileText, element: <Link to={`/projects/${firstProjectId}`} search={{ tab: 'keywords' }} /> },
+            { key: 'calendar', label: 'Content calendar', icon: CalendarRange, element: <Link to={`/projects/${firstProjectId}`} search={{ tab: 'plan' }} /> }
+          ]
+        })
+      }
+    } catch {}
+    return items
+  }, [firstProjectId])
 
   const topAction = user ? (
     <Link to="/projects" className="text-sm font-medium text-primary hover:underline">
