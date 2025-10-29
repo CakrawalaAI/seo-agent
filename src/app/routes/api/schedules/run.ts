@@ -70,7 +70,10 @@ export const Route = createFileRoute('/api/schedules/run')({
             generatedDrafts++
             // Also enqueue generation job for providers if a queue is available
             if (queueEnabled()) {
-              await publishJob({ type: 'generate', payload: { projectId: String(projectId), planItemId: item.id } })
+              const jobId = await publishJob({ type: 'generate', payload: { projectId: String(projectId), planItemId: item.id } })
+              console.info('[api/schedules/run] queued generate', { projectId: String(projectId), planItemId: item.id, jobId })
+            } else {
+              console.warn('[api/schedules/run] queue disabled; skipped provider generate job', { projectId: String(projectId), planItemId: item.id })
             }
             // auto-publish policy
             const integrations = integrationsRepo.list(String(projectId))

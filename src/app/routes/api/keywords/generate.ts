@@ -16,9 +16,11 @@ export const Route = createFileRoute('/api/keywords/generate')({
         const locale = body?.locale || 'en-US'
         if (!projectId) return httpError(400, 'Missing projectId')
         await requireProjectAccess(request, String(projectId))
+        console.info('[api/keywords/generate] request', { projectId: String(projectId), locale: String(locale), queueEnabled: queueEnabled() })
         if (queueEnabled()) {
           const jobId = await publishJob({ type: 'discovery', payload: { projectId: String(projectId), locale: String(locale) } })
           recordJobQueued(String(projectId), 'discovery', jobId)
+          console.info('[api/keywords/generate] queued', { projectId: String(projectId), jobId })
           return json({ jobId }, { status: 202 })
         } else {
           const { jobId } = keywordsRepo.generate(String(projectId), String(locale))
@@ -26,6 +28,7 @@ export const Route = createFileRoute('/api/keywords/generate')({
           const current = keywordsRepo.list(String(projectId), { status: 'all', limit: 100 })
           const enriched = await enrichMetrics(current.map((k) => ({ phrase: k.phrase })), String(locale), undefined, String(projectId))
           keywordsRepo.upsertMetrics(String(projectId), enriched)
+          console.warn('[api/keywords/generate] queue disabled; generated locally', { projectId: String(projectId), jobId })
           return json({ jobId }, { status: 202 })
         }
       })

@@ -38,26 +38,18 @@ import { projects } from '@entities/project/db/schema'
 import { orgMembers, orgs } from '@entities/org/db/schema'
 import { projectsRepo } from '@entities/project/repository'
 import { eq } from 'drizzle-orm'
-import { auth } from '@common/auth/server'
 import { session } from '@common/infra/session'
 
 export async function requireSession(request: Request) {
   if (process.env.E2E_NO_AUTH === '1') {
     return { user: { email: 'e2e@example.com' }, activeOrg: { id: 'org-dev' } }
   }
-  const result = await auth.api.getSession({ headers: request.headers as any })
-  // Fallback to dev/session cookie for tests
-  if (!result) {
-    const fallback = session.read(request)
-    if (fallback?.user) {
-      return { user: fallback.user, activeOrg: fallback.activeOrg }
-    }
-    throw httpError(401, 'Unauthorized')
-  }
-  const user = result.user
-  // derive active org heuristically (first membership) or via Better Auth session activeOrganizationId
+  const fallback = session.read(request)
+  if (!fallback?.user) throw httpError(401, 'Unauthorized')
+  const user = fallback.user
+  // derive active org heuristically (first membership) or from cookie
   let activeOrg: { id: string; plan?: string } | undefined
-  const activeId = (result as any)?.session?.activeOrganizationId as string | undefined
+  const activeId = fallback.activeOrg?.id
   if (hasDatabase()) {
     try {
       const db = getDb()

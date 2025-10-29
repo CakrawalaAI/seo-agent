@@ -8,13 +8,8 @@ export const Calendar = React.forwardRef<HTMLDivElement, CalendarProps>(
   function Calendar({ className, ...props }, ref) {
     return (
       <div ref={ref} className={className}>
-        <DayPicker
-          captionLayout="buttons"
-          showOutsideDays
-          {...props}
-        />
+        <DayPicker showOutsideDays {...props} />
       </div>
     )
   }
 )
-

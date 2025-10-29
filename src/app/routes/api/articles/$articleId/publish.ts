@@ -21,9 +21,11 @@ export const Route = createFileRoute('/api/articles/$articleId/publish')({
         await requireProjectAccess(request, String(article.projectId))
         const integration = integrationsRepo.get(String(integrationId))
         if (!integration) return httpError(404, 'Integration not found')
+        console.info('[api/articles/:id/publish] request', { articleId: article.id, projectId: article.projectId, integrationId, queueEnabled: queueEnabled() })
         if (queueEnabled()) {
           const jobId = await publishJob({ type: 'publish', payload: { articleId: article.id, integrationId } })
           recordJobQueued(article.projectId, 'publish', jobId)
+          console.info('[api/articles/:id/publish] queued', { jobId })
           return json({ jobId })
         } else {
           let result: { externalId?: string; url?: string } | null = null
@@ -51,6 +53,7 @@ export const Route = createFileRoute('/api/articles/$articleId/publish')({
             url: result?.url ?? null,
             publicationDate: new Date().toISOString()
           })
+          console.warn('[api/articles/:id/publish] queue disabled; published synchronously', { articleId: article.id })
           return json({ jobId: genId('job'), externalId: result?.externalId, url: result?.url })
         }
       })

@@ -6,13 +6,13 @@ describe('compile: API route modules', () => {
   })
 
   it('imports /api/projects route (server handlers) without errors', async () => {
-    const mod = await import('@app/routes/api/projects.ts')
+    const mod = await import('@app/routes/api/projects')
     expect(mod).toBeTruthy()
     expect((mod as any).Route).toBeTruthy()
   })
 
   it('imports /api/orgs route (server handlers) without errors', async () => {
-    const mod = await import('@app/routes/api/orgs.ts')
+    const mod = await import('@app/routes/api/orgs')
     expect(mod).toBeTruthy()
     expect((mod as any).Route).toBeTruthy()
   })

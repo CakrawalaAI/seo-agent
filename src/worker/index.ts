@@ -14,12 +14,14 @@ type WorkerOptions = {
 
 export async function runWorker(options: WorkerOptions = {}) {
   if (queueEnabled()) {
-    console.info('[seo-agent] worker consuming RabbitMQ jobs')
+    const masked = (process.env.RABBITMQ_URL ? (() => { try { const u = new URL(process.env.RABBITMQ_URL); return `amqp://${u.username || 'user'}:****@${u.hostname}${u.port ? ':'+u.port : ''}${u.pathname || '/'}` } catch { return 'amqp://<invalid>' } })() : 'amqp://<missing>')
+    console.info('[seo-agent] worker consuming RabbitMQ jobs', { url: masked })
     // housekeeping even in queue mode
     const cleanupInterval = setInterval(() => {
       cleanupMetricCache().catch(() => {})
       try { cleanupOldBlobs(env.blobTtlDays) } catch {}
     }, 15 * 60 * 1000)
+    console.info('[worker] DB available?', { hasDb: Boolean(process.env.DATABASE_URL) })
     const perProjectRunning = new Map<string, number>()
     const projectConcurrency = Math.max(1, Number(process.env.SEOA_PROJECT_CONCURRENCY || '1'))
     const maxRetries = Math.max(0, Number(process.env.SEOA_JOB_MAX_RETRIES || '2'))
@@ -30,12 +32,14 @@ export async function runWorker(options: WorkerOptions = {}) {
       if (projectId) {
         const cur = perProjectRunning.get(projectId) ?? 0
         if (cur >= projectConcurrency) {
+          console.warn('[worker] project concurrency saturated; requeueing', { projectId, type: msg.type, current: cur, limit: projectConcurrency })
           setTimeout(() => publishJob({ type: msg.type, payload: msg.payload, retries: msg.retries ?? 0 }).catch(() => {}), 300)
           return
         }
         perProjectRunning.set(projectId, cur + 1)
       }
       if (projectId) recordJobRunning(projectId, msg.id)
+      console.info('[worker] processing', { id: msg.id, type: msg.type, projectId, retries: msg.retries ?? 0 })
       try {
         switch (msg.type) {
           case 'crawl':
@@ -57,13 +61,16 @@ export async function runWorker(options: WorkerOptions = {}) {
             break
         }
         if (projectId) recordJobCompleted(projectId, msg.id)
+        console.info('[worker] completed', { id: msg.id, type: msg.type, projectId })
       } catch (error) {
         const err = error instanceof Error ? { message: error.message } : { message: String(error) }
         if (projectId) recordJobFailed(projectId, msg.id, err)
+        console.error('[worker] failed', { id: msg.id, type: msg.type, projectId, error: err })
         // retry/backoff limited
         const attempt = Number(msg.retries ?? 0)
         if (attempt < maxRetries) {
           const delay = baseDelayMs * Math.pow(2, attempt)
+          console.warn('[worker] retrying', { id: msg.id, attempt: attempt + 1, delayMs: delay })
           setTimeout(() => publishJob({ type: msg.type, payload: msg.payload, retries: attempt + 1 }).catch(() => {}), delay)
         }
       }

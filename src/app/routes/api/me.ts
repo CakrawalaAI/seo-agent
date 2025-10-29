@@ -4,7 +4,7 @@ import { json } from '@app/api-utils'
 import { hasDatabase, getDb } from '@common/infra/db'
 import { orgs, orgMembers, orgUsage } from '@entities/org/db/schema'
 import { eq } from 'drizzle-orm'
-import { auth } from '@common/auth/server'
+import { session } from '@common/infra/session'
 
 export const Route = createFileRoute('/api/me')({
   server: {
@@ -21,10 +21,8 @@ export const Route = createFileRoute('/api/me')({
             orgs: [devOrg]
           })
         }
-        const s = await auth.api.getSession({ headers: request.headers as any })
-        if (!s) return json({ user: null, activeOrg: null, entitlements: null, orgs: [] })
-        // read our app session cookie for activeProjectId
-        const appSess = (await import('@common/infra/session')).session.read(request)
+        const appSess = session.read(request)
+        if (!appSess?.user) return json({ user: null, activeOrg: null, entitlements: null, orgs: [] })
         const activeProjectId = appSess?.activeProjectId ?? null
         let activeOrg: { id: string; plan?: string } | null = null
         let entitlements: any = null
@@ -33,10 +31,9 @@ export const Route = createFileRoute('/api/me')({
         if (hasDatabase()) {
           try {
             const db = getDb()
-            // attempt to use Better Auth activeOrganizationId first
-            const activeId = (s as any)?.session?.activeOrganizationId as string | undefined
+            const activeId = appSess?.activeOrg?.id
             // @ts-ignore
-            const membs = (await db.select().from(orgMembers).where(eq(orgMembers.userEmail, s.user.email)).limit(25)) as any
+            const membs = (await db.select().from(orgMembers).where(eq(orgMembers.userEmail, appSess.user.email)).limit(25)) as any
             const ids = new Set<string>(membs.map((m: any) => String(m.orgId)))
             // @ts-ignore
             const all = (await db.select().from(orgs).limit(50) as any) || []
@@ -80,7 +77,7 @@ export const Route = createFileRoute('/api/me')({
             }
           } catch {}
         }
-        return json({ user: { email: s.user.email, name: s.user.name }, activeOrg, entitlements, usage, orgs: orgList, activeProjectId })
+        return json({ user: { email: appSess.user.email, name: appSess.user.name }, activeOrg, entitlements, usage, orgs: orgList, activeProjectId })
       }
     }
   }

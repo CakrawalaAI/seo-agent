@@ -3,7 +3,6 @@ import type { LucideIcon } from 'lucide-react'
 import { CircleUserRound } from 'lucide-react'
 import clsx from 'clsx'
 import { Button } from '@src/common/ui/button'
-import { authClient } from '@common/auth/client'
 import { ProjectSwitcher } from './project-switcher'
 
 import {
@@ -164,6 +163,12 @@ function UserSummary({ user }: { user?: DashboardUserSummary | null }) {
     return (
       <div className="flex items-center justify-between gap-3">
         <div className="text-xs text-sidebar-foreground/70">Not signed in</div>
+        <a
+          href="/login"
+          className="ml-auto text-xs text-sidebar-foreground/70 underline hover:text-sidebar-foreground"
+        >
+          Sign in
+        </a>
       </div>
     )
   }
@@ -185,13 +190,7 @@ function UserSummary({ user }: { user?: DashboardUserSummary | null }) {
         type="button"
         onClick={async () => {
           try {
-            await authClient.signOut({
-              fetchOptions: {
-                onSuccess: () => {
-                  if (typeof window !== 'undefined') window.location.href = '/login'
-                }
-              }
-            })
+            if (typeof window !== 'undefined') window.location.href = '/api/auth/logout'
           } catch {}
         }}
         className="ml-auto text-xs text-sidebar-foreground/70 underline hover:text-sidebar-foreground"

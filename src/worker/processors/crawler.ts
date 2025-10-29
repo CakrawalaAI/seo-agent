@@ -5,11 +5,27 @@ import { isAllowed } from '@common/crawl/robots'
 import { saveHtml } from '@common/blob/store'
 import { env } from '@common/infra/env'
 import { hasDatabase, getDb } from '@common/infra/db'
+import { projects as projectsTable } from '@entities/project/db/schema'
+import { eq } from 'drizzle-orm'
 import { linkGraph } from '@entities/crawl/db/schema'
 
 export async function processCrawl(payload: { projectId: string }) {
-  const project = projectsRepo.get(payload.projectId)
-  if (!project?.siteUrl) return
+  let project = projectsRepo.get(payload.projectId) as any
+  if (!project && hasDatabase()) {
+    try {
+      const db = getDb()
+      const rows = (await (db.select().from(projectsTable).where(eq(projectsTable.id, payload.projectId)).limit(1) as any)) as any
+      project = rows?.[0] ?? null
+      if (!project) console.warn('[crawler] project not found in DB', { projectId: payload.projectId })
+    } catch (err) {
+      console.warn('[crawler] failed to load project from DB', { projectId: payload.projectId, error: (err as Error)?.message || String(err) })
+    }
+  }
+  if (!project?.siteUrl) {
+    console.warn('[crawler] missing siteUrl; skipping', { projectId: payload.projectId })
+    return
+  }
+  console.info('[crawler] start', { projectId: payload.projectId, siteUrl: project.siteUrl, render: env.crawlRender })
 
   // Try sitemap discovery first
   const discovered = await discoverFromSitemap(project.siteUrl, 10)
@@ -25,7 +41,14 @@ export async function processCrawl(payload: { projectId: string }) {
   // Attempt Playwright; if unavailable, use undici fetch as fallback
   let usePlaywright = env.crawlRender === 'playwright'
   let chromium: any
-  try { if (usePlaywright) { ({ chromium } = await import('playwright')) } } catch { usePlaywright = false }
+  try {
+    if (usePlaywright) {
+      ({ chromium } = await import('playwright'))
+    }
+  } catch (err) {
+    usePlaywright = false
+    console.warn('[crawler] playwright import failed; falling back to fetch', { error: (err as Error)?.message || String(err) })
+  }
 
   let browser: any = null
   let page: any = null
@@ -34,7 +57,11 @@ export async function processCrawl(payload: { projectId: string }) {
       browser = await chromium.launch({ headless: true })
       const context = await browser.newContext()
       page = await context.newPage()
-    } catch { usePlaywright = false }
+      console.info('[crawler] using playwright rendering')
+    } catch (err) {
+      usePlaywright = false
+      console.warn('[crawler] playwright launch failed; falling back to fetch', { error: (err as Error)?.message || String(err) })
+    }
   }
 
   const visitLimit = Math.max(
@@ -44,6 +71,7 @@ export async function processCrawl(payload: { projectId: string }) {
   const maxDepth = Math.max(0, Number((project as any)?.crawlMaxDepth ?? (env.crawlMaxDepth ?? 2)))
   const seen = new Set<string>()
   const queue: Array<{ url: string; depth: number }> = [...initialSeeds]
+  console.info('[crawler] seeds', { count: initialSeeds.length })
   for (let qi = 0; qi < queue.length && seen.size < visitLimit; qi++) {
     const { url, depth } = queue[qi]!
     if (seen.has(url)) continue
@@ -148,4 +176,5 @@ export async function processCrawl(payload: { projectId: string }) {
   if (usePlaywright && browser) {
     try { await browser.close() } catch {}
   }
+  console.info('[crawler] done', { visited: seen.size })
 }

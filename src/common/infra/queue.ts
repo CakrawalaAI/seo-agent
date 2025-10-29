@@ -24,12 +24,28 @@ export function queueEnabled() {
   return Boolean(process.env.RABBITMQ_URL)
 }
 
+function maskRabbitUrl(raw?: string | null) {
+  if (!raw) return 'amqp://<missing>'
+  try {
+    const u = new URL(raw)
+    const user = u.username || 'user'
+    const host = u.hostname || 'localhost'
+    const port = u.port ? `:${u.port}` : ''
+    const vhost = u.pathname || '/'
+    return `amqp://${user}:****@${host}${port}${vhost}`
+  } catch {
+    return 'amqp://<invalid>'
+  }
+}
+
 export async function getChannel(): Promise<any> {
   if (chan) return chan
   if (!process.env.RABBITMQ_URL) {
     throw new Error('RABBITMQ_URL not set')
   }
   const amqp = await import('amqplib')
+  const masked = maskRabbitUrl(process.env.RABBITMQ_URL)
+  console.info(`[queue] connecting`, { url: masked })
   conn = await (amqp as any).connect(process.env.RABBITMQ_URL)
   chan = await conn.createChannel()
   // Topic exchange for routing by type.projectId
@@ -39,6 +55,7 @@ export async function getChannel(): Promise<any> {
   await chan.bindQueue(QUEUE_NAME, EXCHANGE_NAME, '#')
   await chan.assertQueue(DLQ_NAME, { durable: true })
   await chan.bindQueue(DLQ_NAME, DLX_NAME, '#')
+  console.info(`[queue] channel ready`, { exchange: EXCHANGE_NAME, queue: QUEUE_NAME, dlq: DLQ_NAME })
   return chan
 }
 
@@ -52,10 +69,12 @@ export async function publishJob(message: JobMessage): Promise<string> {
     if (ttlMs > 0) opts.expiration = String(ttlMs)
     const projectId = String((message.payload as any)?.projectId || 'unknown')
     const routingKey = `${message.type}.${projectId}`
-    ch.publish(EXCHANGE_NAME, routingKey, Buffer.from(JSON.stringify(envelope)), opts)
+    const ok = ch.publish(EXCHANGE_NAME, routingKey, Buffer.from(JSON.stringify(envelope)), opts)
+    console.info(`[queue] published`, { id: jobId, type: message.type, routingKey, persisted: ok })
     return jobId
   } catch (err) {
     // queue disabled or connection failed; generate a local id so callers can proceed
+    console.error('[queue] publish failed, returning local id', { error: (err as Error)?.message || String(err) })
     return `job_local_${Date.now().toString(36)}`
   }
 }
@@ -66,13 +85,17 @@ export async function consumeJobs(
   const ch = await getChannel()
   const prefetch = Math.max(1, Number(process.env.RABBITMQ_PREFETCH || '1'))
   await ch.prefetch(prefetch)
+  console.info('[queue] consumer started', { queue: QUEUE_NAME, prefetch })
   ch.consume(QUEUE_NAME, async (msg: any) => {
     if (!msg) return
     try {
       const parsed = JSON.parse(msg.content.toString()) as JobMessage & { id: string }
+      console.info('[queue] message received', { id: parsed.id, type: parsed.type, projectId: (parsed.payload as any)?.projectId })
       await handler(parsed)
       ch.ack(msg)
+      console.info('[queue] message acked', { id: parsed.id })
     } catch (err) {
+      console.error('[queue] handler error, nacking', { error: (err as Error)?.message || String(err) })
       ch.nack(msg, false, false)
     }
   })

@@ -1,7 +1,7 @@
 // @ts-nocheck
 import { createFileRoute } from '@tanstack/react-router'
 import { json, httpError, safeHandler, requireSession } from '@app/api-utils'
-import { auth } from '@common/auth/server'
+import { session } from '@common/infra/session'
 import { hasDatabase, getDb } from '@common/infra/db'
 import { orgs, orgMembers } from '@entities/org/db/schema'
 
@@ -35,9 +35,10 @@ export const Route = createFileRoute('/api/orgs/invites/$token/accept')({
             }
           } catch {}
         }
-        // Set Better Auth active organization on session
-        const resp = await auth.api.setActiveOrganization({ headers: request.headers as any, body: { organizationId: orgId }, asResponse: true })
-        return resp
+        // Update our cookie session active organization
+        const current = session.read(request) || { user: null }
+        const cookie = session.set({ ...(current as any), activeOrg: { id: orgId } })
+        return new Response(null, { status: 204, headers: { 'Set-Cookie': cookie } })
       })
     }
   }

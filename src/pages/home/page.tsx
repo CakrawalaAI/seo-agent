@@ -20,6 +20,9 @@ export function Page() {
           <a href="/projects" className="text-sm font-medium text-primary hover:underline">
             View projects
           </a>
+          <a href="/login" className="text-sm font-medium text-primary hover:underline">
+            Sign in
+          </a>
         </div>
       </header>
       <section className="grid gap-4 md:grid-cols-2">

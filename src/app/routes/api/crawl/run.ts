@@ -18,6 +18,7 @@ export const Route = createFileRoute('/api/crawl/run')({
         const force = body?.force === true
         if (!projectId) return httpError(400, 'Missing projectId')
         await requireProjectAccess(request, String(projectId))
+        console.info('[api/crawl/run] request', { projectId: String(projectId), force, queueEnabled: queueEnabled(), rabbit: process.env.RABBITMQ_URL ? 'set' : 'unset' })
         // Idempotency: skip if recent crawl exists
         if (!force) {
           const minDays = Math.max(1, Number(process.env.SEOA_CRAWL_MIN_INTERVAL_DAYS || '3'))
@@ -37,14 +38,19 @@ export const Route = createFileRoute('/api/crawl/run')({
             const last = list[0]?.extractedAt ? new Date(list[0].extractedAt as any).getTime() : 0
             if (last && last > cutoff) recent = true
           }
-          if (recent) return json({ skipped: true, reason: 'recent_crawl' }, { status: 200 })
+          if (recent) {
+            console.info('[api/crawl/run] skipped recent crawl', { projectId: String(projectId) })
+            return json({ skipped: true, reason: 'recent_crawl' }, { status: 200 })
+          }
         }
         if (queueEnabled()) {
           const jobId = await publishJob({ type: 'crawl', payload: { projectId: String(projectId) } })
           recordJobQueued(String(projectId), 'crawl', jobId)
+          console.info('[api/crawl/run] queued', { projectId: String(projectId), jobId })
           return json({ jobId }, { status: 202 })
         } else {
           const { jobId } = crawlRepo.seedRun(String(projectId))
+          console.warn('[api/crawl/run] queue disabled; seeded local crawl pages', { projectId: String(projectId), jobId })
           return json({ jobId }, { status: 202 })
         }
       })

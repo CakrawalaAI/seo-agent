@@ -42,14 +42,17 @@ export const Route = createFileRoute('/api/projects/$projectId/jobs')({
         const type = String(body?.type || '')
         const payload = (body?.payload ?? {}) as Record<string, unknown>
         if (!type) return httpError(400, 'Missing type')
+        console.info('[api/projects/:id/jobs] enqueue', { projectId: params.projectId, type, queueEnabled: queueEnabled() })
         if (queueEnabled()) {
           const jobId = await publishJob({ type: type as any, payload: { ...payload, projectId: params.projectId } })
           recordJobQueued(params.projectId, type, jobId)
+          console.info('[api/projects/:id/jobs] queued', { projectId: params.projectId, type, jobId })
           return json({ id: jobId, status: 'queued' }, { status: 202 })
         }
         // Fallback: accept but no queue
         const jobId = `job_${Date.now().toString(36)}`
         recordJobQueued(params.projectId, type, jobId)
+        console.warn('[api/projects/:id/jobs] queue disabled; accepted without enqueue', { projectId: params.projectId, type, jobId })
         return json({ id: jobId, status: 'queued' }, { status: 202 })
       })
     }

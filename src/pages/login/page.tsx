@@ -1,6 +1,5 @@
 import { useState } from 'react'
 import { Button } from '@src/common/ui/button'
-import { authClient } from '@common/auth/client'
 
 export function Page() {
   const [loading, setLoading] = useState(false)
@@ -10,19 +9,10 @@ export function Page() {
     setLoading(true)
     setError(null)
     try {
-      const res = await authClient.signIn.social({
-        provider: 'google',
-        callbackURL: '/dashboard',
-        errorCallbackURL: '/login?error=oauth'
-      })
-      // better-auth client auto-redirects if res.data.url present
-      if (!res?.data?.url && res?.error) {
-        setError(res.error.message || 'Could not start Google sign-in.')
-      }
+      if (typeof window !== 'undefined') window.location.href = '/api/auth/login?redirect=/dashboard'
     } catch (err) {
       console.error('google sign-in failed', err)
       setError('Could not start Google sign-in. Please try again.')
-    } finally {
       setLoading(false)
     }
   }

@@ -63,14 +63,20 @@ export const Route = createFileRoute('/api/projects')({
         // auto-start crawl job per spec
         let crawlJobId: string | null = null
         try {
+          const masked = process.env.RABBITMQ_URL ? (() => { try { const u = new URL(process.env.RABBITMQ_URL); return `amqp://${u.username || 'user'}:****@${u.hostname}${u.port ? ':'+u.port : ''}${u.pathname || '/'}` } catch { return 'amqp://<invalid>' } })() : 'amqp://<missing>'
+          console.info('[api/projects] create: enqueue crawl', { projectId: project.id, queueEnabled: queueEnabled(), rabbit: masked })
           if (queueEnabled()) {
             crawlJobId = await publishJob({ type: 'crawl', payload: { projectId: project.id } })
             recordJobQueued(project.id, 'crawl', crawlJobId)
+            console.info('[api/projects] crawl queued', { projectId: project.id, jobId: crawlJobId })
           } else {
             const seeded = crawlRepo.seedRun(project.id)
             crawlJobId = seeded.jobId
+            console.warn('[api/projects] queue disabled; seeded local crawl pages', { projectId: project.id, jobId: crawlJobId })
           }
-        } catch {}
+        } catch (err) {
+          console.error('[api/projects] failed to enqueue crawl', { projectId: project.id, error: (err as Error)?.message || String(err) })
+        }
         return json({ project, crawlJobId }, { status: 201 })
       })
     }

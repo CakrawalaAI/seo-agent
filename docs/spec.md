@@ -213,15 +213,31 @@ id, projectId, providersUsed[] (["crawl","llm","dataforseo"]), startedAt, finish
 
 summaryJson (business summary, audience, topics)
 
-Keyword
+KeywordCanon (global)
 
-id, projectId, phrase, locale, primaryTopic, source ("crawl"|"llm"|"manual")
+id, phraseNorm, languageCode, createdAt
 
-metricsJson (searchVolume?, difficulty?, cpc?, competition?, sourceProvider, asOf)
+Unique by (phraseNorm, languageCode)
 
-status (recommended|planned|generated)
+KeywordMetricsSnapshot (global slice)
 
-Unique by (projectId, phrase, locale)
+id, canonId (FK KeywordCanon), provider, locationCode, asOfMonth (YYYY‑MM), metricsJson, fetchedAt, ttlSeconds (default 30d)
+
+Unique by (canonId, provider, locationCode, asOfMonth)
+
+SerpSnapshot (global slice)
+
+id, canonId (FK KeywordCanon), engine ('google'), locationCode, device ('desktop'|'mobile'), topK, resultsJson, fetchedAt, anchorMonth? (optional)
+
+Unique latest by (canonId, engine, locationCode, device, topK); optional monthly anchors for trends
+
+Keyword (per‑project)
+
+id, projectId, canonId (FK KeywordCanon), phrase, locale, primaryTopic, source ("crawl"|"llm"|"manual"),
+
+status (recommended|planned|generated), starred?, opportunity?, createdAt, updatedAt
+
+Unique by (projectId, canonId)
 
 PlanItem (30‑day title+outline plan; no body yet)
 
@@ -247,11 +263,11 @@ payloadJson, status (queued|running|succeeded|failed|canceled)
 
 progressPct, retries, startedAt, finishedAt, logs[]
 
-MetricCache
+MetricCache (legacy helper)
 
-id, projectId, provider ("dataforseo"), hash (phrase+locale+location)
+id, provider, hash (e.g., request payload hash), projectId?, metricsJson, fetchedAt, ttlSeconds
 
-metricsJson, fetchedAt, ttl (avoid re‑billing)
+Note: Keep for non‑canonical caches; canonical metrics live in KeywordMetricsSnapshot.
 
 (Later: SearchMetrics from GSC; InternalLinks for link graph.)
 
@@ -322,6 +338,7 @@ Requires Wix app & scopes; publish draft → live.
 Build order: Webhook → Webflow → WordPress → Framer → Shopify/Wix.
 
 5. Core flows (behavioral specs)
+See also: ./workflow.md (Background Jobs & Loops)
 5.1 Onboarding → Crawl → Discovery → Planning
 
 Create Project (siteUrl).
@@ -338,9 +355,11 @@ business model, audience, products/services, writing style, topic clusters.
 
 Seed generation: LLM yields seed keywords by topic.
 
-Metrics enrichment: call Discovery Metrics Provider (DataForSEO when enabled) to attach searchVolume / cpc / competition / (difficulty?).
+Metrics enrichment: ensure monthly KeywordMetricsSnapshot (global) via provider (DataForSEO when enabled): searchVolume, CPC, competition, difficulty; per (canon, location, YYYY‑MM).
 
 Keyword list appears in Keywords Page (status=recommended).
+
+Optionally ensure SERP snapshots for top‑M (global, TTL 7–14d) to prime research.
 
 30‑day Plan is created immediately:
 
@@ -350,7 +369,7 @@ Users can edit/skip/reorder plan items.
 
 5.2 Daily Lazy Generation → Review/Edit → Publish
 
-Daily cron (or seo schedule run): for today’s PlanItems, run Generate Body to produce full Draft articles.
+Daily cron (or seo schedule run): for today’s PlanItems, run Generate Body to produce full Draft articles; ensure SERP snapshot present/fresh.
 
 Project setting controls the review policy:
 
@@ -573,6 +592,7 @@ LLM input: top N pages by internal link rank + representative samples by section
 Idempotency: re‑crawl only if lastCrawled > N days or hash changed.
 
 12. Worker & cron
+See also: ./workflow.md (Queues, DAG transitions, loops)
 
 Cron (platform scheduler) calls:
 
@@ -582,15 +602,17 @@ Optional: /api/crawl/run weekly to refresh content dump.
 
 Queueing (RabbitMQ):
 
-- Direct exchange `seo.jobs` routes per jobType/project key into durable queue `seo.jobs.default`.
-- Messages persisted with delivery-mode 2, TTL + retry headers; failures > N route to DLX `seo.jobs.dlq`.
-- Configuration via env: `RABBITMQ_URL` (AMQP connection), `RABBITMQ_PREFETCH` (worker prefetch), `RABBITMQ_QUEUE_PREFIX` (optional namespace per org/env).
+- Exchange `seo.jobs` (topic), DLX `seo.jobs.dlq`.
+- Default (today): single durable queue `seo_jobs` binds `#`.
+- Recommended split: `seo_jobs.crawler` binds `crawl.*`; `seo_jobs.general` binds `discovery.* plan.* generate.* publish.* metrics.* serp.*`.
+- Messages persisted with delivery-mode 2, TTL + retry headers; failures > N route to DLX.
+- Env: `RABBITMQ_URL`, `RABBITMQ_PREFETCH`, `RABBITMQ_QUEUE_PREFIX`, `SEOA_QUEUE_NAME`, `SEOA_EXCHANGE_NAME`.
 
-Worker app:
+Worker apps:
 
-- Subscribes to `seo.jobs.default` with manual ack + prefetch window per org.
-- Applies concurrency + rate limits per org; requeues with delay on transient failure.
-- Emits heartbeats by extending ack deadline; moves exceeded retries to DLX.
+- Crawler worker (Playwright image): consumes `seo_jobs.crawler` (or `seo_jobs` in single-queue mode); handles `crawl`.
+- General worker (bun image): consumes `seo_jobs.general` (or `seo_jobs`); handles `discovery|plan|generate|publish|metrics|serp`.
+- Both apply per‑org concurrency; retry/backoff; DLQ on exceeded retries.
 
 13. PortableArticle
 {
@@ -638,6 +660,17 @@ src/
   common/              # http, logger, env, queue/db clients, generic utils
   cli/                 # CLI commands using the same API DTOs
   worker/              # background processors using repositories/services
+features/
+  keyword/
+    server/ensureCanon.ts
+    server/ensureMetrics.ts
+    server/computeOpportunity.ts
+  serp/
+    server/ensureSerp.ts
+    server/parseSerp.ts
+worker/
+  crawler.entry.ts      # Playwright image entry (binds crawl.*)
+  general.entry.ts      # bun image entry (binds discovery|plan|generate|publish|metrics|serp)
 tests/                 # unit/integration tests
 ```
 
@@ -856,3 +889,12 @@ Failing any check blocks the commit from merging. Prefer parallel test execution
 
 Notes
 - Current MVP uses in‑memory repositories and mocked providers; replace with Drizzle/Postgres and real integrations for production. SSR loaders added to prime queries. Biome is configured as linter/formatter. Playwright curl/e2e smokes included.
+seo keyword refresh --canon <id> --location "United States" --what metrics --force  # manual global refresh
+seo serp refresh --canon <id> --location "United States" --device desktop --topK 10
+Keyword & SERP (global refresh)
+
+POST /api/keyword/refresh → { queued: true } (body: { canonId | phrase + language, locationCode, what?: 'metrics'|'serp'|'both', force?: boolean })
+
+POST /api/serp/refresh → { queued: true } (body: { canonId, locationCode, device?: 'desktop'|'mobile', topK?: number, force?: boolean })
+
+GET /api/keywords/:canonId/snapshots?from=YYYY-MM&to=YYYY-MM → list monthly metrics snapshots
