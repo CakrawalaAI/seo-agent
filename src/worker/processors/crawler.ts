@@ -2,8 +2,10 @@ import { projectsRepo } from '@entities/project/repository'
 import { crawlRepo } from '@entities/crawl/repository'
 import { discoverFromSitemap } from '@common/crawl/sitemap'
 import { isAllowed } from '@common/crawl/robots'
-import { saveHtml } from '@common/blob/store'
+import { saveHtml, saveText } from '@common/blob/store'
 import { env } from '@common/infra/env'
+import * as bundle from '@common/bundle/store'
+import { createHash } from 'node:crypto'
 import { hasDatabase, getDb } from '@common/infra/db'
 import { projects as projectsTable } from '@entities/project/db/schema'
 import { eq } from 'drizzle-orm'
@@ -83,11 +85,13 @@ export async function processCrawl(payload: { projectId: string }) {
       let headings: Array<{ level: number; text: string }> = []
       let linksForJson: Array<{ href: string; text?: string }> = []
       let pageHtml: string | null = null
+      let textDump: string | null = null
       if (usePlaywright && page) {
         const res = await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 15000 })
         httpStatus = res?.status() ?? null
         title = await page.title().catch(() => '')
         try { pageHtml = await page.content() } catch {}
+        try { textDump = await page.evaluate(() => document.body?.innerText || '') } catch {}
         // discover more links (same host)
         const anchors = await page.$$eval('a[href]', (els: any[]) =>
           els.map((a: any) => ({
@@ -118,6 +122,7 @@ export async function processCrawl(payload: { projectId: string }) {
         httpStatus = res.status
         const text = await res.text()
         pageHtml = text
+        textDump = text.replace(/<script[\s\S]*?<\/script>/gi, ' ').replace(/<style[\s\S]*?<\/style>/gi, ' ').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim()
         const m = text.match(/<title[^>]*>([^<]*)<\/title>/i)
         title = m?.[1]?.trim() ?? ''
         const base = new URL(url)
@@ -138,11 +143,14 @@ export async function processCrawl(payload: { projectId: string }) {
       }
       const now = new Date().toISOString()
       let contentBlobUrl: string | undefined
-      if (pageHtml) {
+      if (textDump && textDump.length > 0) {
         try {
-          const blob = saveHtml(pageHtml, project.id)
+          const blob = saveText(textDump, project.id)
           contentBlobUrl = blob.url
         } catch {}
+      } else if (pageHtml) {
+        // Fallback only when text extraction failed
+        try { const blob = saveHtml(pageHtml, project.id); contentBlobUrl = blob.url } catch {}
       }
       crawlRepo.addOrUpdate(project.id, {
         url,
@@ -155,6 +163,20 @@ export async function processCrawl(payload: { projectId: string }) {
         contentBlobUrl,
         extractedAt: now
       })
+      // Write to bundle crawl/pages.jsonl
+      try {
+        const hash = createHash('sha1').update(textDump || pageHtml || url).digest('hex').slice(0, 12)
+        const rec = {
+          canonical: url,
+          status: httpStatus ?? null,
+          title,
+          headings: headings,
+          links: linksForJson,
+          contentHash: hash,
+          ts: now
+        }
+        bundle.appendJsonl(project.id, 'crawl/pages.jsonl', rec)
+      } catch {}
       // Persist link edges when DB is available
       if (hasDatabase() && linksForJson.length) {
         try {
@@ -176,5 +198,6 @@ export async function processCrawl(payload: { projectId: string }) {
   if (usePlaywright && browser) {
     try { await browser.close() } catch {}
   }
+  try { bundle.appendLineage(project.id, { node: 'crawl', outputs: { pages: seen.size } }) } catch {}
   console.info('[crawler] done', { visited: seen.size })
 }

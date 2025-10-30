@@ -13,9 +13,15 @@ export type JobMessage = {
   type:
     | 'crawl'
     | 'discovery'
+    | 'score'
     | 'plan'
     | 'generate'
     | 'publish'
+    | 'metrics'
+    | 'serp'
+    | 'competitors'
+    | 'enrich'
+    | 'feedback'
   payload: Record<string, unknown>
   retries?: number
 }
@@ -52,7 +58,10 @@ export async function getChannel(): Promise<any> {
   await chan.assertExchange(EXCHANGE_NAME, 'topic', { durable: true })
   await chan.assertExchange(DLX_NAME, 'topic', { durable: true })
   await chan.assertQueue(QUEUE_NAME, { durable: true, arguments: { 'x-dead-letter-exchange': DLX_NAME } })
-  await chan.bindQueue(QUEUE_NAME, EXCHANGE_NAME, '#')
+  const bindKey = (process.env.SEOA_BINDING_KEY || '#').split(',').map((s) => s.trim()).filter(Boolean)
+  for (const key of bindKey) {
+    await chan.bindQueue(QUEUE_NAME, EXCHANGE_NAME, key)
+  }
   await chan.assertQueue(DLQ_NAME, { durable: true })
   await chan.bindQueue(DLQ_NAME, DLX_NAME, '#')
   console.info(`[queue] channel ready`, { exchange: EXCHANGE_NAME, queue: QUEUE_NAME, dlq: DLQ_NAME })

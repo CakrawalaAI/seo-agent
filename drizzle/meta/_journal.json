@@ -43,6 +43,13 @@
       "when": 1761722601853,
       "tag": "0005_yielding_onslaught",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1761768000000,
+      "tag": "0006_global_keywords",
+      "breakpoints": true
     }
   ]
 }

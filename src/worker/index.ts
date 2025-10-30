@@ -5,8 +5,14 @@ import { recordJobCompleted, recordJobFailed, recordJobRunning } from '@common/i
 import { processCrawl } from './processors/crawler'
 import { processDiscovery } from './processors/discovery'
 import { processPlan } from './processors/plan'
+import { processScore } from './processors/score'
 import { processGenerate } from './processors/generate'
 import { processPublish } from './processors/publish'
+import { processMetrics } from './processors/metrics'
+import { processSerp } from './processors/serp'
+import { processCompetitors } from './processors/competitors'
+import { processEnrich } from './processors/enrich'
+import { processFeedback } from './processors/feedback'
 
 type WorkerOptions = {
   intervalMs?: number
@@ -41,12 +47,21 @@ export async function runWorker(options: WorkerOptions = {}) {
       if (projectId) recordJobRunning(projectId, msg.id)
       console.info('[worker] processing', { id: msg.id, type: msg.type, projectId, retries: msg.retries ?? 0 })
       try {
+        try {
+          const row = { id: msg.id, type: msg.type, status: 'running', at: new Date().toISOString() }
+          const target = projectId || 'global'
+          const { appendJsonl } = await import('@common/bundle/store')
+          appendJsonl(target, 'logs/jobs.jsonl', row)
+        } catch {}
         switch (msg.type) {
           case 'crawl':
             await processCrawl(msg.payload as any)
             break
           case 'discovery':
             await processDiscovery(msg.payload as any)
+            break
+          case 'score':
+            await processScore(msg.payload as any)
             break
           case 'plan':
             await processPlan(msg.payload as any)
@@ -57,14 +72,45 @@ export async function runWorker(options: WorkerOptions = {}) {
           case 'publish':
             await processPublish(msg.payload as any)
             break
+          case 'metrics':
+            await processMetrics(msg.payload as any)
+            break
+          case 'serp':
+            await processSerp(msg.payload as any)
+            break
+          case 'competitors':
+            await processCompetitors(msg.payload as any)
+            break
+          case 'enrich':
+            await processEnrich(msg.payload as any)
+            break
+          case 'feedback':
+            await processFeedback(msg.payload as any)
+            break
           default:
             break
         }
         if (projectId) recordJobCompleted(projectId, msg.id)
+        try {
+          const { onJobSuccess } = await import('@common/workflow/manager')
+          await onJobSuccess(msg.type, msg.payload)
+        } catch {}
+        try {
+          const row = { id: msg.id, type: msg.type, status: 'completed', at: new Date().toISOString() }
+          const target = projectId || 'global'
+          const { appendJsonl } = await import('@common/bundle/store')
+          appendJsonl(target, 'logs/jobs.jsonl', row)
+        } catch {}
         console.info('[worker] completed', { id: msg.id, type: msg.type, projectId })
       } catch (error) {
         const err = error instanceof Error ? { message: error.message } : { message: String(error) }
         if (projectId) recordJobFailed(projectId, msg.id, err)
+        try {
+          const row = { id: msg.id, type: msg.type, status: 'failed', at: new Date().toISOString(), error: err }
+          const target = projectId || 'global'
+          const { appendJsonl } = await import('@common/bundle/store')
+          appendJsonl(target, 'logs/jobs.jsonl', row)
+        } catch {}
         console.error('[worker] failed', { id: msg.id, type: msg.type, projectId, error: err })
         // retry/backoff limited
         const attempt = Number(msg.retries ?? 0)

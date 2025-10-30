@@ -8,6 +8,7 @@ export type KeywordMetrics = {
 export type Keyword = {
   id: string
   projectId: string
+  canonId?: string | null
   phrase: string
   status?: string | null
   starred?: boolean | null

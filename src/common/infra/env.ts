@@ -5,5 +5,6 @@ export const env = {
   crawlBudgetPages: Number(process.env.SEOA_CRAWL_BUDGET_PAGES || '50'),
   crawlMaxDepth: Number(process.env.SEOA_CRAWL_MAX_DEPTH || '2'),
   crawlRender: (process.env.SEOA_CRAWL_RENDER || 'playwright').toLowerCase(),
-  blobTtlDays: Number(process.env.SEOA_BLOB_TTL_DAYS || '30')
+  blobTtlDays: Number(process.env.SEOA_BLOB_TTL_DAYS || '30'),
+  competitorFetchFallback: (process.env.SEOA_COMPETITOR_FETCH_FALLBACK || '1') !== '0'
 }

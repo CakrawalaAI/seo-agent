@@ -2,6 +2,7 @@ import { articlesRepo } from '@entities/article/repository'
 import { integrationsRepo } from '@entities/integration/repository'
 import { publishViaWebhook } from '@common/publishers/webhook'
 import { publishViaWebflow } from '@common/publishers/webflow'
+import * as bundle from '@common/bundle/store'
 
 export async function processPublish(payload: { articleId: string; integrationId: string }) {
   const article = articlesRepo.get(payload.articleId)
@@ -32,5 +33,5 @@ export async function processPublish(payload: { articleId: string; integrationId
     url: result?.url ?? null,
     publicationDate: new Date().toISOString()
   })
+  try { bundle.writeJson(article.projectId, `articles/published/${article.id}.json`, { externalId: result?.externalId, url: result?.url, publishedAt: new Date().toISOString() }); bundle.appendLineage(article.projectId, { node: 'publish', outputs: { articleId: article.id, url: result?.url || null } }) } catch {}
 }
-

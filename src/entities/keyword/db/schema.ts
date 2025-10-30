@@ -9,6 +9,7 @@ export const keywords = pgTable(
     projectId: text('project_id')
       .notNull()
       .references(() => projects.id, { onDelete: 'cascade' }),
+    canonId: text('canon_id'),
     phrase: text('phrase').notNull(),
     status: text('status').notNull().default('recommended'),
     starred: boolean('starred').notNull().default(false),
@@ -18,6 +19,7 @@ export const keywords = pgTable(
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow()
   },
   (t) => ({
-    byProject: index('idx_keywords_project').on(t.projectId)
+    byProject: index('idx_keywords_project').on(t.projectId),
+    byProjectCanon: index('idx_keywords_project_canon').on(t.projectId, t.canonId)
   })
 )

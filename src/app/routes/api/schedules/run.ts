@@ -65,51 +65,56 @@ export const Route = createFileRoute('/api/schedules/run')({
         for (const item of plan) {
           if (item.plannedDate === today && !existing.has(item.id)) {
             if (generatedDrafts >= remainingCredits) continue
-            // Inline draft generation to keep UI responsive
+            // Create lightweight draft and queue provider-backed generation
             articlesRepo.createDraft({ projectId: String(projectId), planItemId: item.id, title: item.title })
             generatedDrafts++
-            // Also enqueue generation job for providers if a queue is available
             if (queueEnabled()) {
               const jobId = await publishJob({ type: 'generate', payload: { projectId: String(projectId), planItemId: item.id } })
               console.info('[api/schedules/run] queued generate', { projectId: String(projectId), planItemId: item.id, jobId })
             } else {
               console.warn('[api/schedules/run] queue disabled; skipped provider generate job', { projectId: String(projectId), planItemId: item.id })
             }
-            // auto-publish policy
-            const integrations = integrationsRepo.list(String(projectId))
-            const target = integrations.find((i) => i.status === 'connected' && env.publicationAllowed.includes(String(i.type)))
-            const allowed = Boolean(target)
-            const bufferOk =
-              policy === 'immediate' ||
-              (policy === 'buffered' && item.createdAt
-                ? daysBetween(new Date(item.createdAt), new Date()) >= Math.max(0, bufferDays)
-                : false)
-            if (allowed && bufferOk) {
-              const draft = articlesRepo.list(String(projectId), 10).find((a) => a.planItemId === item.id)
-              if (draft) {
-                let result: { externalId?: string; url?: string } | null = null
-                if (target!.type === 'webhook') {
-                  result = await publishViaWebhook({
-                    article: draft,
-                    targetUrl: String(target!.configJson?.targetUrl ?? ''),
-                    secret: (target!.configJson as any)?.secret ?? null
-                  })
-                } else if (target!.type === 'webflow') {
-                  result = await publishViaWebflow({
-                    article: draft,
-                    siteId: String((target!.configJson as any)?.siteId ?? ''),
-                    collectionId: String((target!.configJson as any)?.collectionId ?? ''),
-                    draft: Boolean((target!.configJson as any)?.draft)
-                  })
-                }
-                articlesRepo.update(draft.id, {
-                  status: 'published',
-                  cmsExternalId: result?.externalId ?? null,
-                  url: result?.url ?? null,
-                  publicationDate: new Date().toISOString()
+          }
+        }
+
+        // Autopublish pathway (buffered or manual publish window)
+        // Publish only drafts with sufficient body (avoid placeholder-only) and buffer window satisfied
+        const integrations = integrationsRepo.list(String(projectId))
+        const target = integrations.find((i) => i.status === 'connected' && env.publicationAllowed.includes(String(i.type)))
+        if (target) {
+          const drafts = articlesRepo.list(String(projectId), 200).filter((a) => a.status === 'draft')
+          for (const d of drafts) {
+            const planItem = plan.find((p) => p.id === d.planItemId)
+            if (!planItem) continue
+            const ageOk = policy === 'immediate'
+              ? false // immediate handled by generate/enrich pipeline; skip here
+              : (policy === 'buffered' && planItem.plannedDate
+                  ? daysBetween(new Date(planItem.plannedDate), new Date()) >= Math.max(0, bufferDays)
+                  : false)
+            const hasBody = typeof d.bodyHtml === 'string' && d.bodyHtml.replace(/<[^>]+>/g, ' ').trim().length > 500
+            if (ageOk && hasBody) {
+              let result: { externalId?: string; url?: string } | null = null
+              if (target.type === 'webhook') {
+                result = await publishViaWebhook({
+                  article: d,
+                  targetUrl: String(target.configJson?.targetUrl ?? ''),
+                  secret: (target.configJson as any)?.secret ?? null
                 })
-                publishedArticles++
+              } else if (target.type === 'webflow') {
+                result = await publishViaWebflow({
+                  article: d,
+                  siteId: String((target.configJson as any)?.siteId ?? ''),
+                  collectionId: String((target.configJson as any)?.collectionId ?? ''),
+                  draft: Boolean((target.configJson as any)?.draft)
+                })
               }
+              articlesRepo.update(d.id, {
+                status: 'published',
+                cmsExternalId: result?.externalId ?? null,
+                url: result?.url ?? null,
+                publicationDate: new Date().toISOString()
+              })
+              publishedArticles++
             }
           }
         }

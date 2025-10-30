@@ -23,6 +23,7 @@
       "@common/*": ["src/common/*"],
       "@entities/*": ["src/entities/*"],
       "@entities": ["src/entities/index.ts"],
+      "@server/*": ["src/server/*"],
       "@cli/*": ["src/cli/*"],
       "@worker/*": ["src/worker/*"]
     }
@@ -35,6 +36,7 @@
     "src/common",
     "src/entities",
     "src/cli",
+    "src/server",
     "src/worker",
     "tests",
     "vite-env.d.ts",

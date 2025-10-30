@@ -97,3 +97,48 @@ export function createWebhook(projectId: string, targetUrl: string, secret: stri
 export function patchProject(projectId: string, payload: Record<string, unknown>) {
   return patchJson<Project>(`/api/projects/${projectId}`, payload)
 }
+
+export function serpWarm(projectId: string, topM = 50) {
+  return postJson<{ queued: number }>(`/api/projects/${projectId}/serp/warm?topM=${topM}`, {})
+}
+
+export function competitorsWarm(projectId: string, topM = 10) {
+  return postJson<{ queued: number }>(`/api/projects/${projectId}/competitors/warm?topM=${topM}`, {})
+}
+
+export function getCosts(projectId: string) {
+  return fetchJson<{ updatedAt: string | null; perDay: Record<string, { counts: Record<string, number>; costUsd: number }> }>(`/api/projects/${projectId}/costs`)
+}
+
+export function getLogs(projectId: string, tail = 200) {
+  return fetchJson<{ items: Array<Record<string, unknown>> }>(`/api/projects/${projectId}/logs?tail=${tail}`)
+}
+
+export function getBundleList(projectId: string) {
+  return fetchJson<{ base: string; files: string[] }>(`/api/projects/${projectId}/bundle`)
+}
+
+export function scheduleMetrics() {
+  return postJson<{ queued: number }>(`/api/schedules/metrics`, {})
+}
+
+export function scheduleSerpAnchors() {
+  return postJson<{ queued: number }>(`/api/schedules/serp-monthly`, {})
+}
+
+export async function getBundleFile(projectId: string, relPath: string): Promise<{ content: string; contentType: string }> {
+  const res = await fetch(`/api/projects/${projectId}/bundle/file?path=${encodeURIComponent(relPath)}`)
+  const contentType = res.headers.get('content-type') || 'text/plain; charset=utf-8'
+  const content = await (contentType.includes('application/json') ? res.text() : res.text())
+  return { content, contentType }
+}
+
+export function runScore(projectId: string) {
+  return postJson<{ jobId?: string; queued?: boolean }>(`/api/projects/${projectId}/score`, {})
+}
+
+export function getPrioritizedKeywords(projectId: string, limit = 200) {
+  return fetchJson<{ items: Array<{ phrase: string; opportunity?: number; cluster?: string; role?: string }> }>(
+    `/api/projects/${projectId}/keywords/prioritized?limit=${limit}`
+  )
+}

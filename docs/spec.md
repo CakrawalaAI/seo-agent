@@ -32,7 +32,7 @@ Jobs: RabbitMQ-backed queue (durable, per-project routing); daily cron calls /ap
 
 Crawl: Playwright as the default fetcher (JS‑rendered), robots.txt + sitemap aware.
 
-Providers: everything swappable (LLM, discovery metrics, CMS publishing).
+Providers: everything swappable via interfaces (LLM, metrics/SERP, research, CMS, crawler). Default impls: DataForSEO (metrics+SERP), OpenAI (LLM), Exa (research), Playwright (crawler).
 
 CLI (seo) + Web FE share the same REST API.
 
@@ -462,6 +462,16 @@ seo job watch --id <jobId>
 seo article ls --project <id> --status draft
 seo article publish --article <id> --integration <integrationId>
 
+# Ops & maintenance (additional)
+seo bundle-ls --project <id>
+seo costs
+seo logs --project <id> [--tail 200]
+seo serp-warm --project <id> [--topM 50]
+seo competitors-warm --project <id> [--topM 10]
+seo score-run --project <id>
+seo keyword-prioritized --project <id> [--limit 50]
+seo schedule-crawl-weekly
+
 
 All functionality must be available both in Web and CLI.
 
@@ -570,6 +580,7 @@ Volume: from DataForSEO when enabled; otherwise bucket from crawl/LLM frequency 
 Difficulty: provider field when available; fallback proxy from competition heuristics.
 
 Opportunity (0–100): weighted blend: High Volume × Low Difficulty × Intent Fit × Topical Gap.
+Prioritization: a dedicated score job clusters phrases by a root‑phrase heuristic (stopword‑stripped first 1–2 tokens) to avoid cannibalization. Within each cluster, the highest‑opportunity term is marked primary; 1–2 follow‑ups are marked secondary. The resulting list is written to `keywords/prioritized.jsonl` and planning selects one primary per cluster by default.
 
 CPC/Competition: provider fields when available.
 
@@ -611,8 +622,42 @@ Queueing (RabbitMQ):
 Worker apps:
 
 - Crawler worker (Playwright image): consumes `seo_jobs.crawler` (or `seo_jobs` in single-queue mode); handles `crawl`.
-- General worker (bun image): consumes `seo_jobs.general` (or `seo_jobs`); handles `discovery|plan|generate|publish|metrics|serp`.
+- General worker (bun image): consumes `seo_jobs.general` (or `seo_jobs`); handles `discovery|plan|generate|publish|metrics|serp|competitors`.
 - Both apply per‑org concurrency; retry/backoff; DLQ on exceeded retries.
+
+Budget caps (provider calls)
+
+- Daily caps enforced via env:
+  - `SEOA_DAILY_SERP_CALLS_CAP` (0 = unlimited)
+  - `SEOA_DAILY_METRICS_CALLS_CAP` (0 = unlimited)
+- When cap exceeded, processors skip provider calls and log a `skipped: budget_exceeded` event to `bundle/global/metrics/costs.jsonl`.
+- Costs summarized to `bundle/global/metrics/costs.json` with per‑day counts and est USD (configurable via `SEOA_COST_SERP_PER_CALL_USD`, `SEOA_COST_METRICS_PER_CALL_USD`).
+
+18. Workflow manager (recipe)
+
+- A tiny manager compiles a JSON recipe (src/common/workflow/recipe.json) to RabbitMQ publishes for next steps.
+- Default: crawl → discovery → plan; generate → enrich (also queued by processor).
+- Lives in worker process; invoked on success events.
+
+17. Providers (interfaces + registry)
+
+Interfaces live in `src/common/providers/interfaces/*` and are bound to concrete implementations by `src/common/providers/registry.ts` via env variables.
+
+- KeywordMetricsProvider → default DataForSEO Labs (keyword_overview)
+- KeywordExpandProvider → default DataForSEO Google Ads keywords_for_keywords
+- SerpProvider → default DataForSEO SERP live regular
+- LlmProvider → default OpenAI
+- ResearchProvider → default Exa
+- WebCrawler → default Playwright
+
+Env switches
+- `SEOA_PROVIDER_METRICS` (default `dataforseo`)
+- `SEOA_PROVIDER_SERP` (default `dataforseo`)
+- `SEOA_PROVIDER_LLM` (default `openai`)
+- `SEOA_PROVIDER_RESEARCH` (default `exa`)
+
+Storage
+- Crawl/Serp store text dumps (no HTML), accessible via `/api/blobs/:id` with correct content-type.
 
 13. PortableArticle
 {
@@ -853,6 +898,22 @@ Playwright as the main fetcher.
 
 Separate worker app ships in v0 (not deferred).
 
+19.1 Keyword/SERP canon & refresh policy
+- Canon identity = `phrase_norm + language_code` (shared across orgs/projects). Snapshots carry geo/device: `location_code`, `device`, `topK`.
+- Metrics snapshots (DataForSEO Labs) are monthly; refresh on calendar month change; keep history.
+- SERP snapshots are cached with TTL (7–14 days) and may record a monthly anchor; always store `textDump` for LLM.
+- Default geo = 2840 (US) unless project overrides.
+
+19.2 Worker split rationale
+- Crawler worker (Playwright) is isolated due to Chromium deps, RAM/CPU spikes, anti‑bot strategies.
+- General worker (bun‑only) handles LLM, metrics, SERP, plan, publish.
+- Scaling/ops: separate queues via `SEOA_BINDING_KEY` or run single queue until split is needed.
+
+19.3 DataForSEO endpoints (default provider)
+- Labs: `google/keyword_overview/live` → `keyword_info` (+ `monthly_searches`).
+- Keywords: `google_ads/keywords_for_keywords/live` → expansion items.
+- SERP: `serp/google/organic/live/regular` → items with `rank_group/title/description/url`.
+
 20. What the coding agent should build first
 
 C00–C10 (Acceptance criteria in §15), in order, with Web + CLI in each commit.
@@ -898,3 +959,11 @@ POST /api/keyword/refresh → { queued: true } (body: { canonId | phrase + langu
 POST /api/serp/refresh → { queued: true } (body: { canonId, locationCode, device?: 'desktop'|'mobile', topK?: number, force?: boolean })
 
 GET /api/keywords/:canonId/snapshots?from=YYYY-MM&to=YYYY-MM → list monthly metrics snapshots
+
+Schedulers
+
+POST /api/schedules/metrics → enqueue monthly metrics refresh for in-use canons (global)
+
+POST /api/schedules/serp-monthly → enqueue monthly SERP anchors for in-use canons (global)
+
+POST /api/schedules/feedback → enqueue feedback loop (GSC placeholder/stub) for a project

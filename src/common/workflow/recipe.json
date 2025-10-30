@@ -1,0 +1,10 @@
+{
+  "nodes": {
+    "crawl": { "onSuccess": ["discovery"] },
+    "discovery": { "onSuccess": ["score"] },
+    "score": { "onSuccess": ["plan"] },
+    "plan": { "onSuccess": [] },
+    "generate": { "onSuccess": ["enrich"] },
+    "enrich": { "onSuccess": [] }
+  }
+}

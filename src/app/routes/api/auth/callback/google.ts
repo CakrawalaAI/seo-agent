@@ -20,6 +20,12 @@ export const Route = createFileRoute('/api/auth/callback/google')({
         if (!tmp?.state || tmp.state !== state) return httpError(400, 'Invalid state')
         const redirectTo = tmp.redirectTo || '/dashboard'
 
+        if ((process.env.SEOA_AUTH_DEBUG || '') === '1') {
+          console.info('[auth/callback/google:start]', {
+            url: request.url,
+            hasTempCookie: Boolean(parseTempCookie(request)?.state),
+          })
+        }
         const tokens = await exchangeCodeForTokens(request, code)
         const profile = await fetchGoogleUser(tokens.access_token)
         const { userId } = await upsertUserFromGoogle({ sub: profile.sub, email: profile.email, name: profile.name, picture: profile.picture ?? null })
@@ -57,6 +63,13 @@ export const Route = createFileRoute('/api/auth/callback/google')({
         headers.set('Location', redirectTo)
         headers.append('Set-Cookie', cookie)
         headers.append('Set-Cookie', clearTempCookie())
+        if ((process.env.SEOA_AUTH_DEBUG || '') === '1') {
+          console.info('[auth/callback/google:session-set]', {
+            email: profile.email,
+            redirectTo,
+            cookiePreview: String(cookie).slice(0, 48) + '...'
+          })
+        }
         // Ensure org_usage row exists for active org
         if (hasDatabase() && activeOrg?.id) {
           try {
@@ -68,7 +81,11 @@ export const Route = createFileRoute('/api/auth/callback/google')({
         headers.append('Set-Cookie', clearName('better-auth.session_token'))
         headers.append('Set-Cookie', clearName('better-auth.state'))
         headers.append('Set-Cookie', clearName('seo-agent-session'))
-        return new Response(null, { status: 302, headers })
+        const resp = new Response(null, { status: 302, headers })
+        if ((process.env.SEOA_AUTH_DEBUG || '') === '1') {
+          console.info('[auth/callback/google:done]', { status: resp.status, headers: { location: headers.get('Location') } })
+        }
+        return resp
       }),
     },
   },

@@ -1,6 +1,6 @@
 // @ts-nocheck
 import { createFileRoute } from '@tanstack/react-router'
-import { getHtml } from '@common/blob/store'
+import { getBlob } from '@common/blob/store'
 import { requireSession, requireProjectAccess } from '@app/api-utils'
 import { hasDatabase, getDb } from '@common/infra/db'
 import { blobs } from '@entities/blob/db/schema'
@@ -24,9 +24,9 @@ export const Route = createFileRoute('/api/blobs/$blobId')({
             } catch {}
           }
         }
-        const html = getHtml(params.blobId)
-        if (!html) return new Response('Not found', { status: 404 })
-        return new Response(html, { status: 200, headers: { 'content-type': 'text/html; charset=utf-8' } })
+        const file = getBlob(params.blobId)
+        if (!file) return new Response('Not found', { status: 404 })
+        return new Response(file.content, { status: 200, headers: { 'content-type': file.contentType } })
       }
     }
   }

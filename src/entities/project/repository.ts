@@ -8,7 +8,7 @@ export type CreateProjectInput = {
 }
 
 export type PatchProjectInput = Partial<
-  Pick<Project, 'name' | 'defaultLocale' | 'siteUrl' | 'autoPublishPolicy' | 'status' | 'crawlMaxDepth' | 'crawlBudgetPages' | 'bufferDays'>
+  Pick<Project, 'name' | 'defaultLocale' | 'siteUrl' | 'autoPublishPolicy' | 'status' | 'crawlMaxDepth' | 'crawlBudgetPages' | 'bufferDays' | 'serpDevice' | 'serpLocationCode' | 'metricsLocationCode'>
 >
 
 const store = new Map<string, Project>()
@@ -25,6 +25,9 @@ export const projectsRepo = {
       defaultLocale: input.defaultLocale,
       autoPublishPolicy: 'buffered',
       status: 'draft',
+      serpDevice: 'desktop',
+      serpLocationCode: 2840,
+      metricsLocationCode: 2840,
       createdAt: now,
       updatedAt: now
     }

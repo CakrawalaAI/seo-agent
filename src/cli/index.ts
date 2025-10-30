@@ -32,6 +32,23 @@ type CliCommand =
   | 'org-switch'
   | 'job-ls'
   | 'job-watch'
+  | 'keyword-refresh'
+  | 'serp-refresh'
+  | 'schedule-metrics'
+  | 'schedule-serp-anchors'
+  | 'keyword-snapshots'
+  | 'admin-backfill-canon'
+  | 'article-enrich'
+  | 'project-set'
+  | 'bundle-ls'
+  | 'serp-warm'
+  | 'competitors-warm'
+  | 'costs'
+  | 'logs'
+  | 'schedule-feedback'
+  | 'schedule-crawl-weekly'
+  | 'score-run'
+  | 'keyword-prioritized'
 
 export async function runCli(args: string[] = process.argv.slice(2)) {
   const command = normalizeCommand(args[0])
@@ -245,6 +262,82 @@ export async function runCli(args: string[] = process.argv.slice(2)) {
       }
       const data = (await res.json()) as { project?: { id?: string; name?: string }; crawlJobId?: string | null }
       console.log(`project ${data?.project?.name ?? ''} created id=${data?.project?.id ?? ''}`)
+      return
+    }
+    case 'keyword-refresh': {
+      const baseUrl = process.env.SEO_AGENT_BASE_URL || 'http://localhost:5173'
+      const phrase = getFlag(args, '--phrase') || ''
+      const language = getFlag(args, '--language') || 'en-US'
+      const locationCode = getFlag(args, '--location') || '2840'
+      const what = getFlag(args, '--what') || 'metrics'
+      const force = getFlag(args, '--force') || 'false'
+      if (!phrase) {
+        console.error('usage: seo keyword-refresh --phrase "best crm" [--language en-US] [--location 2840] [--what metrics|serp|both] [--force true]')
+        process.exitCode = 1
+        return
+      }
+      const url = new URL('/api/keyword/refresh', baseUrl).toString()
+      const res = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ phrase, language, locationCode: Number(locationCode), what, force: force === 'true' }) })
+      if (!res.ok) { console.error(`keyword-refresh failed: HTTP ${res.status}`); process.exitCode = 1; return }
+      console.log('queued')
+      return
+    }
+    case 'serp-refresh': {
+      const baseUrl = process.env.SEO_AGENT_BASE_URL || 'http://localhost:5173'
+      const phrase = getFlag(args, '--phrase') || ''
+      const language = getFlag(args, '--language') || 'en-US'
+      const locationCode = getFlag(args, '--location') || '2840'
+      const device = getFlag(args, '--device') || 'desktop'
+      const topK = getFlag(args, '--topK') || '10'
+      const force = getFlag(args, '--force') || 'false'
+      if (!phrase) { console.error('usage: seo serp-refresh --phrase "best crm" [--language en-US] [--location 2840] [--device desktop|mobile] [--topK 10] [--force true]'); process.exitCode = 1; return }
+      const url = new URL('/api/serp/refresh', baseUrl).toString()
+      const res = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ phrase, language, locationCode: Number(locationCode), device, topK: Number(topK), force: force === 'true' }) })
+      if (!res.ok) { console.error(`serp-refresh failed: HTTP ${res.status}`); process.exitCode = 1; return }
+      console.log('queued')
+      return
+    }
+    case 'schedule-metrics': {
+      const baseUrl = process.env.SEO_AGENT_BASE_URL || 'http://localhost:5173'
+      const url = new URL('/api/schedules/metrics', baseUrl).toString()
+      const res = await fetch(url, { method: 'POST' })
+      if (!res.ok) { console.error(`schedule-metrics failed: HTTP ${res.status}`); process.exitCode = 1; return }
+      const data = await res.json().catch(() => ({})) as any
+      console.log(`queued ${data?.queued ?? 0}`)
+      return
+    }
+    case 'schedule-serp-anchors': {
+      const baseUrl = process.env.SEO_AGENT_BASE_URL || 'http://localhost:5173'
+      const url = new URL('/api/schedules/serp-monthly', baseUrl).toString()
+      const res = await fetch(url, { method: 'POST' })
+      if (!res.ok) { console.error(`schedule-serp-anchors failed: HTTP ${res.status}`); process.exitCode = 1; return }
+      const data = await res.json().catch(() => ({})) as any
+      console.log(`queued ${data?.queued ?? 0}`)
+      return
+    }
+    case 'keyword-snapshots': {
+      const baseUrl = process.env.SEO_AGENT_BASE_URL || 'http://localhost:5173'
+      const canonId = getFlag(args, '--canon') || ''
+      const from = getFlag(args, '--from') || '0000-01'
+      const to = getFlag(args, '--to') || '9999-12'
+      if (!canonId) { console.error('usage: seo keyword-snapshots --canon <id> [--from YYYY-MM] [--to YYYY-MM]'); process.exitCode = 1; return }
+      const url = new URL(`/api/keywords/${encodeURIComponent(canonId)}/snapshots?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`, baseUrl).toString()
+      const res = await fetch(url)
+      if (!res.ok) { console.error(`keyword-snapshots failed: HTTP ${res.status}`); process.exitCode = 1; return }
+      const data = await res.json().catch(() => ({})) as any
+      for (const row of data?.items ?? []) {
+        console.log(`${row.asOfMonth}\t${row.metricsJson?.searchVolume ?? ''}\t${row.metricsJson?.difficulty ?? ''}`)
+      }
+      return
+    }
+    case 'admin-backfill-canon': {
+      const baseUrl = process.env.SEO_AGENT_BASE_URL || 'http://localhost:5173'
+      const limit = getFlag(args, '--limit') || '500'
+      const url = new URL(`/api/admin/backfill-canon?limit=${encodeURIComponent(limit)}`, baseUrl).toString()
+      const res = await fetch(url, { method: 'POST' })
+      if (!res.ok) { console.error(`admin-backfill-canon failed: HTTP ${res.status}`); process.exitCode = 1; return }
+      const data = await res.json().catch(() => ({})) as any
+      console.log(`updated ${data?.updated ?? 0}`)
       return
     }
     case 'project-ls': {
@@ -525,6 +618,134 @@ export async function runCli(args: string[] = process.argv.slice(2)) {
       console.log('ok')
       return
     }
+    case 'article-enrich': {
+      const baseUrl = process.env.SEO_AGENT_BASE_URL || 'http://localhost:5173'
+      const articleId = getFlag(args, '--article') || ''
+      if (!articleId) { console.error('usage: seo article-enrich --article <id>'); process.exitCode = 1; return }
+      const url = new URL(`/api/articles/${encodeURIComponent(articleId)}/enrich`, baseUrl).toString()
+      const res = await fetch(url, { method: 'POST' })
+      if (!res.ok) { console.error(`article-enrich failed: HTTP ${res.status}`); process.exitCode = 1; return }
+      console.log('queued')
+      return
+    }
+    case 'project-set': {
+      const baseUrl = process.env.SEO_AGENT_BASE_URL || 'http://localhost:5173'
+      const projectId = getFlag(args, '--project') || ''
+      const serpDevice = getFlag(args, '--device') || ''
+      const serpLocationCode = getFlag(args, '--serp-loc') || ''
+      const metricsLocationCode = getFlag(args, '--metrics-loc') || ''
+      if (!projectId) { console.error('usage: seo project-set --project <id> [--device desktop|mobile] [--serp-loc 2840] [--metrics-loc 2840]'); process.exitCode = 1; return }
+      const body: any = {}
+      if (serpDevice) body.serpDevice = serpDevice
+      if (serpLocationCode) body.serpLocationCode = Number(serpLocationCode)
+      if (metricsLocationCode) body.metricsLocationCode = Number(metricsLocationCode)
+      const url = new URL(`/api/projects/${encodeURIComponent(projectId)}`, baseUrl).toString()
+      const res = await fetch(url, { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) })
+      if (!res.ok) { console.error(`project-set failed: HTTP ${res.status}`); process.exitCode = 1; return }
+      console.log('ok')
+      return
+    }
+    case 'bundle-ls': {
+      const baseUrl = process.env.SEO_AGENT_BASE_URL || 'http://localhost:5173'
+      const projectId = getFlag(args, '--project') || ''
+      if (!projectId) { console.error('usage: seo bundle-ls --project <id>'); process.exitCode = 1; return }
+      const url = new URL(`/api/projects/${encodeURIComponent(projectId)}/bundle`, baseUrl).toString()
+      const res = await fetch(url)
+      if (!res.ok) { console.error(`bundle-ls failed: HTTP ${res.status}`); process.exitCode = 1; return }
+      const data = await res.json().catch(() => ({})) as any
+      console.log(`# ${data?.base ?? ''}`)
+      for (const f of data?.files ?? []) console.log(f)
+      return
+    }
+    case 'serp-warm': {
+      const baseUrl = process.env.SEO_AGENT_BASE_URL || 'http://localhost:5173'
+      const projectId = getFlag(args, '--project') || ''
+      const topM = getFlag(args, '--topM') || '50'
+      if (!projectId) { console.error('usage: seo serp-warm --project <id> [--topM 50]'); process.exitCode = 1; return }
+      const url = new URL(`/api/projects/${encodeURIComponent(projectId)}/serp/warm?topM=${encodeURIComponent(topM)}`, baseUrl).toString()
+      const res = await fetch(url, { method: 'POST' })
+      if (!res.ok) { console.error(`serp-warm failed: HTTP ${res.status}`); process.exitCode = 1; return }
+      const data = await res.json().catch(() => ({})) as any
+      console.log(`queued ${data?.queued ?? 0}`)
+      return
+    }
+    case 'competitors-warm': {
+      const baseUrl = process.env.SEO_AGENT_BASE_URL || 'http://localhost:5173'
+      const projectId = getFlag(args, '--project') || ''
+      const topM = getFlag(args, '--topM') || '10'
+      if (!projectId) { console.error('usage: seo competitors-warm --project <id> [--topM 10]'); process.exitCode = 1; return }
+      const url = new URL(`/api/projects/${encodeURIComponent(projectId)}/competitors/warm?topM=${encodeURIComponent(topM)}`, baseUrl).toString()
+      const res = await fetch(url, { method: 'POST' })
+      if (!res.ok) { console.error(`competitors-warm failed: HTTP ${res.status}`); process.exitCode = 1; return }
+      const data = await res.json().catch(() => ({})) as any
+      console.log(`queued ${data?.queued ?? 0}`)
+      return
+    }
+    case 'costs': {
+      const baseUrl = process.env.SEO_AGENT_BASE_URL || 'http://localhost:5173'
+      const url = new URL('/api/projects/_/costs', baseUrl).toString()
+      const res = await fetch(url)
+      if (!res.ok) { console.error(`costs failed: HTTP ${res.status}`); process.exitCode = 1; return }
+      const data = await res.json().catch(() => ({})) as any
+      console.log(JSON.stringify(data, null, 2))
+      return
+    }
+    case 'logs': {
+      const baseUrl = process.env.SEO_AGENT_BASE_URL || 'http://localhost:5173'
+      const projectId = getFlag(args, '--project') || ''
+      const tail = getFlag(args, '--tail') || '200'
+      if (!projectId) { console.error('usage: seo logs --project <id> [--tail 200]'); process.exitCode = 1; return }
+      const url = new URL(`/api/projects/${encodeURIComponent(projectId)}/logs?tail=${encodeURIComponent(tail)}`, baseUrl).toString()
+      const res = await fetch(url)
+      if (!res.ok) { console.error(`logs failed: HTTP ${res.status}`); process.exitCode = 1; return }
+      const data = await res.json().catch(() => ({})) as any
+      for (const row of data?.items ?? []) console.log(JSON.stringify(row))
+      return
+    }
+    case 'schedule-feedback': {
+      const baseUrl = process.env.SEO_AGENT_BASE_URL || 'http://localhost:5173'
+      const projectId = getFlag(args, '--project') || ''
+      if (!projectId) { console.error('usage: seo schedule-feedback --project <id>'); process.exitCode = 1; return }
+      const url = new URL('/api/schedules/feedback', baseUrl).toString()
+      const res = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ projectId }) })
+      if (!res.ok) { console.error(`schedule-feedback failed: HTTP ${res.status}`); process.exitCode = 1; return }
+      console.log('queued')
+      return
+    }
+    case 'schedule-crawl-weekly': {
+      const baseUrl = process.env.SEO_AGENT_BASE_URL || 'http://localhost:5173'
+      const url = new URL('/api/schedules/crawl-weekly', baseUrl).toString()
+      const res = await fetch(url, { method: 'POST' })
+      if (!res.ok) { console.error(`schedule-crawl-weekly failed: HTTP ${res.status}`); process.exitCode = 1; return }
+      const data = await res.json().catch(() => ({})) as any
+      console.log(`queued ${data?.queued ?? 0}`)
+      return
+    }
+    case 'score-run': {
+      const baseUrl = process.env.SEO_AGENT_BASE_URL || 'http://localhost:5173'
+      const projectId = getFlag(args, '--project') || ''
+      if (!projectId) { console.error('usage: seo score-run --project <id>'); process.exitCode = 1; return }
+      const url = new URL(`/api/projects/${encodeURIComponent(projectId)}/score`, baseUrl).toString()
+      const res = await fetch(url, { method: 'POST' })
+      if (!res.ok) { console.error(`score-run failed: HTTP ${res.status}`); process.exitCode = 1; return }
+      const data = await res.json().catch(() => ({})) as any
+      console.log(data?.jobId ? data.jobId : 'queued')
+      return
+    }
+    case 'keyword-prioritized': {
+      const baseUrl = process.env.SEO_AGENT_BASE_URL || 'http://localhost:5173'
+      const projectId = getFlag(args, '--project') || ''
+      const limit = getFlag(args, '--limit') || '50'
+      if (!projectId) { console.error('usage: seo keyword-prioritized --project <id> [--limit 50]'); process.exitCode = 1; return }
+      const url = new URL(`/api/projects/${encodeURIComponent(projectId)}/keywords/prioritized?limit=${encodeURIComponent(limit)}`, baseUrl).toString()
+      const res = await fetch(url)
+      if (!res.ok) { console.error(`keyword-prioritized failed: HTTP ${res.status}`); process.exitCode = 1; return }
+      const data = await res.json().catch(() => ({})) as any
+      for (const row of data?.items ?? []) {
+        console.log(`${row.role ?? ''}\t${String(row.opportunity ?? '')}\t${row.phrase}`)
+      }
+      return
+    }
     case 'integration-add-webhook': {
       const baseUrl = process.env.SEO_AGENT_BASE_URL || 'http://localhost:5173'
       const projectId = getFlag(args, '--project') || ''
@@ -636,6 +857,23 @@ function normalizeCommand(input?: string): CliCommand {
   if (input.toLowerCase() === 'org-switch') return 'org-switch'
   if (input.toLowerCase() === 'job-ls') return 'job-ls'
   if (input.toLowerCase() === 'job-watch') return 'job-watch'
+  if (input.toLowerCase() === 'keyword-refresh') return 'keyword-refresh'
+  if (input.toLowerCase() === 'serp-refresh') return 'serp-refresh'
+  if (input.toLowerCase() === 'schedule-metrics') return 'schedule-metrics'
+  if (input.toLowerCase() === 'schedule-serp-anchors') return 'schedule-serp-anchors'
+  if (input.toLowerCase() === 'keyword-snapshots') return 'keyword-snapshots'
+  if (input.toLowerCase() === 'admin-backfill-canon') return 'admin-backfill-canon'
+  if (input.toLowerCase() === 'article-enrich') return 'article-enrich'
+  if (input.toLowerCase() === 'project-set') return 'project-set'
+  if (input.toLowerCase() === 'bundle-ls') return 'bundle-ls'
+  if (input.toLowerCase() === 'serp-warm') return 'serp-warm'
+  if (input.toLowerCase() === 'competitors-warm') return 'competitors-warm'
+  if (input.toLowerCase() === 'costs') return 'costs'
+  if (input.toLowerCase() === 'logs') return 'logs'
+  if (input.toLowerCase() === 'schedule-feedback') return 'schedule-feedback'
+  if (input.toLowerCase() === 'schedule-crawl-weekly') return 'schedule-crawl-weekly'
+  if (input.toLowerCase() === 'score-run') return 'score-run'
+  if (input.toLowerCase() === 'keyword-prioritized') return 'keyword-prioritized'
   return 'help'
 }
 
@@ -673,13 +911,27 @@ function printHelp() {
       '  billing-portal [--return url]                       # uses POLAR_CUSTOMER_ID or POLAR_ORG_SLUG',
       '  project-create --org <id> --name "Acme" --site https://acme.com [--locale en-US]',
       '  project-ls --org <id> [--limit 50]',
+      '  project-set --project <id> [--device desktop|mobile] [--serp-loc 2840] [--metrics-loc 2840]',
+      '  bundle-ls --project <id>',
+      '  serp-warm --project <id> [--topM 50]',
+      '  competitors-warm --project <id> [--topM 10]',
+      '  costs',
+      '  logs --project <id> [--tail 200]',
+      '  schedule-feedback --project <id>',
+      '  schedule-crawl-weekly',
+      '  score-run --project <id>',
+      '  keyword-prioritized --project <id> [--limit 50]',
       '  crawl-run --project <id>',
       '  crawl-pages --project <id> [--limit 100]',
       '  keyword-generate --project <id> [--locale en-US]',
       '  keyword-ls --project <id> [--status all] [--limit 100]',
+      '  keyword-refresh --phrase "best crm" [--language en-US] [--location 2840] [--what metrics|serp|both] [--force true]',
+      '  keyword-snapshots --canon <id> [--from YYYY-MM] [--to YYYY-MM]',
       '  plan-ls --project <id> [--limit 90]',
       '  plan-move --plan <id> --date YYYY-MM-DD',
       '  schedule-run --project <id>',
+      '  schedule-metrics',
+      '  schedule-serp-anchors',
       '  article-ls --project <id> [--limit 90]',
       '  article-publish --article <id> --integration <id>',
       '  article-generate --plan <planItemId>',
@@ -691,6 +943,8 @@ function printHelp() {
       '  org-switch --org <id>',
       '  job-ls --project <id> [--limit 25]',
       '  job-watch --project <id> --id <jobId>',
+      '  article-enrich --article <id>',
+      '  admin-backfill-canon [--limit 500]',
       '',
       'Examples:',
       '  seo version',

@@ -54,7 +54,10 @@ export const Route = createFileRoute('/api/projects')({
               orgId: project.orgId ?? null,
               siteUrl: project.siteUrl ?? null,
               autoPublishPolicy: project.autoPublishPolicy ?? null,
-              status: project.status ?? 'draft'
+              status: project.status ?? 'draft',
+              serpDevice: project.serpDevice ?? 'desktop',
+              serpLocationCode: project.serpLocationCode ?? 2840,
+              metricsLocationCode: project.metricsLocationCode ?? 2840
             }).onConflictDoNothing()
           } catch (err) {
             console.warn('[projects] DB insert skipped:', (err as Error)?.message ?? String(err))

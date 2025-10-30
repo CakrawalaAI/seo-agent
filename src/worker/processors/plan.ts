@@ -1,5 +1,6 @@
 import { planRepo } from '@entities/plan/repository'
 import { draftTitleOutline } from '@common/providers/llm'
+import * as bundle from '@common/bundle/store'
 
 export async function processPlan(payload: { projectId: string; days: number }) {
   const days = Number.isFinite(payload.days as any) ? (payload.days as any) : 30
@@ -12,4 +13,5 @@ export async function processPlan(payload: { projectId: string; days: number }) 
       planRepo.updateFields(item.id, { title: res.title, outlineJson: res.outline })
     } catch {}
   }
+  try { bundle.writeJson(String(payload.projectId), 'planning/plan_v1.json', items); bundle.appendLineage(String(payload.projectId), { node: 'plan' }) } catch {}
 }

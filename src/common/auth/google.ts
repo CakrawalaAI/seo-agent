@@ -53,6 +53,9 @@ export async function exchangeCodeForTokens(request: Request, code: string) {
     } catch {
       try { detail = ` status=${resp.status}` } catch {}
     }
+    if ((process.env.SEOA_AUTH_DEBUG || '') === '1') {
+      console.error('[auth/token] exchange failed', { status: resp.status, detail, redirectUri })
+    }
     throw new Error(`token_exchange_failed${detail ? `: ${detail}` : ''} redirect_uri=${redirectUri}`)
   }
   return (await resp.json()) as {

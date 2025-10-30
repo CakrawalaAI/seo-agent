@@ -28,6 +28,9 @@ import { PlanTab } from '@features/plan/client/plan-tab'
 import { ArticlesTab } from '@features/articles/client/articles-tab'
 import { IntegrationsTab } from '@features/integrations/client/integrations-tab'
 import { ProjectJobsTab } from '@features/projects/client/jobs-tab'
+import { OpsTab } from '@features/projects/client/ops-tab'
+import { SettingsTab } from '@features/projects/client/settings-tab'
+import { BundleTab } from '@features/projects/client/bundle-tab'
 import {
   extractErrorMessage,
   formatDateTime,
@@ -40,6 +43,11 @@ import {
   getCrawlPages,
   getPlanItems,
   getProject,
+  getCosts,
+  getLogs,
+  patchProject,
+  serpWarm,
+  competitorsWarm,
   getProjectArticles,
   getProjectKeywords,
   getProjectSnapshot,
@@ -69,6 +77,9 @@ const TABS = [
   { key: 'plan', label: 'Calendar' },
   { key: 'articles', label: 'Articles' },
   { key: 'jobs', label: 'Jobs' },
+  { key: 'ops', label: 'Ops' },
+  { key: 'settings', label: 'Settings' },
+  { key: 'bundle', label: 'Bundle' },
   { key: 'integrations', label: 'Integrations' }
 ] as const
 
@@ -154,6 +165,29 @@ export function ProjectDetailScreen({ projectId, tab }: ProjectDetailScreenProps
   const project = projectQuery.data ?? null
   const snapshot = snapshotQuery.data ?? null
 
+  const costsQuery = useQuery<{ updatedAt: string | null; perDay: Record<string, { counts: Record<string, number>; costUsd: number }> }>({
+    queryKey: ['costs', projectId],
+    queryFn: () => getCosts(projectId),
+    staleTime: 60_000,
+    enabled: activeTab === 'overview'
+  })
+
+  const logsQuery = useQuery<{ items: Array<Record<string, unknown>> }>({
+    queryKey: ['bundleLogs', projectId],
+    queryFn: () => getLogs(projectId, 200),
+    staleTime: 15_000,
+    enabled: activeTab === 'overview'
+  })
+
+  const updateProjectMutation = useMutation({
+    mutationFn: (patch: Partial<Project>) => patchProject(projectId, patch as any),
+    onSuccess: () => {
+      pushNotice('success', 'Project updated')
+      queryClient.invalidateQueries({ queryKey: ['project', projectId] })
+    },
+    onError: (error) => pushNotice('error', extractErrorMessage(error))
+  })
+
   const connectedIntegrations = useMemo(
     () => (snapshot?.integrations ?? ([] as ProjectIntegration[])).filter((integration) => integration.status === 'connected'),
     [snapshot?.integrations]
@@ -177,6 +211,22 @@ export function ProjectDetailScreen({ projectId, tab }: ProjectDetailScreenProps
       queryClient.invalidateQueries({ queryKey: ['keywords', projectId] })
       queryClient.invalidateQueries({ queryKey: ['projectSnapshot', projectId] })
       queryClient.invalidateQueries({ queryKey: ['jobs', projectId] })
+    },
+    onError: (error) => pushNotice('error', extractErrorMessage(error))
+  })
+
+  const warmSerpMutation = useMutation({
+    mutationFn: () => serpWarm(projectId, 50),
+    onSuccess: (result) => {
+      pushNotice('success', `SERP warm queued ${result?.queued ?? 0}`)
+    },
+    onError: (error) => pushNotice('error', extractErrorMessage(error))
+  })
+
+  const warmCompetitorsMutation = useMutation({
+    mutationFn: () => competitorsWarm(projectId, 10),
+    onSuccess: (result) => {
+      pushNotice('success', `Competitors warm queued ${result?.queued ?? 0}`)
     },
     onError: (error) => pushNotice('error', extractErrorMessage(error))
   })
@@ -397,7 +447,7 @@ export function ProjectDetailScreen({ projectId, tab }: ProjectDetailScreenProps
   const planEditSubmitting = planEditState.status === 'submitting'
 
   return (
-    <div className="mx-auto flex w-full max-w-6xl flex-col gap-6">
+      <div className="mx-auto flex w-full max-w-6xl flex-col gap-6">
       <header className="space-y-3">
         <p className="text-xs uppercase tracking-wide text-muted-foreground">
           <Link to="/projects" className="text-xs text-primary hover:underline">
@@ -497,6 +547,7 @@ export function ProjectDetailScreen({ projectId, tab }: ProjectDetailScreenProps
 
       {activeTab === 'overview' ? (
         <OverviewTab
+          projectId={projectId}
           snapshot={snapshot}
           jobs={jobsQuery.data?.items ?? []}
           onStartCrawl={() => startCrawlMutation.mutate()}
@@ -507,6 +558,15 @@ export function ProjectDetailScreen({ projectId, tab }: ProjectDetailScreenProps
           isGeneratingKeywords={generateKeywordsMutation.isPending}
           isCreatingPlan={createPlanMutation.isPending}
           isRunningSchedule={runScheduleMutation.isPending}
+          onWarmSerp={() => warmSerpMutation.mutate()}
+          onWarmCompetitors={() => warmCompetitorsMutation.mutate()}
+          isWarmingSerp={warmSerpMutation.isPending}
+          isWarmingCompetitors={warmCompetitorsMutation.isPending}
+          project={project}
+          onUpdateProject={(p) => updateProjectMutation.mutate(p)}
+          isUpdatingProject={updateProjectMutation.isPending}
+          costs={costsQuery.data}
+          logs={logsQuery.data?.items ?? []}
         />
       ) : null}
 
@@ -570,6 +630,18 @@ export function ProjectDetailScreen({ projectId, tab }: ProjectDetailScreenProps
           isLoading={jobsQuery.isLoading}
           onRefresh={() => jobsQuery.refetch()}
         />
+      ) : null}
+
+      {activeTab === 'ops' ? (
+        <OpsTab projectId={projectId} />
+      ) : null}
+
+      {activeTab === 'settings' ? (
+        <SettingsTab project={project} />
+      ) : null}
+
+      {activeTab === 'bundle' ? (
+        <BundleTab projectId={projectId} />
       ) : null}
 
       {activeTab === 'integrations' ? (

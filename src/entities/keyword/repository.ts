@@ -96,6 +96,32 @@ export const keywordsRepo = {
     if (hasDatabase()) void (async () => { try { const db = getDb(); await db.insert(keywords).values(toAdd as any).onConflictDoNothing?.(); } catch {} })()
     return toAdd.length
   },
+  linkCanon(projectId: string, mappings: Array<{ phrase: string; canonId: string }>) {
+    if (!mappings.length) return 0
+    const list = byProject.get(projectId) ?? []
+    const byPhrase = new Map(mappings.map((m) => [m.phrase.toLowerCase(), m.canonId]))
+    let count = 0
+    for (let i = 0; i < list.length; i++) {
+      const canonId = byPhrase.get(list[i]!.phrase.toLowerCase())
+      if (canonId && list[i]!.canonId !== canonId) {
+        list[i] = { ...list[i]!, canonId }
+        count++
+      }
+    }
+    if (count) byProject.set(projectId, list)
+    if (count && hasDatabase()) void (async () => {
+      try {
+        const db = getDb()
+        for (const [phraseLower, canonId] of byPhrase) {
+          const row = list.find((k) => k.phrase.toLowerCase() === phraseLower)
+          if (row) {
+            await db.update(keywords).set({ canonId }).where((keywords as any).id.eq(row.id))
+          }
+        }
+      } catch {}
+    })()
+    return count
+  },
   update(id: string, patch: Partial<Keyword>): Keyword | null {
     const list = byProject.get((patch as any)?.projectId || '') || []
     for (const [projectId, items] of byProject.entries()) {

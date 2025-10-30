@@ -2,9 +2,10 @@ import type { ReactNode } from 'react'
 import { Button } from '@src/common/ui/button'
 
 import { formatDateTime } from '@features/projects/shared/helpers'
-import type { Job, ProjectSnapshot } from '@entities'
+import type { Job, ProjectSnapshot, Project } from '@entities'
 
 type OverviewTabProps = {
+  projectId: string
   snapshot: ProjectSnapshot | null
   jobs: Job[]
   onStartCrawl: () => void
@@ -15,9 +16,19 @@ type OverviewTabProps = {
   isGeneratingKeywords: boolean
   isCreatingPlan: boolean
   isRunningSchedule: boolean
+  onWarmSerp?: () => void
+  onWarmCompetitors?: () => void
+  isWarmingSerp?: boolean
+  isWarmingCompetitors?: boolean
+  project: Project
+  onUpdateProject?: (patch: Partial<Project>) => void
+  isUpdatingProject?: boolean
+  costs?: { updatedAt: string | null; perDay: Record<string, { counts: Record<string, number>; costUsd: number }> }
+  logs?: Array<Record<string, unknown>>
 }
 
 export function OverviewTab({
+  projectId,
   snapshot,
   jobs,
   onStartCrawl,
@@ -27,7 +38,16 @@ export function OverviewTab({
   isStartingCrawl,
   isGeneratingKeywords,
   isCreatingPlan,
-  isRunningSchedule
+  isRunningSchedule,
+  onWarmSerp,
+  onWarmCompetitors,
+  isWarmingSerp,
+  isWarmingCompetitors,
+  project,
+  onUpdateProject,
+  isUpdatingProject,
+  costs,
+  logs
 }: OverviewTabProps) {
   const summary = snapshot?.latestDiscovery?.summaryJson ?? {}
   const topicClusters = Array.isArray(summary?.topicClusters)
@@ -70,6 +90,24 @@ export function OverviewTab({
             disabled={isRunningSchedule}
             loading={isRunningSchedule}
           />
+          {onWarmSerp ? (
+            <ActionButton
+              label="Warm SERP cache"
+              description="Queue SERP snapshots for top keywords."
+              onClick={onWarmSerp}
+              disabled={Boolean(isWarmingSerp)}
+              loading={Boolean(isWarmingSerp)}
+            />
+          ) : null}
+          {onWarmCompetitors ? (
+            <ActionButton
+              label="Warm competitors"
+              description="Queue competitor snapshots for top keywords."
+              onClick={onWarmCompetitors}
+              disabled={Boolean(isWarmingCompetitors)}
+              loading={Boolean(isWarmingCompetitors)}
+            />
+          ) : null}
         </div>
 
         <div className="mt-6 space-y-3">
@@ -141,6 +179,73 @@ export function OverviewTab({
             No discovery run yet. Start the keyword generation workflow to populate this summary.
           </p>
         )}
+        <div className="mt-6">
+          <h3 className="text-sm font-semibold text-foreground">Project settings</h3>
+          <div className="mt-2 grid grid-cols-2 gap-3 text-xs">
+            <div>
+              <p className="text-muted-foreground">SERP device</p>
+              <p className="font-medium text-foreground">{project.serpDevice ?? 'desktop'}</p>
+            </div>
+            <div>
+              <p className="text-muted-foreground">SERP location</p>
+              <p className="font-medium text-foreground">{project.serpLocationCode ?? 2840}</p>
+            </div>
+            <div>
+              <p className="text-muted-foreground">Metrics location</p>
+              <p className="font-medium text-foreground">{project.metricsLocationCode ?? 2840}</p>
+            </div>
+          </div>
+          {onUpdateProject ? (
+            <div className="mt-3 flex items-center gap-2">
+              <Button
+                type="button"
+                className="rounded-md border border-input px-3 py-1.5 text-xs font-medium"
+                disabled={Boolean(isUpdatingProject)}
+                onClick={() => onUpdateProject({ serpDevice: project.serpDevice === 'mobile' ? 'desktop' : 'mobile' })}
+              >
+                Toggle device ({project.serpDevice ?? 'desktop'})
+              </Button>
+              <Button
+                type="button"
+                className="rounded-md border border-input px-3 py-1.5 text-xs font-medium"
+                disabled={Boolean(isUpdatingProject)}
+                onClick={() => onUpdateProject({ serpLocationCode: 2840, metricsLocationCode: 2840 })}
+              >
+                Use US (2840)
+              </Button>
+            </div>
+          ) : null}
+        </div>
+
+        <div className="mt-6">
+          <h3 className="text-sm font-semibold text-foreground">Provider costs</h3>
+          <p className="mt-1 text-xs text-muted-foreground">Daily aggregated from bundle/global/metrics/costs.json</p>
+          {costs?.perDay ? (
+            <ul className="mt-2 divide-y divide-border rounded-md border">
+              {Object.entries(costs.perDay).slice(-3).map(([day, row]) => (
+                <li key={day} className="flex items-center justify-between px-3 py-2 text-xs">
+                  <span className="text-muted-foreground">{day}</span>
+                  <span className="font-medium text-foreground">${row.costUsd.toFixed(4)}</span>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="text-xs text-muted-foreground">No entries yet.</p>
+          )}
+        </div>
+
+        <div className="mt-6">
+          <h3 className="text-sm font-semibold text-foreground">Recent job events</h3>
+          {Array.isArray(logs) && logs.length ? (
+            <ul className="mt-2 max-h-48 space-y-1 overflow-auto rounded-md border px-3 py-2 text-[11px]">
+              {logs.slice(-20).map((row, i) => (
+                <li key={i} className="font-mono text-muted-foreground">{JSON.stringify(row)}</li>
+              ))}
+            </ul>
+          ) : (
+            <p className="text-xs text-muted-foreground">No logs yet.</p>
+          )}
+        </div>
       </aside>
     </section>
   )

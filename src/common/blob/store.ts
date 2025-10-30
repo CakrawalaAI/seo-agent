@@ -26,10 +26,33 @@ export function saveHtml(html: string, projectId?: string) {
   return { id, url: `/api/blobs/${id}` }
 }
 
-export function getHtml(id: string) {
-  const path = join(BASE, `${id}.html`)
-  if (!existsSync(path)) return null
-  try { return readFileSync(path, 'utf-8') } catch { return null }
+export function saveText(text: string, projectId?: string) {
+  ensureDir()
+  const id = `blob_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`
+  const path = join(BASE, `${id}.txt`)
+  try { writeFileSync(path, text, 'utf-8') } catch {}
+  if (projectId && hasDatabase()) {
+    void (async () => {
+      try {
+        const db = getDb()
+        // @ts-ignore
+        await db.insert(blobs).values({ id, projectId }).onConflictDoNothing?.()
+      } catch {}
+    })()
+  }
+  return { id, url: `/api/blobs/${id}` }
+}
+
+export function getBlob(id: string): { content: string; contentType: string } | null {
+  const textPath = join(BASE, `${id}.txt`)
+  if (existsSync(textPath)) {
+    try { return { content: readFileSync(textPath, 'utf-8'), contentType: 'text/plain; charset=utf-8' } } catch {}
+  }
+  const htmlPath = join(BASE, `${id}.html`)
+  if (existsSync(htmlPath)) {
+    try { return { content: readFileSync(htmlPath, 'utf-8'), contentType: 'text/html; charset=utf-8' } } catch {}
+  }
+  return null
 }
 
 export function cleanupOldBlobs(olderThanDays: number): { deleted: number } {
@@ -39,7 +62,7 @@ export function cleanupOldBlobs(olderThanDays: number): { deleted: number } {
   try {
     const files = readdirSync(BASE)
     for (const f of files) {
-      if (!f.endsWith('.html')) continue
+      if (!f.endsWith('.html') && !f.endsWith('.txt')) continue
       const full = join(BASE, f)
       try {
         const st = statSync(full)

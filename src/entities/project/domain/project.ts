@@ -14,6 +14,9 @@ export type Project = {
   crawlMaxDepth?: number | null
   crawlBudgetPages?: number | null
   bufferDays?: number | null
+  serpDevice?: 'desktop' | 'mobile' | null
+  serpLocationCode?: number | null
+  metricsLocationCode?: number | null
   createdAt?: string
   updatedAt?: string
 }

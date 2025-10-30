@@ -1,4 +1,5 @@
 import type { PlanItem } from './domain/plan-item'
+import { clusterKey } from '@common/keyword/cluster'
 import { keywordsRepo } from '@entities/keyword/repository'
 import { hasDatabase, getDb } from '@common/infra/db'
 import { planItems as planItemsTable } from './db/schema'
@@ -10,8 +11,19 @@ export const planRepo = {
   createPlan(projectId: string, days: number): { jobId: string; created: number } {
     const todayIso = new Date().toISOString().slice(0, 10)
     const millisPerDay = 24 * 60 * 60 * 1000
-    const seeds = keywordsRepo.list(projectId, { status: 'recommended', limit: days })
-    const items: PlanItem[] = seeds.map((kw, idx) => {
+    // pick top N by opportunity (fallback: first N)
+    const all = keywordsRepo.list(projectId, { status: 'all', limit: 1000 })
+    const sorted = [...all].sort((a, b) => (b.opportunity ?? 0) - (a.opportunity ?? 0))
+    const unique: typeof sorted = []
+    const seenCluster = new Set<string>()
+    for (const k of sorted) {
+      const ck = clusterKey(k.phrase)
+      if (seenCluster.has(ck)) continue
+      seenCluster.add(ck)
+      unique.push(k)
+      if (unique.length >= Math.max(1, days)) break
+    }
+    const items: PlanItem[] = unique.map((kw, idx) => {
       const plannedDate = new Date(Date.now() + idx * millisPerDay).toISOString().slice(0, 10)
       return {
         id: genId('plan'),

@@ -1,0 +1,12 @@
+nodes:
+  crawl:
+    onSuccess: [discovery]
+  discovery:
+    onSuccess: [plan]
+  plan:
+    onSuccess: []
+  generate:
+    onSuccess: [enrich]
+  enrich:
+    onSuccess: []
+

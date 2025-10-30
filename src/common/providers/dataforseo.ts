@@ -15,9 +15,28 @@ export async function searchVolume(inputs: SvInput[]): Promise<SvResult[]> {
   if (!creds) return []
   const pRetry = (await import('p-retry')).default as any
   const request = async () => {
+    const languageName = (lang?: string) => {
+      const code = (lang || '').toLowerCase()
+      if (code.startsWith('en')) return 'English'
+      if (code.startsWith('ja')) return 'Japanese'
+      if (code.startsWith('es')) return 'Spanish'
+      if (code.startsWith('fr')) return 'French'
+      if (code.startsWith('de')) return 'German'
+      if (code.startsWith('pt')) return 'Portuguese'
+      if (code.startsWith('it')) return 'Italian'
+      if (code.startsWith('nl')) return 'Dutch'
+      if (code.startsWith('sv')) return 'Swedish'
+      if (code.startsWith('no') || code.startsWith('nb') || code.startsWith('nn')) return 'Norwegian'
+      if (code.startsWith('da')) return 'Danish'
+      if (code.startsWith('fi')) return 'Finnish'
+      if (code.startsWith('ko')) return 'Korean'
+      if (code.startsWith('zh')) return 'Chinese (Simplified)'
+      if (code.startsWith('ru')) return 'Russian'
+      return 'English'
+    }
     const tasks = inputs.map((i) => ({
       keyword: i.phrase,
-      language_name: i.locale || 'English',
+      language_name: languageName(i.locale),
       location_code: 2840
     }))
     const res = await fetch('https://api.dataforseo.com/v3/keywords_data/google_ads/search_volume/live', {
