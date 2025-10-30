@@ -92,11 +92,13 @@ export function buildPortableArticle(article: Article): PortableArticle {
     excerpt: extractExcerpt(article.bodyHtml),
     bodyHtml: article.bodyHtml ?? '',
     outline,
-    media: article.mediaJson ? (article.mediaJson as PortableArticle['media']) : undefined,
+    // Domain Article currently has no media fields
+    media: undefined,
     seo: {
       metaTitle: article.title ?? undefined,
       metaDescription: article.title ? `${article.title.slice(0, 150)}...` : undefined,
-      primaryKeyword: article.keyword ?? undefined
+      // Domain Article currently has no keyword field
+      primaryKeyword: undefined
     },
     locale: article.language ?? 'en',
     tags: [],

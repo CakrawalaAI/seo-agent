@@ -1,18 +1,12 @@
-import { createFileRoute, useRouter } from '@tanstack/react-router'
+import { useRouter } from '@tanstack/react-router'
 import { ArticleEditor } from '@features/articles/client/ArticleEditor'
 import { useState } from 'react'
 
 /**
  * Article edit page with rich text editor.
- *
- * Route: /articles/:articleId/edit
+ * Consumed by route: /articles/$articleId/edit
  */
-export const Route = createFileRoute('/articles/$articleId/edit')({
-  component: ArticleEditPage
-})
-
-function ArticleEditPage() {
-  const { articleId } = Route.useParams()
+export function Page({ articleId }: { articleId: string }) {
   const router = useRouter()
   const [article, setArticle] = useState<any>(null)
   const [isLoading, setIsLoading] = useState(true)

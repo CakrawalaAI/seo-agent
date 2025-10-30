@@ -15,7 +15,12 @@ export function getDb() {
   if (dbSingleton) return dbSingleton
   try {
     const masked = (() => {
-      try { const u = new URL(process.env.DATABASE_URL!); return `${u.protocol}//${u.username || 'user'}:****@${u.hostname}${u.port ? ':'+u.port : ''}${u.pathname || ''}` } catch { return 'postgres://<invalid>' }
+      try {
+        const u = new URL(process.env.DATABASE_URL!)
+        return `${u.protocol}//${u.username || 'user'}:****@${u.hostname}${u.port ? ':' + u.port : ''}${u.pathname || ''}`
+      } catch {
+        return 'postgres://<invalid>'
+      }
     })()
     console.info('[db] connecting', { url: masked })
   } catch {}
@@ -24,3 +29,6 @@ export function getDb() {
   console.info('[db] drizzle ready')
   return dbSingleton
 }
+
+// Named export expected by callers
+export const db = getDb()
