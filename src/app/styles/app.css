@@ -1,5 +1,6 @@
 /* Scan the entire src tree for class usage */
 @import "tailwindcss" source("../../");
+@plugin "@tailwindcss/typography";
 
 @custom-variant dark (&:is(.dark *));
 

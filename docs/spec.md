@@ -24,7 +24,7 @@ TanStack Start + TanStack Router (server routes for all APIs).
 
 DB: PostgreSQL via Drizzle.
 
-Auth: better‑auth (Google).
+Auth: Custom Google OAuth 2.0 (PKCE) + signed session cookies.
 
 Payments: Polar plugin (org‑scoped entitlements).
 
@@ -36,13 +36,16 @@ Providers: everything swappable via interfaces (LLM, metrics/SERP, research, CMS
 
 CLI (seo) + Web FE share the same REST API.
 
-1.6 Auth, Orgs, Payments — Mental Model (Better Auth + Organization + Polar)
+1.6 Auth, Orgs, Payments — Mental Model (Custom OAuth + Polar)
 
-- Identity: Better Auth handles sign‑in (Google), sessions, cookies (`/api/auth/**`).
-- Storage: Drizzle adapter persists all auth/plugin data in our Postgres using the existing Drizzle client.
-- Organizations: Better Auth Organization plugin manages orgs/members/invitations/roles. We map the plugin's Organization model to our existing `orgs` table; membership uses plugin tables (for now).
-- Payments: Polar plugin (SDK + webhooks) ties a Better Auth user to a Polar customer. Checkouts/portal/usage run through Better Auth; webhooks update our org entitlements.
+- Identity: Custom Google OAuth 2.0 implementation with PKCE for sign‑in (`/api/auth/**`).
+- Sessions: Signed session cookies (HMAC-SHA256) with 7-day TTL; payload includes user + activeOrg + entitlements.
+- Storage: All auth data persists in Postgres via Drizzle (`users`, `sessions`, `oauth_states`).
+- Organizations: Custom org/member model in `orgs` and `org_members` tables with role-based access (owner/admin/member).
+- Invitations: Token-based invites stored in `org_invites` table; base64-encoded tokens sent via email.
+- Payments: Polar SDK for checkout/portal; webhooks at `/api/billing/webhooks/polar` update org entitlements.
 - Entitlements: source of truth is DB `orgs.entitlementsJson` (updated by Polar webhooks). Server endpoints read plan/entitlements from DB to avoid live Polar calls.
+- Usage tracking: `org_usage` table tracks `postsUsed` per billing cycle; enforced via middleware.
 
 Single plan credits (v1)
 
@@ -55,55 +58,55 @@ Single plan credits (v1)
 
 Implementation decisions
 
-- Drizzle adapter: `betterAuth({ database: drizzleAdapter(db,{ provider:'pg', usePlural:true }) })` so Better Auth uses our Postgres.
-- Route integration: catch‑all `/api/auth/$` delegates GET/POST to Better Auth handler.
-- Google OAuth: redirect `http(s)://{host}/api/auth/callback/google`.
-- Organization mapping: plugin schema maps to our table names/fields:
-  - `organization.modelName = "orgs"`
-  - Additional fields exposed on the Better Auth API: `plan (string)`, `entitlementsJson (json)`
-  - Membership stays in plugin tables (Better Auth `member`) to leverage userId/roles; we will gradually retire legacy `org_members` reads.
-- Active organization: stored on Better Auth session (`activeOrganizationId`). Client exposes `useActiveOrganization()` and `organization.setActive()`; API derives `orgId` from session when not provided.
-- Polar: pass `referenceId = activeOrganizationId` to `checkout()` so orders/subscriptions bind to an org. Webhooks resolve org by referenceId and update `orgs.plan` + `orgs.entitlementsJson`.
+- Auth flow: Google OAuth 2.0 with PKCE (state + code_verifier stored in `oauth_states` table).
+- Route structure:
+  - `/api/auth/login` → initiates OAuth, redirects to Google
+  - `/api/auth/callback/google` → exchanges code for tokens, creates user + session
+  - `/api/auth/logout` → clears session cookie
+- Session storage: Signed cookies (`seoa_session`) with v1 format: `version|base64(payload)|hmac`; payload includes user + activeOrgId + entitlements.
+- Organization model:
+  - `orgs` table with `plan`, `entitlementsJson` (monthlyPostCredits, projectQuota, etc.)
+  - `org_members` table for membership (userId, orgId, role)
+  - `org_invites` table for invitation tokens (7-day expiry)
+- Active organization: stored in session payload (`activeOrgId`). Client uses `session.activeOrg`; API derives `orgId` from session.
+- Polar: pass `customData.orgId` to checkout so subscriptions bind to an org. Webhooks at `/api/billing/webhooks/polar` resolve org by customData and update `orgs.plan` + `orgs.entitlementsJson`.
+- Usage enforcement: Middleware checks `org_usage.postsUsed >= orgs.entitlementsJson.monthlyPostCredits` before generation/publish; returns 429 if exceeded.
 
-1.7 Installation (Better Auth + TanStack Start)
+1.7 Installation (Custom Auth + TanStack Start)
 
 - Install packages
-  - `bun add better-auth @polar-sh/better-auth @polar-sh/sdk`
+  - `bun add @polar-sh/sdk` (for billing only)
 - Environment variables
-  - `BETTER_AUTH_SECRET=…` (required)
-  - `BETTER_AUTH_URL=http://localhost:3000` (optional base URL)
+  - `SESSION_SECRET=…` (required, HMAC signing key, 32+ chars)
   - `GOOGLE_CLIENT_ID=…`, `GOOGLE_CLIENT_SECRET=…`
+  - `GOOGLE_REDIRECT_URI=http://localhost:3000/api/auth/callback/google`
   - `POLAR_ACCESS_TOKEN=…`, `POLAR_WEBHOOK_SECRET=…`
   - `DATABASE_URL=postgres://…`
-- Server instance
-  - `src/common/auth/server.ts` uses `better-auth`, `drizzleAdapter`, `reactStartCookies`, `organization({ schema.organization.modelName='orgs', additionalFields:{ plan, entitlementsJson } })`, `socialProviders.google`.
-  - Teams disabled.
-- Mount handler (TanStack Start)
-  - `src/app/routes/api/auth/$.ts` delegates GET/POST to `auth.handler` (catch‑all).
-- Create database tables
-  - `npx @better-auth/cli generate`
-  - `npx drizzle-kit generate && npx drizzle-kit migrate`
-  - Ensure `orgs` has optional fields used by plugin (e.g., `slug`, `logo`, `metadata`) as needed.
-- Client instance
-  - `src/common/auth/client.ts` → `createAuthClient()`
-  - Later enable client plugins when UI needs them: `organizationClient()` and `polarClient()`
-- Google redirect URIs
+- Auth implementation
+  - `src/common/auth/google.ts` implements OAuth 2.0 with PKCE
+  - `src/common/infra/session.ts` handles signed cookie encoding/decoding
+  - Routes at `src/app/routes/api/auth/**`
+- Database tables
+  - Run `npx drizzle-kit generate && npx drizzle-kit migrate`
+  - Required tables: `users`, `sessions`, `oauth_states`, `orgs`, `org_members`, `org_invites`, `org_usage`
+- Google redirect URIs (configure in Google Cloud Console)
   - Dev: `http://localhost:3000/api/auth/callback/google`
   - Prod: `https://YOUR_DOMAIN/api/auth/callback/google`
 
 ENV (dev)
 
-- `BETTER_AUTH_SECRET` — random 32+ chars
+- `SESSION_SECRET` — random 32+ chars (HMAC signing)
 - `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`
+- `GOOGLE_REDIRECT_URI` — full callback URL
 - `POLAR_ACCESS_TOKEN`, `POLAR_WEBHOOK_SECRET`
-- `POLAR_PRICE_POSTS_30` (seat-based price id)
+- `POLAR_PRICE_POSTS_30` — Polar price ID for 30 posts/month plan
 - `DATABASE_URL` (Postgres)
 
 DB migration plan
 
-- Generate Better Auth schema with Organization plugin (it will create `member`, `invitation`, optional `team` tables); we map Organization to `orgs`.
-- Keep `orgs` as authoritative for plan/entitlements; add columns if needed by plugin (`slug`, `logo`, `metadata` optional).
-- Backfill: if existing orgs lack `slug`, derive from name.
+- Run Drizzle migrations to create all auth tables (`users`, `sessions`, `oauth_states`).
+- Create org tables: `orgs` (with `plan`, `entitlementsJson`), `org_members`, `org_invites`, `org_usage`.
+- Backfill: seed default org for existing users; create `org_usage` rows for all orgs.
 
 1.8 Teams vs Organizations
 
@@ -478,28 +481,29 @@ All functionality must be available both in Web and CLI.
 9. API contract (server routes)
 
 All payloads Zod‑validated; errors: {code, message, details?}.
-Auth: Better Auth (session cookie, `/api/auth/**`). Organization plugin for org/members; Polar plugin for checkout/portal/usage/webhooks. Org determined from Better Auth active organization in session or explicit `orgId`.
+Auth: Custom Google OAuth 2.0 (session cookie, `/api/auth/**`). Org determined from session `activeOrgId` or explicit `orgId` param.
 
 Auth & User
 
-- POST/GET /api/auth/** → Better Auth handler (catch‑all)
-- Sign‑in social: client uses `authClient.signIn.social({ provider:'google' })`
-- Sign‑out: client `authClient.signOut()` (POST /api/auth/sign-out)
-- GET /api/me → merges Better Auth session with DB:
-  - `user`: from Better Auth
-  - `activeOrg`: from Better Auth `activeOrganizationId` (resolved to `orgs` row)
-  - `entitlements`: from `orgs.entitlementsJson`
-  - `orgs`: list from `orgs` table (or Organization plugin list)
+- GET `/api/auth/login` → redirect to Google OAuth consent screen
+- GET `/api/auth/callback/google` → exchange code for tokens, create/update user, set session cookie, redirect to dashboard
+- DELETE `/api/auth/logout` → clear session cookie, redirect to login
+- GET `/api/auth/debug` → inspect current session (dev only)
+- GET `/api/me` → session user + activeOrg + entitlements + orgs list
 
 Orgs & Billing (Polar)
 
-- Organizations via Better Auth Organization plugin:
-  - `authClient.organization.create/list/setActive/invite/accept/...`
-  - Active org stored in Better Auth session
+- Organizations:
+  - GET `/api/orgs` → list user's orgs
+  - POST `/api/orgs` → create org or invite member (body: `{ action: 'create'|'invite', name?, email? }`)
+  - POST `/api/orgs/invites/$token/accept` → accept invite, join org
+  - Active org: stored in session cookie, switched via `POST /api/orgs` with `{ action: 'switch', orgId }`
 - Billing (single plan):
   - Checkout: POST `/api/billing/checkout` with `{ priceId?: POLAR_PRICE_POSTS_30 }` → 302 redirect to Polar Checkout
-  - Portal: `authClient.customer.portal()` → {redirect}
-  - Webhooks: verified by plugin; on paid/updated → update `orgs.plan` + `orgs.entitlementsJson.monthlyPostCredits`, reset `org_usage` on new cycle
+  - Portal: POST `/api/billing/portal` → 302 redirect to Polar Customer Portal
+  - Webhooks: POST `/api/billing/webhooks/polar` → verify signature, handle events:
+    - `subscription.created/updated/canceled` → update `orgs.plan` + `entitlementsJson.monthlyPostCredits`
+    - Billing cycle reset → clear `org_usage.postsUsed` when `current_period_start` changes
 
 Projects
 
@@ -733,23 +737,25 @@ CLI: seo ping prints version.
 
 Web: /login renders; /dashboard shows “no projects yet”.
 
-C01. Auth (better‑auth Google)
+C01. Auth (Custom Google OAuth)
 
-API: login/callback, /api/me.
+API: GET `/api/auth/login`, GET `/api/auth/callback/google`, DELETE `/api/auth/logout`, GET `/api/me`.
 
 CLI: seo login, seo whoami.
 
 Web: Sign‑in → profile chip visible.
 
+AC: Signed session cookie set; user/org data in session payload.
+
 C02. Orgs & Billing (Polar)
 
-API: invites; checkout → redirect; Better Auth Polar webhooks at `/api/auth/polar/webhooks` update entitlements.
+API: invites; checkout → redirect; Polar webhooks at `/api/billing/webhooks/polar` update entitlements.
 
 CLI: seo org invite, seo billing checkout.
 
 Web: Upgrade button, portal link.
 
-AC: org entitlement fields updated after webhook.
+AC: org entitlement fields updated after webhook; usage enforcement blocks over-quota requests.
 
 C03. Projects (auto‑start crawl)
 
@@ -936,20 +942,24 @@ Failing any check blocks the commit from merging. Prefer parallel test execution
 
 22. Implementation status (MVP v0)
 
-- C00 Health: implemented
-- C01 Auth (dev mock): implemented
-- C02 Billing (dev mock): implemented
-- C03 Projects: implemented
-- C04 Crawl (seeded pages): implemented
-- C05 Keywords (mock provider): implemented
-- C06 Plan (30‑day): implemented
-- C07 Schedule (lazy drafts): implemented
-- C08 Publish (Webhook) + auto‑publish: implemented (HMAC + idempotency)
-- C09 Editing (web): implemented
-- C10 Webflow connector: stub implemented (v0.1)
+- C00 Health: ✅ implemented
+- C01 Auth: ✅ custom Google OAuth + signed cookies
+- C02 Orgs: ✅ implemented; Billing: 🚧 checkout/portal working, webhook handler pending
+- C03 Projects: ✅ implemented with auto-crawl
+- C04 Crawl: ✅ Playwright + sitemap + robots.txt
+- C05 Keywords: ✅ DataForSEO + LLM + canon model
+- C06 Plan: ✅ 30‑day title+outline via LLM
+- C07 Schedule: ✅ lazy body generation with SERP context
+- C08 Publish (Webhook): ✅ HMAC + idempotency
+- C09 Editing (web): ❌ pending rich text editor
+- C10 Webflow connector: ❌ stubbed, needs real API implementation
 
 Notes
-- Current MVP uses in‑memory repositories and mocked providers; replace with Drizzle/Postgres and real integrations for production. SSR loaders added to prime queries. Biome is configured as linter/formatter. Playwright curl/e2e smokes included.
+- Production-ready Postgres + Drizzle implementation
+- RabbitMQ job queue with worker processors
+- DataForSEO, OpenAI, Exa integrations working
+- Usage enforcement middleware pending
+- Webflow needs real REST API integration
 seo keyword refresh --canon <id> --location "United States" --what metrics --force  # manual global refresh
 seo serp refresh --canon <id> --location "United States" --device desktop --topK 10
 Keyword & SERP (global refresh)

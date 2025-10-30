@@ -2,6 +2,7 @@ import { consumeJobs, queueEnabled, cleanupMetricCache, publishJob } from '@comm
 import { cleanupOldBlobs } from '@common/blob/store'
 import { env } from '@common/infra/env'
 import { recordJobCompleted, recordJobFailed, recordJobRunning } from '@common/infra/jobs'
+import { initConnectors } from '@common/connectors/registry'
 import { processCrawl } from './processors/crawler'
 import { processDiscovery } from './processors/discovery'
 import { processPlan } from './processors/plan'
@@ -19,6 +20,9 @@ type WorkerOptions = {
 }
 
 export async function runWorker(options: WorkerOptions = {}) {
+  // Initialize CMS connectors
+  initConnectors()
+  console.info('[Worker] CMS connectors initialized')
   if (queueEnabled()) {
     const masked = (process.env.RABBITMQ_URL ? (() => { try { const u = new URL(process.env.RABBITMQ_URL); return `amqp://${u.username || 'user'}:****@${u.hostname}${u.port ? ':'+u.port : ''}${u.pathname || '/'}` } catch { return 'amqp://<invalid>' } })() : 'amqp://<missing>')
     console.info('[seo-agent] worker consuming RabbitMQ jobs', { url: masked })
