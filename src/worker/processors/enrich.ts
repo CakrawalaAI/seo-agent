@@ -6,7 +6,7 @@ import { getResearchProvider, getLlmProvider } from '@common/providers/registry'
 import * as bundle from '@common/bundle/store'
 
 export async function processEnrich(payload: { projectId: string; articleId: string }) {
-  const article = articlesRepo.get(payload.articleId)
+  const article = await articlesRepo.get(payload.articleId)
   if (!article) return
   const research = getResearchProvider()
   // Citations via research provider
@@ -53,7 +53,7 @@ export async function processEnrich(payload: { projectId: string; articleId: str
 
   // Internal link suggestions: simple title word overlap
   try {
-    const title = String(article.title || '')
+      const title = String(article.title || '')
     const words = new Set(title.toLowerCase().split(/[^a-z0-9]+/).filter((w) => w.length > 3))
     let candidates: Array<{ url: string; score: number; title?: string }> = []
     if (hasDatabase()) {

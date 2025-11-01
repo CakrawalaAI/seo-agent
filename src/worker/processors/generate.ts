@@ -2,6 +2,7 @@ import { planRepo } from '@entities/plan/repository'
 import { articlesRepo } from '@entities/article/repository'
 import { draftTitleOutline } from '@common/providers/llm'
 import { getLlmProvider } from '@common/providers/registry'
+import { evaluateArticle } from '@features/articles/server/evaluate'
 import { ensureCanon } from '@features/keyword/server/ensureCanon'
 import { ensureSerp } from '@features/serp/server/ensureSerp'
 import { projectsRepo } from '@entities/project/repository'
@@ -12,10 +13,10 @@ import { readFileSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
 
 export async function processGenerate(payload: { projectId: string; planItemId: string }) {
-  const found = planRepo.findById(payload.planItemId)
+  const found = await planRepo.findById(payload.planItemId)
   if (!found) return
   const { item } = found
-  const draft = articlesRepo.createDraft({
+  const draft = await articlesRepo.createDraft({
     projectId: payload.projectId,
     planItemId: item.id,
     title: item.title,
@@ -29,14 +30,14 @@ export async function processGenerate(payload: { projectId: string; planItemId: 
       try {
         const o = await draftTitleOutline(draft.title ?? item.title)
         outline = o.outline
-        articlesRepo.update(draft.id, { outlineJson: outline })
+        await articlesRepo.update(draft.id, { outlineJson: outline })
       } catch {}
     }
     // Enrich with SERP dump if available
     let serpDump: string | undefined
     let competitorDump: string | undefined
     try {
-      const project = projectsRepo.get(payload.projectId)
+      const project = await projectsRepo.get(payload.projectId)
       const locale = project?.defaultLocale || 'en-US'
       const loc = Number(project?.serpLocationCode || project?.metricsLocationCode || 2840)
       const device = (project?.serpDevice as any) === 'mobile' ? 'mobile' : 'desktop'
@@ -58,14 +59,10 @@ export async function processGenerate(payload: { projectId: string; planItemId: 
     } catch {}
     const llm = getLlmProvider()
     const { bodyHtml } = await llm.generateBody({ title: draft.title ?? item.title, outline, serpDump, competitorDump })
-    try { const { appendJsonl } = await import('@common/bundle/store'); appendJsonl('global', 'metrics/costs.jsonl', { node: 'llm', provider: process.env.OPENAI_API_KEY ? 'openai' : 'stub', at: new Date().toISOString(), stage: 'generateBody' }) } catch {}
-    try { const { updateCostSummary } = await import('@common/metrics/costs'); updateCostSummary() } catch {}
-    articlesRepo.update(draft.id, { bodyHtml })
-    try {
-      const rel = `articles/drafts/${draft.id}.html`
-      bundle.writeText(payload.projectId, rel, bodyHtml)
-      bundle.appendLineage(payload.projectId, { node: 'generate', outputs: { articleId: draft.id } })
-    } catch {}
+    try { if ((await import('@common/config')).config.debug?.writeBundle) { const { appendJsonl } = await import('@common/bundle/store'); appendJsonl('global', 'metrics/costs.jsonl', { node: 'llm', provider: process.env.OPENAI_API_KEY ? 'openai' : 'stub', at: new Date().toISOString(), stage: 'generateBody' }) } } catch {}
+    try { if ((await import('@common/config')).config.debug?.writeBundle) { const { updateCostSummary } = await import('@common/metrics/costs'); updateCostSummary() } } catch {}
+    await articlesRepo.update(draft.id, { bodyHtml, generationDate: new Date() as any })
+    try { if ((await import('@common/config')).config.debug?.writeBundle) { const rel = `articles/drafts/${draft.id}.html`; bundle.writeText(payload.projectId, rel, bodyHtml); bundle.appendLineage(payload.projectId, { node: 'generate', outputs: { articleId: draft.id } }) } } catch {}
     // queue enrich step
     try {
       const { publishJob, queueEnabled } = await import('@common/infra/queue')
@@ -74,12 +71,20 @@ export async function processGenerate(payload: { projectId: string; planItemId: 
       }
     } catch {}
 
+    // Evaluate draft quality (gate autopublish)
+    let passedGate = true
+    try {
+      const evalResult = await evaluateArticle(payload.projectId, draft.id, { title: draft.title ?? item.title, outline, bodyHtml })
+      const threshold = Math.max(0, Math.min(100, Number(process.env.SEOA_ARTICLE_AUTOPUBLISH_THRESHOLD || '80')))
+      passedGate = evalResult.score >= threshold
+    } catch {}
+
     // optional immediate publish (policy-driven)
     try {
-      const project = projectsRepo.get(payload.projectId)
+      const project = await projectsRepo.get(payload.projectId)
       const policy = String((project as any)?.autoPublishPolicy || '')
-      if (policy === 'immediate') {
-        const integrations = integrationsRepo.list(String(payload.projectId))
+      if (policy === 'immediate' && passedGate) {
+        const integrations = await integrationsRepo.list(String(payload.projectId))
         const { env } = await import('@common/infra/env')
         const target = integrations.find((i) => i.status === 'connected' && env.publicationAllowed.includes(String(i.type)))
         if (target) {
@@ -88,6 +93,8 @@ export async function processGenerate(payload: { projectId: string; planItemId: 
             await publishJob({ type: 'publish', payload: { articleId: draft.id, integrationId: target.id } })
           }
         }
+      } else if (policy === 'immediate' && !passedGate) {
+        try { const { appendJsonl } = await import('@common/bundle/store'); appendJsonl(payload.projectId, 'logs/jobs.jsonl', { id: `gate_${draft.id}`, type: 'evaluate', status: 'failed', at: new Date().toISOString(), reason: 'quality_gate' }) } catch {}
       }
     } catch {}
   } catch {

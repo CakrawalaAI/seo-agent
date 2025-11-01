@@ -1,7 +1,7 @@
 // @ts-nocheck
 import { createFileRoute } from '@tanstack/react-router'
 import { httpError, safeHandler } from '@app/api-utils'
-import { clearTempCookie, exchangeCodeForTokens, fetchGoogleUser, parseTempCookie, upsertUserFromGoogle } from '@common/auth/google'
+import { clearTempCookie, exchangeCodeForTokens, fetchGoogleUser, parseTempCookie, sanitizeRedirect, upsertUserFromGoogle } from '@common/auth/google'
 import { hasDatabase, getDb } from '@common/infra/db'
 import { session } from '@common/infra/session'
 import { orgs, orgMembers } from '@entities/org/db/schema'
@@ -17,7 +17,7 @@ export const Route = createFileRoute('/api/auth/callback')({
         if (!code || !state) return httpError(400, 'Missing code/state')
         const tmp = parseTempCookie(request)
         if (!tmp?.state || tmp.state !== state) return httpError(400, 'Invalid state')
-        const redirectTo = tmp.redirectTo || '/dashboard'
+        const redirectTo = sanitizeRedirect(tmp.redirectTo || '/dashboard')
 
         if ((process.env.SEOA_AUTH_DEBUG || '') === '1') {
           console.info('[auth/callback:start]', { url: request.url, hasTempCookie: Boolean(parseTempCookie(request)?.state) })

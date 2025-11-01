@@ -5,10 +5,10 @@ import { crawlRepo } from '../src/entities/crawl/repository'
 describe('crawl pages filter', () => {
   beforeAll(() => { (process as any).env.E2E_NO_AUTH = '1' })
   it('filters by q over url/title', async () => {
-    const projectId = 'proj_crawl_q'
+    const projectId = (await (await import('../src/entities/project/repository')).projectsRepo.create({ orgId: 'org-dev', name: 'CrawlQ', siteUrl: 'https://ex.com', defaultLocale: 'en-US' })).id
     const now = new Date().toISOString()
-    crawlRepo.addOrUpdate(projectId, { url: 'https://ex.com/about', depth: 1, status: 'completed', metaJson: { title: 'About Us' }, extractedAt: now })
-    crawlRepo.addOrUpdate(projectId, { url: 'https://ex.com/blog', depth: 1, status: 'completed', metaJson: { title: 'Blog' }, extractedAt: now })
+    await crawlRepo.addOrUpdate(projectId, { url: 'https://ex.com/about', depth: 1, status: 'completed', metaJson: { title: 'About Us' }, extractedAt: now })
+    await crawlRepo.addOrUpdate(projectId, { url: 'https://ex.com/blog', depth: 1, status: 'completed', metaJson: { title: 'Blog' }, extractedAt: now })
     const req = new Request(`http://x/api/crawl/pages?projectId=${projectId}&limit=10&q=about`)
     const res = await (CrawlPagesRoute as any).options.server.handlers.GET({ request: req })
     expect(res.status).toBe(200)

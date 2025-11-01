@@ -7,70 +7,82 @@ export type SiteSummary = {
   topicClusters: string[]
 }
 
+function parseJsonLoose<T = any>(text: string): T {
+  const t = String(text || '').trim()
+  try { return JSON.parse(t) } catch {}
+  // code fence ```json ... ```
+  const fence = t.match(/```\s*json\s*([\s\S]*?)```/i) || t.match(/```\s*([\s\S]*?)```/)
+  if (fence?.[1]) {
+    const inner = fence[1].trim()
+    try { return JSON.parse(inner) } catch {}
+  }
+  // fallback: first {...} block
+  const start = t.indexOf('{')
+  const end = t.lastIndexOf('}')
+  if (start >= 0 && end > start) {
+    const body = t.slice(start, end + 1)
+    try { return JSON.parse(body) } catch {}
+  }
+  throw new Error('invalid_json')
+}
+
 export async function summarizeSite(pages: Array<{ url: string; title?: string; text?: string }>): Promise<SiteSummary> {
   const key = process.env.OPENAI_API_KEY
   const sample = pages.slice(0, 5)
-  if (!key) {
-    const clusters = sample.map((p) => (p.title || p.url).split(' ')[0]).filter(Boolean).slice(0, 5)
-    return { businessSummary: 'Auto summary (stub)', topicClusters: Array.from(new Set(clusters)) }
-  }
+  if (!key) throw new Error('OPENAI_API_KEY missing')
   try {
     const { OpenAI } = await import('openai')
     const client = new OpenAI({ apiKey: key })
-    const prompt = `You are an SEO strategist. Given these page titles/URLs, summarize the business and propose 5 topic clusters. Return JSON with keys businessSummary and topicClusters.\n` +
-      sample.map((p, i) => `${i + 1}. ${p.title || ''} (${p.url})`).join('\n')
+    const list = sample
+      .map((p, i) => `${i + 1}. ${p.title || ''} (${p.url})\n${(p.text || '').slice(0, 600)}`)
+      .join('\n\n')
+    const prompt = `You are an SEO strategist. Read the page snippets below and summarize the business. Then propose exactly 5 topical clusters tightly aligned with the business (no generic outdoors/recipes/etc). Return strict JSON: {"businessSummary":"...","topicClusters":["..."]}. No markdown or code fences.\n\n${list}`
     const resp = await client.chat.completions.create({
       model: 'gpt-4o-mini',
       messages: [{ role: 'user', content: prompt }],
-      temperature: 0.3
+      temperature: 0.2,
+      response_format: { type: 'json_object' as const }
     })
     const text = resp.choices?.[0]?.message?.content || ''
-    try { return JSON.parse(text) as SiteSummary } catch { return { businessSummary: text.slice(0, 200), topicClusters: [] } }
-  } catch {
-    return { businessSummary: 'Auto summary (stub)', topicClusters: [] }
+    const parsed = parseJsonLoose<SiteSummary>(text)
+    if (!parsed || !Array.isArray(parsed.topicClusters)) throw new Error('LLM summary invalid JSON')
+    return parsed
+  } catch (e) {
+    throw new Error(`LLM summarize failed: ${(e as Error)?.message || String(e)}`)
   }
 }
 
 export async function expandSeeds(topicClusters: string[], locale = 'en-US'): Promise<string[]> {
-  if (!process.env.OPENAI_API_KEY) {
-    return topicClusters.flatMap((t) => [`${t} guide`, `${t} tips`, `${t} checklist`]).slice(0, 30)
-  }
+  if (!process.env.OPENAI_API_KEY) throw new Error('OPENAI_API_KEY missing')
   try {
     const { OpenAI } = await import('openai')
     const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
-    const prompt = `Generate 30 SEO keywords for these topic clusters in ${locale}. Output as a JSON array of strings only.\nClusters: ${topicClusters.join(', ')}`
-    const resp = await client.chat.completions.create({ model: 'gpt-4o-mini', messages: [{ role: 'user', content: prompt }], temperature: 0.5 })
+    const prompt = `Generate 30 SEO keywords for these topic clusters in ${locale}. Output JSON array of strings only. No markdown.`
+    const resp = await client.chat.completions.create({ model: 'gpt-4o-mini', messages: [{ role: 'user', content: `${prompt}\nClusters: ${topicClusters.join(', ')}` }], temperature: 0.5, response_format: { type: 'json_object' as const } }).catch(async () => {
+      // some models require array type; fallback without response_format
+      return await client.chat.completions.create({ model: 'gpt-4o-mini', messages: [{ role: 'user', content: `${prompt}\nClusters: ${topicClusters.join(', ')}` }], temperature: 0.5 })
+    })
     const text = resp.choices?.[0]?.message?.content || '[]'
-    const arr = JSON.parse(text)
+    const parsed = parseJsonLoose<any>(text)
+    const arr = Array.isArray(parsed) ? parsed : (Array.isArray(parsed?.keywords) ? parsed.keywords : [])
     return Array.isArray(arr) ? arr.map(String) : []
-  } catch {
-    return topicClusters.flatMap((t) => [`${t} ideas`, `${t} strategy`, `${t} best practices`]).slice(0, 30)
+  } catch (e) {
+    throw new Error(`LLM expand failed: ${(e as Error)?.message || String(e)}`)
   }
 }
 
 export async function draftTitleOutline(keyword: string, locale = 'en-US'): Promise<{ title: string; outline: ArticleOutlineSection[] }> {
-  if (!process.env.OPENAI_API_KEY) {
-    return {
-      title: capitalize(keyword),
-      outline: [
-        { heading: `Introduction to ${keyword}` },
-        { heading: `${keyword}: Key Concepts` },
-        { heading: `${keyword}: Step-by-Step` },
-        { heading: `Common Mistakes with ${keyword}` },
-        { heading: `Conclusion` }
-      ]
-    }
-  }
+  if (!process.env.OPENAI_API_KEY) throw new Error('OPENAI_API_KEY missing')
   try {
     const { OpenAI } = await import('openai')
     const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
-    const prompt = `Write an SEO-friendly article title and 5-7 H2 section headings (no descriptions) for the keyword: "${keyword}" in ${locale}. Output JSON: {"title":"...","outline":[{"heading":"..."}, ...]}`
-    const resp = await client.chat.completions.create({ model: 'gpt-4o-mini', messages: [{ role: 'user', content: prompt }], temperature: 0.5 })
+    const prompt = `Write an SEO-friendly article title and 5-7 H2 section headings (no descriptions) for the keyword: "${keyword}" in ${locale}. Return strict JSON: {"title":"...","outline":[{"heading":"..."}]}. No markdown.`
+    const resp = await client.chat.completions.create({ model: 'gpt-4o-mini', messages: [{ role: 'user', content: prompt }], temperature: 0.5, response_format: { type: 'json_object' as const } })
     const text = resp.choices?.[0]?.message?.content || ''
-    const parsed = JSON.parse(text)
+    const parsed = parseJsonLoose<any>(text)
     return { title: String(parsed.title || capitalize(keyword)), outline: Array.isArray(parsed.outline) ? parsed.outline.map((o: any) => ({ heading: String(o.heading || '') })) : [] }
-  } catch {
-    return { title: capitalize(keyword), outline: [{ heading: `About ${keyword}` }, { heading: `${keyword} Techniques` }, { heading: `FAQs` }] }
+  } catch (e) {
+    throw new Error(`LLM draft outline failed: ${(e as Error)?.message || String(e)}`)
   }
 }
 
@@ -81,19 +93,13 @@ export async function generateBody(options: {
   locale?: string
 }): Promise<{ bodyHtml: string }> {
   const key = process.env.OPENAI_API_KEY
-  if (!key) {
-    const body = [`<article><h1>${escapeHtml(options.title)}</h1>`,
-      ...options.outline.map((s) => `<h2>${escapeHtml(s.heading)}</h2><p>${escapeHtml('Draft content…')}</p>`),
-      `</article>`
-    ].join('')
-    return { bodyHtml: body }
-  }
+  if (!key) throw new Error('OPENAI_API_KEY missing')
 
   try {
     const { OpenAI } = await import('openai')
     const client = new OpenAI({ apiKey: key })
     const outlineBullets = options.outline.map((s) => `- ${s.heading}`).join('\n')
-    const prompt = `Write an HTML article in ${options.locale ?? 'en-US'} titled "${options.title}" following this outline:\n${outlineBullets}. Keep it well structured with <h2> sections.`
+    const prompt = `Write an HTML article in ${options.locale ?? 'en-US'} titled "${options.title}" following this outline:\n${outlineBullets}. Output raw HTML only. No markdown.`
     const resp = await client.chat.completions.create({
       model: 'gpt-4o-mini',
       messages: [{ role: 'user', content: prompt }],
@@ -102,9 +108,8 @@ export async function generateBody(options: {
     const text = resp.choices?.[0]?.message?.content ?? ''
     const html = text && /<\w+/.test(text) ? text : `<article><h1>${escapeHtml(options.title)}</h1><p>${escapeHtml(text || 'Draft content')}</p></article>`
     return { bodyHtml: html }
-  } catch {
-    const body = `<article><h1>${escapeHtml(options.title)}</h1><p>Generated draft body...</p></article>`
-    return { bodyHtml: body }
+  } catch (e) {
+    throw new Error(`LLM generate body failed: ${(e as Error)?.message || String(e)}`)
   }
 }
 
@@ -115,3 +120,5 @@ function escapeHtml(input: string) {
 function capitalize(s: string) {
   return s.slice(0, 1).toUpperCase() + s.slice(1)
 }
+
+// removed path-based stub fallback

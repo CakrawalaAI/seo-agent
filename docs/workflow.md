@@ -9,9 +9,9 @@
 Init loop (on project create or manual generate keywords/plan):
 ```
 ProjectCreated / PlanRequested
-  └─▶ crawl            # Playwright-first
-        └─▶ discovery  # summarize + seeds + ensureMetrics (global, monthly) + scoring
-               └─▶ plan # create 30 title+outline items
+  └─▶ crawl            # sitemap→LLM select 5–10 reps → crawl only reps (stateless)
+        └─▶ discovery  # summarize from DB page text → seeds (LLM+headings) → expand (DFS)
+               └─▶ plan # create 30 items; enrich titles/outlines; enqueue generate for next 3 days
 ```
 
 Periodic loop (daily or buffered cadence):
@@ -28,7 +28,7 @@ Notes
 
 ## 2) DAG nodes (concise contracts)
 - crawl (N1): input { projectId }; Playwright crawl (robots+sitemap), store CrawlPage rows + blobs.
-- discovery (N2–N5): summarize site; seed keywords; provider expansion (DataForSEO) → candidates; ensureMetrics for current month (global); upsert ProjectKeyword rows linked to canon.
+- discovery (N2–N5): summarize site (LLM) → Keywords For Site (baseline) → LLM seeds (20–30) → Related Keywords + Keyword Ideas (expansion) → dedupe by canon → Bulk Keyword Difficulty (batch) → Keyword Overview (top 200) → ensureMetrics(month) → upsert project keywords.
 - score (N8): compute OpportunityScore; cluster by root phrase to avoid cannibalization; pick primary + secondary terms per topic.
   - writes: summary/site_summary.json, keywords/seeds.jsonl, keywords/prioritized.jsonl
   - writes: keywords/candidates.raw.jsonl
@@ -44,6 +44,8 @@ Notes
 - publish (N12): publish via integration (Webhook/Webflow); update Article.url/status.
 - feedback (N13) [optional]: GSC ingest; emit follow‑up tasks.
 
+Note: “writes” above refer to optional debug bundle files and are only produced when `config.debug.writeBundle=true`. In production, workers do not write files; all state persists in the database.
+
 All nodes idempotent by (projectId, nodeName, inputsHash). Failures retried with backoff and DLQ.
 
 ## 3) Queue & orchestration (reuse existing infra)
@@ -56,7 +58,14 @@ All nodes idempotent by (projectId, nodeName, inputsHash). Failures retried with
 - New global job types: `metrics` (monthly keyword snapshots), `serp` (SERP snapshots).
 
 Providers (interfaces)
-- Keyword metrics: `KeywordMetricsProvider.ensureMonthly(canon, locationCode, YYYY-MM)` → DataForSEO Labs
+- Keyword discovery: `KeywordDiscoveryProvider` → DataForSEO Labs (switch via `SEOA_PROVIDER_KEYWORD_DISCOVERY`)
+  - keywordsForSite(domain, locationCode) → existing rankings
+  - relatedKeywords(seeds[], locationCode, depth) → expansion
+  - keywordIdeas(seeds[], locationCode) → category-based suggestions
+- Keyword metrics: `KeywordMetricsProvider` → DataForSEO Labs
+  - bulkKeywordDifficulty(phrases[], locationCode) → batch scoring
+  - keywordOverview(phrases[], locationCode, includeClickstream?) → rich metrics
+  - ensureMonthly(canon, locationCode, YYYY-MM) → monthly snapshot cache
 - SERP: `SerpProvider.ensure({ canon, locationCode, device, topK })` → DataForSEO SERP Regular
 - LLM: `LlmProvider` → OpenAI
 - Research: `ResearchProvider` → Exa
@@ -125,9 +134,11 @@ API (manual overrides)
 - `POST /api/serp/refresh` → body { canonId, location_code, device, topK, force? }
 
 Feature placement (server functions)
-- `src/features/keyword/server/ensureCanon.ts`
-- `src/features/keyword/server/ensureMetrics.ts` (monthly)
-- `src/features/serp/server/ensureSerp.ts`
+- `src/features/keyword/server/ensureCanon.ts` (canonical identity)
+- `src/features/keyword/server/discoverKeywords.ts` (multi-source discovery)
+- `src/features/keyword/server/ensureMetrics.ts` (monthly snapshots)
+- `src/features/keyword/server/computeOpportunity.ts` (scoring)
+- `src/features/serp/server/ensureSerp.ts` (SERP snapshots)
 - Workers call these; API routes optionally expose them for manual triggers.
  - Providers: `src/common/providers/interfaces/*`, `src/common/providers/impl/*`, `src/common/providers/registry.ts`
 
@@ -164,7 +175,7 @@ This document complements docs/spec.md (§5 Core flows, §12 Worker & cron) by c
 - Cache hit/miss path
   - Metrics: `ensureMetrics()` → DB hit else DataForSEO → upsert; file: `src/features/keyword/server/ensureMetrics.ts`.
   - SERP: `ensureSerp()` → DB hit (TTL) else DataForSEO → upsert; file: `src/features/serp/server/ensureSerp.ts`.
-  - Expand: `dataforseo keywords_for_keywords` first; de‑dupe with headings/LLM seeds.
+  - Discovery flow: Keywords For Site (baseline) → LLM seeds → Related Keywords + Keyword Ideas (expansion) → dedupe by canon → Bulk Keyword Difficulty → Keyword Overview (top N).
 
 ## 11) ASCII: Sequences
 Init
@@ -183,6 +194,55 @@ Worker(general) → ensure SERP/competitors (TTL) → LLM body → enrich → pu
 Notes
 - Immediate policy: after generation, worker enqueues publish (if integration connected).
 - Buffered policy: schedule-run publishes matured drafts only when buffer window satisfied and body present (>500 chars).
+- Credits: no DB usage gating; org_usage removed. Entitlements remain on orgs for display only.
+
+Dev utilities
+- Reset DB from scratch: `bun run db:reset` (drops schemas, re-runs migrations).
+- Seed credits for dev org/user: `bunx tsx scripts/seed-credits.ts --email you@example.com --credits 100`.
+- Debug bundles (optional): set `config.debug.writeBundle=true` to write lineage/cost files into `.data/bundle/`. Default is off (stateless workers, no files).
+
+Production setup (checklist)
+- Required env vars:
+  - `APP_URL` (public base URL, e.g. https://app.example.com)
+  - `SESSION_SECRET` (long random string for HMAC cookie signing)
+  - `DATABASE_URL` (Postgres)
+  - `RABBITMQ_URL` (AMQP)
+  - `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` (OAuth)
+  - `OPENAI_API_KEY`
+  - `DATAFORSEO_LOGIN`, `DATAFORSEO_PASSWORD`
+  - `EXA_API_KEY`
+  - `RESEND_API_KEY` and set `config.email.transport='resend'`
+  - Polar (billing): `POLAR_ACCESS_TOKEN`, `POLAR_PRICE_POSTS_30`, `POLAR_SERVER` (api|sandbox)
+- Admin endpoints:
+  - Set `ADMIN_EMAILS` (comma-separated) to restrict `/api/admin/*` and global schedules (`/api/schedules/*` except project-scoped) to specific operators.
+- App config:
+  - In `src/common/config.ts`, set `providers.allowStubs=false`.
+  - Adjust `serp.ttlDays`, `serp.topKDefault`, `crawl.maxRepresentatives`, `crawl.expandDepth` as needed.
+- Health check:
+  - `GET /api/health` returns readiness flags, `ok` boolean, and `reasons[]` if failing. In production, requires DB and RabbitMQ. When stubs are disabled, provider keys must be present. When email transport is `resend`, `RESEND_API_KEY` must be set.
+
+Smoke test (local)
+- Start infra: `docker compose up -d`
+- Reset DB: `bun run db:reset`
+- Run API/UI: `bun dev`
+- Run workers: `bun run crawler` and `bun run worker`
+- Verify health: `curl http://localhost:3000/api/health` → `ok: true`
+- (Optional) Disable auth for local smoke: `E2E_NO_AUTH=1 bun dev`
+- Create project (UI) with a valid URL; verify:
+  - Job flow: crawl → discovery → score → plan (Jobs tab shows queued/running/completed)
+  - Keywords tab: populated phrases with opportunities
+  - Plan tab: 30-day calendar populated
+- Trigger schedule: use UI “Run schedule now”; verify drafts generated and (if integration connected) publish jobs queued.
+- CLI smokes:
+  - Health only: `bun run smoke`
+  - Create project and poll snapshot (E2E_NO_AUTH=1): `bun run smoke:project`
+
+Smoke env vars
+- `APP_URL` (base URL, default http://localhost:3000)
+- `SMOKE_SITE_URL` (site to crawl, default https://example.com)
+- `SMOKE_ORG_ID` (org id for project creation, default org-dev)
+- `SMOKE_PROJECT_NAME` (optional project name)
+- `SMOKE_TIMEOUT_MS` (poll timeout, default 180000)
 
 ## 12) ASCII: ERD (keywords/SERP)
 ```

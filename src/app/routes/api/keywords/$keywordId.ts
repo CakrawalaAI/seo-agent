@@ -11,10 +11,15 @@ export const Route = createFileRoute('/api/keywords/$keywordId')({
       PATCH: safeHandler(async ({ params, request }) => {
         await requireSession(request)
         const body = await request.json().catch(() => ({}))
-        // we need projectId to check RBAC; get via in-memory lookup
+        // we need projectId to check RBAC; read from DB
         let projId: string | null = null
-        for (const [pid, list] of (keywordsRepo as any).byProject?.entries?.() || []) {
-          if (list.find((k: any) => k.id === params.keywordId)) { projId = pid; break }
+        if (hasDatabase()) {
+          try {
+            const db = getDb()
+            // @ts-ignore
+            const rows = await (db.select({ projectId: (keywords as any).projectId }).from(keywords).where((keywords as any).id.eq(params.keywordId)).limit(1) as any)
+            projId = rows?.[0]?.projectId ?? null
+          } catch {}
         }
         if (projId) await requireProjectAccess(request, projId)
         if (hasDatabase()) {
@@ -27,15 +32,20 @@ export const Route = createFileRoute('/api/keywords/$keywordId')({
               .where((keywords as any).id.eq(params.keywordId))
           } catch {}
         }
-        const updated = keywordsRepo.update(params.keywordId, { phrase: body?.phrase, status: body?.status, starred: Boolean(body?.starred) })
+        const updated = await keywordsRepo.update(params.keywordId, { phrase: body?.phrase, status: body?.status, starred: Boolean(body?.starred) })
         if (!updated && !projId) return httpError(404, 'Keyword not found')
         return json(updated ?? { id: params.keywordId })
       }),
       DELETE: safeHandler(async ({ params, request }) => {
         await requireSession(request)
         let projId: string | null = null
-        for (const [pid, list] of (keywordsRepo as any).byProject?.entries?.() || []) {
-          if (list.find((k: any) => k.id === params.keywordId)) { projId = pid; break }
+        if (hasDatabase()) {
+          try {
+            const db = getDb()
+            // @ts-ignore
+            const rows = await (db.select({ projectId: (keywords as any).projectId }).from(keywords).where((keywords as any).id.eq(params.keywordId)).limit(1) as any)
+            projId = rows?.[0]?.projectId ?? null
+          } catch {}
         }
         if (projId) await requireProjectAccess(request, projId)
         if (hasDatabase()) {
@@ -45,7 +55,7 @@ export const Route = createFileRoute('/api/keywords/$keywordId')({
             await db.delete(keywords).where((keywords as any).id.eq(params.keywordId))
           } catch {}
         }
-        const ok = keywordsRepo.remove(params.keywordId)
+        const ok = await keywordsRepo.remove(params.keywordId)
         if (!ok && !projId) return httpError(404, 'Keyword not found')
         return new Response(null, { status: 204 })
       })

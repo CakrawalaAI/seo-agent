@@ -33,7 +33,7 @@ export const Route = createFileRoute('/api/projects/$projectId/jobs')({
             return json({ items: filtered })
           } catch {}
         }
-        const items = listJobs(params.projectId, Number.isFinite(limit) ? limit : 25).filter((r) => (!type || r.type === type) && (!status || r.status === status))
+        const items = (await listJobs(params.projectId, Number.isFinite(limit) ? limit : 25)).filter((r) => (!type || r.type === type) && (!status || r.status === status))
         return json({ items })
       },
       POST: safeHandler(async ({ params, request }) => {

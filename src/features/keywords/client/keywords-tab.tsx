@@ -1,23 +1,9 @@
-import {
-  badgeClassForTone,
-  computeOpportunityBadge,
-  formatCurrency,
-  formatDateTime,
-  formatNumber
-} from '@features/projects/shared/helpers'
+import { formatCurrency, formatDateTime, formatNumber } from '@features/projects/shared/helpers'
 import type { Keyword } from '@entities'
-import { Star } from 'lucide-react'
+import { ArrowUpDown, Star } from 'lucide-react'
 import { Button } from '@src/common/ui/button'
 import { Input } from '@src/common/ui/input'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@src/common/ui/select'
-import {
-  Table,
-  TableBody,
-  TableHead,
-  TableHeader,
-  TableRow,
-  TableCell
-} from '@src/common/ui/table'
+import { DataTable, type ColumnDef } from '@src/common/ui/data-table'
 import { useMemo, useState } from 'react'
 
 type KeywordsTabProps = {
@@ -41,7 +27,6 @@ export function KeywordsTab({
 }: KeywordsTabProps) {
   const [query, setQuery] = useState('')
   const [statusFilter, setStatusFilter] = useState<'all' | 'recommended' | 'planned' | 'generated'>('all')
-  const [oppFilter, setOppFilter] = useState<'all' | 'low' | 'medium' | 'high'>('all')
 
   const counts = useMemo(() => {
     const base = { all: keywords.length, recommended: 0, planned: 0, generated: 0 }
@@ -57,14 +42,100 @@ export function KeywordsTab({
     return keywords.filter((k) => {
       if (statusFilter !== 'all' && (k.status || 'recommended') !== statusFilter) return false
       if (q && !k.phrase.toLowerCase().includes(q)) return false
-      if (oppFilter !== 'all') {
-        const b = computeOpportunityBadge(k)
-        const label = b.label.toLowerCase() as 'low' | 'medium' | 'high'
-        if (label !== oppFilter) return false
-      }
       return true
     })
-  }, [keywords, query, statusFilter, oppFilter])
+  }, [keywords, query, statusFilter])
+
+  type SortKey = 'phrase' | 'difficulty' | 'searchVolume' | 'cpc' | 'competition' | 'asOf'
+  const [sortBy, setSortBy] = useState<SortKey>('phrase')
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc')
+
+  // TanStack columns
+  const columns = useMemo<ColumnDef<Keyword>[]>(() => {
+    const SortHeader = ({ column, label }: any) => (
+      <Button
+        type="button"
+        variant="ghost"
+        className="-ml-3 h-8 px-3 text-xs font-semibold"
+        onClick={() => column.toggleSorting(column.getIsSorted() === 'asc')}
+      >
+        {label}
+        <ArrowUpDown className="ml-1 h-3.5 w-3.5" />
+      </Button>
+    )
+    return [
+      {
+        id: 'star',
+        header: () => '★',
+        cell: ({ row }) => {
+          const k = row.original
+          const starred = Boolean(k.starred)
+          return (
+            <Button
+              type="button"
+              aria-label={starred ? 'Unstar' : 'Star'}
+              className={`rounded p-1 ${starred ? 'text-yellow-400' : 'text-muted-foreground hover:text-foreground'}`}
+              onClick={() => onToggleStar(k.id, !starred)}
+            >
+              <Star className={`h-4 w-4 ${starred ? 'fill-yellow-400' : ''}`} />
+            </Button>
+          )
+        },
+        enableSorting: false,
+        size: 40
+      },
+      {
+        accessorKey: 'phrase',
+        header: ({ column }) => <SortHeader column={column} label="Keyword" />,
+        cell: ({ row }) => <span className="font-medium text-foreground">{row.original.phrase}</span>,
+        sortingFn: 'alphanumeric'
+      },
+      {
+        id: 'difficulty',
+        accessorFn: (k) => (Number.isFinite(k.metricsJson?.difficulty as any) ? Number(k.metricsJson?.difficulty as any) : null),
+        header: ({ column }) => <SortHeader column={column} label="Difficulty" />,
+        cell: ({ row }) => (row.original.metricsJson?.difficulty ?? '—')
+      },
+      {
+        id: 'searchVolume',
+        accessorFn: (k) => (Number.isFinite(k.metricsJson?.searchVolume as any) ? Number(k.metricsJson?.searchVolume as any) : null),
+        header: ({ column }) => <SortHeader column={column} label="Volume" />,
+        cell: ({ row }) => formatNumber(row.original.metricsJson?.searchVolume)
+      },
+      {
+        id: 'cpc',
+        accessorFn: (k) => (Number.isFinite(k.metricsJson?.cpc as any) ? Number(k.metricsJson?.cpc as any) : null),
+        header: ({ column }) => <SortHeader column={column} label="CPC" />,
+        cell: ({ row }) => formatCurrency(row.original.metricsJson?.cpc)
+      },
+      {
+        id: 'competition',
+        accessorFn: (k) => (Number.isFinite(k.metricsJson?.competition as any) ? Number(k.metricsJson?.competition as any) : null),
+        header: ({ column }) => <SortHeader column={column} label="Competition" />,
+        cell: ({ row }) => row.original.metricsJson?.competition ?? '—'
+      },
+      {
+        id: 'asOf',
+        accessorFn: (k) => (k.metricsJson?.asOf ? new Date(k.metricsJson.asOf).getTime() : 0),
+        header: ({ column }) => <SortHeader column={column} label="Updated" />,
+        cell: ({ row }) => formatDateTime(row.original.metricsJson?.asOf)
+      },
+      {
+        id: 'actions',
+        header: () => 'Actions',
+        cell: ({ row }) => (
+          <Button
+            type="button"
+            className="rounded-md bg-primary px-2.5 py-1 text-xs font-semibold text-primary-foreground shadow-sm"
+            onClick={() => onPlan(row.original.id)}
+          >
+            Plan
+          </Button>
+        ),
+        enableSorting: false
+      }
+    ] satisfies ColumnDef<Keyword>[]
+  }, [onPlan, onToggleStar])
 
   return (
     <section className="space-y-4">
@@ -114,17 +185,6 @@ export function KeywordsTab({
             placeholder="Search keywords…"
             className="rounded-md border border-input bg-background px-3 py-1.5 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2"
           />
-          <Select value={oppFilter} onValueChange={(v) => setOppFilter(v as any)}>
-            <SelectTrigger className="w-[180px] text-xs">
-              <SelectValue placeholder="Opportunities" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All opportunities</SelectItem>
-              <SelectItem value="high">High</SelectItem>
-              <SelectItem value="medium">Medium</SelectItem>
-              <SelectItem value="low">Low</SelectItem>
-            </SelectContent>
-          </Select>
         </div>
       </div>
 
@@ -134,64 +194,7 @@ export function KeywordsTab({
         <p className="text-sm text-muted-foreground">No matching keywords.</p>
       ) : (
         <div className="overflow-x-auto rounded-lg border bg-card shadow-sm">
-          <Table className="min-w-full divide-y divide-border text-sm">
-            <TableHeader className="bg-muted/40 text-xs uppercase tracking-wide text-muted-foreground">
-              <TableRow>
-                <TableHead className="w-10 px-4 py-2 text-left font-semibold">★</TableHead>
-                <TableHead className="px-2 py-2 text-left font-semibold">Keyword</TableHead>
-                <TableHead className="px-2 py-2 text-left font-semibold">Opportunity</TableHead>
-                <TableHead className="px-2 py-2 text-left font-semibold">Difficulty</TableHead>
-                <TableHead className="px-2 py-2 text-left font-semibold">Volume</TableHead>
-                <TableHead className="px-2 py-2 text-left font-semibold">CPC</TableHead>
-                <TableHead className="px-2 py-2 text-left font-semibold">Updated</TableHead>
-                <TableHead className="px-2 py-2 text-left font-semibold">Actions</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody className="divide-y divide-border">
-              {filtered.map((keyword) => {
-                const badge = computeOpportunityBadge(keyword)
-                const metrics = keyword.metricsJson ?? {}
-                const starred = Boolean(keyword.starred)
-                return (
-                  <TableRow key={keyword.id} className="hover:bg-muted/30">
-                    <TableCell className="px-4 py-3">
-                      <Button
-                        type="button"
-                        aria-label={starred ? 'Unstar' : 'Star'}
-                        className={`rounded p-1 ${starred ? 'text-yellow-400' : 'text-muted-foreground hover:text-foreground'}`}
-                        onClick={() => onToggleStar(keyword.id, !starred)}
-                      >
-                        <Star className={`h-4 w-4 ${starred ? 'fill-yellow-400' : ''}`} />
-                      </Button>
-                    </TableCell>
-                    <TableCell className="px-2 py-3 text-sm font-medium text-foreground">{keyword.phrase}</TableCell>
-                    <TableCell className="px-2 py-3">
-                      <span
-                        className={`rounded-full px-2 py-0.5 text-[11px] font-semibold uppercase ${badgeClassForTone(
-                          badge.tone
-                        )}`}
-                      >
-                        {badge.label}
-                      </span>
-                    </TableCell>
-                    <TableCell className="px-2 py-3 text-sm text-muted-foreground">{metrics?.difficulty ?? '—'}</TableCell>
-                    <TableCell className="px-2 py-3 text-sm text-muted-foreground">{formatNumber(metrics?.searchVolume)}</TableCell>
-                    <TableCell className="px-2 py-3 text-sm text-muted-foreground">{formatCurrency(metrics?.cpc)}</TableCell>
-                    <TableCell className="px-2 py-3 text-xs text-muted-foreground">{formatDateTime(metrics?.asOf)}</TableCell>
-                    <TableCell className="px-2 py-3">
-                      <Button
-                        type="button"
-                        className="rounded-md bg-primary px-2.5 py-1 text-xs font-semibold text-primary-foreground shadow-sm"
-                        onClick={() => onPlan(keyword.id)}
-                      >
-                        Plan
-                      </Button>
-                    </TableCell>
-                  </TableRow>
-                )
-              })}
-            </TableBody>
-          </Table>
+          <DataTable columns={columns} data={filtered} paginate={false} />
         </div>
       )}
     </section>

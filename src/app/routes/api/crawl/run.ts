@@ -34,7 +34,7 @@ export const Route = createFileRoute('/api/crawl/run')({
             } catch {}
           }
           if (!recent) {
-            const list = crawlRepo.list(String(projectId), 1)
+            const list = await crawlRepo.list(String(projectId), 1)
             const last = list[0]?.extractedAt ? new Date(list[0].extractedAt as any).getTime() : 0
             if (last && last > cutoff) recent = true
           }
@@ -49,7 +49,7 @@ export const Route = createFileRoute('/api/crawl/run')({
           console.info('[api/crawl/run] queued', { projectId: String(projectId), jobId })
           return json({ jobId }, { status: 202 })
         } else {
-          const { jobId } = crawlRepo.seedRun(String(projectId))
+          const { jobId } = await crawlRepo.seedRun(String(projectId))
           console.warn('[api/crawl/run] queue disabled; seeded local crawl pages', { projectId: String(projectId), jobId })
           return json({ jobId }, { status: 202 })
         }

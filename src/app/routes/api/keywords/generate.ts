@@ -23,9 +23,9 @@ export const Route = createFileRoute('/api/keywords/generate')({
           console.info('[api/keywords/generate] queued', { projectId: String(projectId), jobId })
           return json({ jobId }, { status: 202 })
         } else {
-          const { jobId } = keywordsRepo.generate(String(projectId), String(locale))
+        const { jobId } = await keywordsRepo.generate(String(projectId), String(locale))
           // Enrich metrics via provider (no-op if repo already set)
-          const current = keywordsRepo.list(String(projectId), { status: 'all', limit: 100 })
+          const current = await keywordsRepo.list(String(projectId), { status: 'all', limit: 100 })
           const enriched = await enrichMetrics(current.map((k) => ({ phrase: k.phrase })), String(locale), undefined, String(projectId))
           keywordsRepo.upsertMetrics(String(projectId), enriched)
           console.warn('[api/keywords/generate] queue disabled; generated locally', { projectId: String(projectId), jobId })

@@ -5,9 +5,10 @@ import { useActiveProject } from '@common/state/active-project'
 import { listProjects } from '@entities/project/service'
 import { fetchSession } from '@entities/org/service'
 import type { MeSession } from '@entities'
-import { Link } from '@tanstack/react-router'
+import { Link, useNavigate } from '@tanstack/react-router'
 
 export function ProjectSwitcher() {
+  const navigate = useNavigate()
   const me = useQuery<MeSession>({ queryKey: ['me'], queryFn: fetchSession, staleTime: 60_000 })
   const activeOrgId = me.data?.activeOrg?.id
   const projectsQuery = useQuery({
@@ -26,7 +27,16 @@ export function ProjectSwitcher() {
         Switch your project
       </Label>
       {items.length > 0 ? (
-        <Select value={id || undefined} onValueChange={(v) => setId(v || null)}>
+        <Select
+          value={id || undefined}
+          onValueChange={(v) => {
+            if (v === '__create__') {
+              try { navigate({ to: '/projects' }) } catch {}
+              return
+            }
+            setId(v || null)
+          }}
+        >
           <SelectTrigger className="w-full text-sm">
             <SelectValue placeholder="Select project" />
           </SelectTrigger>
@@ -36,6 +46,9 @@ export function ProjectSwitcher() {
                 {p.name}
               </SelectItem>
             ))}
+            <SelectItem value="__create__" className="text-sidebar-primary">
+              + New project…
+            </SelectItem>
           </SelectContent>
         </Select>
       ) : (

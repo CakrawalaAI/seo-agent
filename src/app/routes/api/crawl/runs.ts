@@ -1,7 +1,9 @@
 // @ts-nocheck
 import { createFileRoute } from '@tanstack/react-router'
 import { json, httpError, requireSession, requireProjectAccess } from '@app/api-utils'
-import { discoveryRepo } from '@entities/discovery/repository'
+import { hasDatabase, getDb } from '@common/infra/db'
+import { projects } from '@entities/project/db/schema'
+import { eq } from 'drizzle-orm'
 
 export const Route = createFileRoute('/api/crawl/runs')({
   server: {
@@ -12,8 +14,15 @@ export const Route = createFileRoute('/api/crawl/runs')({
         if (!projectId) return httpError(400, 'Missing projectId')
         await requireSession(request)
         await requireProjectAccess(request, String(projectId))
-        const latest = discoveryRepo.latest(String(projectId))
-        return json({ items: latest ? [latest] : [] })
+        if (hasDatabase()) {
+          try {
+            const db = getDb()
+            // @ts-ignore
+            await db.select().from(projects).where(eq(projects.id, String(projectId))).limit(1)
+            // Project summary removed; no persisted crawl runs
+          } catch {}
+        }
+        return json({ items: [] })
       }
     }
   }

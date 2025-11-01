@@ -1,18 +1,19 @@
 import { projectsRepo } from '@entities/project/repository'
 import { crawlRepo } from '@entities/crawl/repository'
 import { discoverFromSitemap } from '@common/crawl/sitemap'
-import { isAllowed } from '@common/crawl/robots'
-import { saveHtml, saveText } from '@common/blob/store'
+// robots intentionally ignored per config (owner consent)
 import { env } from '@common/infra/env'
 import * as bundle from '@common/bundle/store'
 import { createHash } from 'node:crypto'
 import { hasDatabase, getDb } from '@common/infra/db'
 import { projects as projectsTable } from '@entities/project/db/schema'
 import { eq } from 'drizzle-orm'
-import { linkGraph } from '@entities/crawl/db/schema'
+import { linkGraph, crawlPages } from '@entities/crawl/db/schema'
+import { config } from '@common/config'
+import { getLlmProvider } from '@common/providers/registry'
 
 export async function processCrawl(payload: { projectId: string }) {
-  let project = projectsRepo.get(payload.projectId) as any
+  let project = await projectsRepo.get(payload.projectId) as any
   if (!project && hasDatabase()) {
     try {
       const db = getDb()
@@ -29,16 +30,39 @@ export async function processCrawl(payload: { projectId: string }) {
   }
   console.info('[crawler] start', { projectId: payload.projectId, siteUrl: project.siteUrl, render: env.crawlRender })
 
-  // Try sitemap discovery first
-  const discovered = await discoverFromSitemap(project.siteUrl, 10)
-  const initialSeeds = (discovered.length > 0
-    ? discovered
-    : [
-        project.siteUrl,
-        new URL('/about', project.siteUrl).toString(),
-        new URL('/blog', project.siteUrl).toString()
-      ])
-    .map((u) => ({ url: u, depth: 0 }))
+  // 1) Gather candidates from sitemap (larger set), then let LLM pick representatives
+  const candidates = await discoverFromSitemap(project.siteUrl, 200)
+  const reps = await (async () => {
+    try {
+      const llm = getLlmProvider()
+      if (typeof (llm as any).rankRepresentatives === 'function') {
+        // @ts-ignore
+        const ranked: string[] = await (llm as any).rankRepresentatives(project.siteUrl, candidates, config.crawl.maxRepresentatives)
+        if (Array.isArray(ranked) && ranked.length) return ranked.slice(0, config.crawl.maxRepresentatives)
+      }
+    } catch {}
+    // Fallback heuristics
+    const set = new Set<string>()
+    const push = (p: string) => { try { set.add(new URL(p, project.siteUrl).toString()) } catch {} }
+    push('/')
+    push('/about')
+    push('/pricing')
+    push('/blog')
+    for (const u of candidates) if (set.size < config.crawl.maxRepresentatives) set.add(u)
+    return Array.from(set)
+  })()
+  // Persist chosen reps on project for transparency
+  if (hasDatabase()) {
+    // representativeUrlsJson removed; no DB persistence
+  }
+  console.info('[crawler] representatives selected', { count: reps.length, urls: reps })
+  const initialSeeds = reps.map((u) => ({ url: u, depth: 0 }))
+  // Write representatives to debug bundle for snapshot/overview (stateless workers)
+  try {
+    const at = new Date().toISOString()
+    bundle.writeJson(String(payload.projectId), 'crawl/representatives.json', { at, urls: reps })
+    bundle.appendLineage(String(payload.projectId), { node: 'crawl', outputs: { representatives: reps.length } })
+  } catch {}
 
   // Attempt Playwright; if unavailable, use undici fetch as fallback
   let usePlaywright = env.crawlRender === 'playwright'
@@ -66,18 +90,14 @@ export async function processCrawl(payload: { projectId: string }) {
     }
   }
 
-  const visitLimit = Math.max(
-    1,
-    Math.min(500, Number((project as any)?.crawlBudgetPages ?? (env.crawlBudgetPages ?? 50)))
-  )
-  const maxDepth = Math.max(0, Number((project as any)?.crawlMaxDepth ?? (env.crawlMaxDepth ?? 2)))
+  const visitLimit = Math.max(1, config.crawl.maxRepresentatives * (1 + Math.max(0, config.crawl.expandDepth)))
+  const maxDepth = Math.max(0, config.crawl.expandDepth)
   const seen = new Set<string>()
   const queue: Array<{ url: string; depth: number }> = [...initialSeeds]
   console.info('[crawler] seeds', { count: initialSeeds.length })
   for (let qi = 0; qi < queue.length && seen.size < visitLimit; qi++) {
     const { url, depth } = queue[qi]!
     if (seen.has(url)) continue
-    if (!(await isAllowed(url))) continue
     if (depth > maxDepth) continue
     try {
       let httpStatus: number | null = null
@@ -142,16 +162,6 @@ export async function processCrawl(payload: { projectId: string }) {
         headings = headingMatches.map((hm) => ({ level: Number(hm[1]!.slice(1)), text: (hm[2] || '').replace(/<[^>]+>/g, '').trim() }))
       }
       const now = new Date().toISOString()
-      let contentBlobUrl: string | undefined
-      if (textDump && textDump.length > 0) {
-        try {
-          const blob = saveText(textDump, project.id)
-          contentBlobUrl = blob.url
-        } catch {}
-      } else if (pageHtml) {
-        // Fallback only when text extraction failed
-        try { const blob = saveHtml(pageHtml, project.id); contentBlobUrl = blob.url } catch {}
-      }
       crawlRepo.addOrUpdate(project.id, {
         url,
         depth: url === project.siteUrl ? 0 : 1,
@@ -160,23 +170,23 @@ export async function processCrawl(payload: { projectId: string }) {
         metaJson: { title },
         headingsJson: headings,
         linksJson: linksForJson,
-        contentBlobUrl,
+        contentBlobUrl: undefined,
         extractedAt: now
       })
-      // Write to bundle crawl/pages.jsonl
-      try {
-        const hash = createHash('sha1').update(textDump || pageHtml || url).digest('hex').slice(0, 12)
-        const rec = {
-          canonical: url,
-          status: httpStatus ?? null,
-          title,
-          headings: headings,
-          links: linksForJson,
-          contentHash: hash,
-          ts: now
-        }
-        bundle.appendJsonl(project.id, 'crawl/pages.jsonl', rec)
-      } catch {}
+      // Persist content/text directly in DB (stateless worker)
+      if (hasDatabase()) {
+        try {
+          const db = getDb()
+          const id = `page_${Math.random().toString(36).slice(2,10)}_${Date.now().toString(36)}`
+          // upsert by projectId+url
+          // @ts-ignore
+          await db
+            .insert(crawlPages)
+            .values({ id, projectId: project.id, url, depth: depth, httpStatus: String(httpStatus || ''), status: 'completed', extractedAt: new Date(now) as any, metaJson: { title } as any, headingsJson: headings as any, linksJson: linksForJson as any, contentText: (textDump || pageHtml || '') as any })
+            .onConflictDoUpdate?.({ target: [crawlPages.projectId, crawlPages.url], set: { depth: depth as any, httpStatus: String(httpStatus || ''), status: 'completed' as any, extractedAt: new Date(now) as any, metaJson: { title } as any, headingsJson: headings as any, linksJson: linksForJson as any, contentText: (textDump || pageHtml || '') as any, updatedAt: new Date() as any } })
+        } catch {}
+      }
+      // Bundle writes skipped for stateless mode
       // Persist link edges when DB is available
       if (hasDatabase() && linksForJson.length) {
         try {

@@ -4,7 +4,7 @@ import { clusterKey } from '@common/keyword/cluster'
 
 export async function processScore(payload: { projectId: string }) {
   const projectId = String(payload.projectId)
-  const list = keywordsRepo.list(projectId, { status: 'all', limit: 1000 })
+  const list = await keywordsRepo.list(projectId, { status: 'all', limit: 1000 })
   const clusters = new Map<string, Array<{ phrase: string; opportunity: number }>>()
   for (const k of list) {
     const key = clusterKey(k.phrase)

@@ -1,11 +1,6 @@
 import type { SerpProvider, SerpSnapshot, SerpItem } from '../../interfaces/serp'
-
-function authHeader() {
-  const login = process.env.DATAFORSEO_LOGIN || process.env.DATAFORSEO_EMAIL || ''
-  const password = process.env.DATAFORSEO_PASSWORD || ''
-  if (!login || !password) return null
-  return 'Basic ' + Buffer.from(`${login}:${password}`).toString('base64')
-}
+import { config } from '@common/config'
+import { dfsClient } from './client'
 
 // Map language like 'en-US' -> 'English' for DFS language_name
 function languageName(lang: string) {
@@ -38,41 +33,9 @@ function toTextDump(items: SerpItem[]) {
 
 export const dataForSeoSerp: SerpProvider = {
   async ensure({ canon, locationCode, device = 'desktop', topK = 10 }) {
-    const auth = authHeader()
+    const allowStubs = Boolean(config.providers.allowStubs)
     const fetchedAt = new Date().toISOString()
-    if (!auth) {
-      // stub
-      const items: SerpItem[] = Array.from({ length: topK }).map((_, i) => ({
-        rank: i + 1,
-        url: `https://example.com/${encodeURIComponent(canon.phrase)}/${i + 1}`,
-        title: `${canon.phrase} result ${i + 1}`,
-        snippet: 'Lorem ipsum dolor sit amet',
-        types: ['organic']
-      }))
-      return { fetchedAt, engine: 'google', device, topK, items, textDump: toTextDump(items) }
-    }
-    const body = {
-      data: [
-        {
-          language_name: languageName(canon.language || 'en'),
-          location_code: Number(locationCode) || 2840,
-          keyword: canon.phrase,
-          device: device === 'mobile' ? 'mobile' : 'desktop'
-        }
-      ]
-    }
-    const url = 'https://api.dataforseo.com/v3/serp/google/organic/live/regular'
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json', Authorization: auth },
-      body: JSON.stringify(body)
-    })
-    if (!res.ok) {
-      const items: SerpItem[] = []
-      return { fetchedAt, engine: 'google', device, topK, items, textDump: '' }
-    }
-    const json: any = await res.json().catch(() => ({}))
-    const raw = json?.tasks?.[0]?.result?.[0]?.items ?? []
+    const raw = await dfsClient.serpOrganicLive(canon.phrase, canon.language, Number(locationCode) || 2840, device)
     const items: SerpItem[] = raw
       .filter((r: any) => typeof r?.rank_group === 'number' && r?.type)
       .slice(0, topK)

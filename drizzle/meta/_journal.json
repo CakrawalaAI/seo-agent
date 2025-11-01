@@ -50,6 +50,27 @@
       "when": 1761768000000,
       "tag": "0006_global_keywords",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1761839831712,
+      "tag": "0007_silky_the_watchers",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1761841587150,
+      "tag": "0008_nosy_bushwacker",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1761845200437,
+      "tag": "0009_dapper_vampiro",
+      "breakpoints": true
     }
   ]
 }

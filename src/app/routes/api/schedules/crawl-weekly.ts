@@ -1,6 +1,6 @@
 // @ts-nocheck
 import { createFileRoute } from '@tanstack/react-router'
-import { json, safeHandler, requireSession } from '@app/api-utils'
+import { json, safeHandler, requireSession, requireAdmin } from '@app/api-utils'
 import { hasDatabase, getDb } from '@common/infra/db'
 import { projects } from '@entities/project/db/schema'
 import { publishJob, queueEnabled } from '@common/infra/queue'
@@ -10,6 +10,7 @@ export const Route = createFileRoute('/api/schedules/crawl-weekly')({
     handlers: {
       POST: safeHandler(async ({ request }) => {
         await requireSession(request)
+        await requireAdmin(request)
         if (!hasDatabase()) return json({ queued: 0 })
         const db = getDb()
         // @ts-ignore
@@ -26,4 +27,3 @@ export const Route = createFileRoute('/api/schedules/crawl-weekly')({
     }
   }
 })
-

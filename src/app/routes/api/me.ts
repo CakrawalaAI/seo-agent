@@ -2,7 +2,7 @@
 import { createFileRoute } from '@tanstack/react-router'
 import { json } from '@app/api-utils'
 import { hasDatabase, getDb } from '@common/infra/db'
-import { orgs, orgMembers, orgUsage } from '@entities/org/db/schema'
+import { orgs, orgMembers } from '@entities/org/db/schema'
 import { eq } from 'drizzle-orm'
 import { session } from '@common/infra/session'
 
@@ -59,20 +59,8 @@ export const Route = createFileRoute('/api/me')({
                   } catch {}
                   entitlements = trialEnt
                 }
-                // Ensure org_usage row exists
-                try {
-                  await db
-                    .insert(orgUsage)
-                    .values({ orgId: activeOrg.id, postsUsed: 0 })
-                    .onConflictDoNothing?.()
-                } catch {}
-                // Read usage row
-                try {
-                  // @ts-ignore
-                  const u = await (db.select().from(orgUsage).where((orgUsage as any).orgId.eq(activeOrg.id)).limit(1) as any)
-                  const row = u?.[0]
-                  if (row) usage = { postsUsed: Number(row.postsUsed || 0), cycleStart: row.cycleStart ? new Date(row.cycleStart).toISOString() : null, monthlyPostCredits: Number(entitlements?.monthlyPostCredits || 0) }
-                } catch {}
+                // org_usage removed; expose entitlements only
+                usage = { postsUsed: 0, monthlyPostCredits: Number(entitlements?.monthlyPostCredits || 0), cycleStart: null }
               }
             }
           } catch {}

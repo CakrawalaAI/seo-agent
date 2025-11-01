@@ -7,10 +7,8 @@ import { integrationsRepo } from '@entities/integration/repository'
 import { env } from '@common/infra/env'
 import { hasDatabase, getDb } from '@common/infra/db'
 import { projects } from '@entities/project/db/schema'
-import { orgs, orgUsage } from '@entities/org/db/schema'
 import { eq } from 'drizzle-orm'
-import { publishViaWebhook } from '@common/publishers/webhook'
-import { publishViaWebflow } from '@common/publishers/webflow'
+// Use connector-based publish via job queue
 import { queueEnabled, publishJob } from '@common/infra/queue'
 
 export const Route = createFileRoute('/api/schedules/run')({
@@ -23,26 +21,8 @@ export const Route = createFileRoute('/api/schedules/run')({
         if (!projectId) return httpError(400, 'Missing projectId')
         await requireProjectAccess(request, String(projectId))
         const today = new Date().toISOString().slice(0, 10)
-        // Pull monthly credits and usage from DB (fallback: unlimited)
+        // Credits gating removed (org_usage dropped)
         let remainingCredits = Infinity
-        let activeOrgId: string | null = null
-        try {
-          const sess = await requireSession(request)
-          activeOrgId = sess.activeOrg?.id ?? null
-          if (activeOrgId && hasDatabase()) {
-            const db = getDb()
-            // @ts-ignore
-            const orgRows = await (db.select().from(orgs).where(eq(orgs.id, activeOrgId)).limit(1) as any)
-            const ent = orgRows?.[0]?.entitlementsJson
-            const total = Number(ent?.monthlyPostCredits || 0)
-            if (Number.isFinite(total) && total > 0) {
-              // @ts-ignore
-              const urows = await (db.select().from(orgUsage).where((orgUsage as any).orgId.eq(activeOrgId)).limit(1) as any)
-              const used = Number(urows?.[0]?.postsUsed || 0)
-              remainingCredits = Math.max(0, total - used)
-            }
-          }
-        } catch {}
         // project-level policy overrides env
         let policy = env.autopublishPolicy
         let bufferDays = env.bufferDays
@@ -58,16 +38,25 @@ export const Route = createFileRoute('/api/schedules/run')({
             }
           } catch {}
         }
-        const plan = planRepo.list(String(projectId), 365)
-        const existing = new Map(articlesRepo.list(String(projectId), 999).map((a) => [a.planItemId ?? '', a]))
+        const plan = await planRepo.list(String(projectId), 365)
+        const existingList = await articlesRepo.list(String(projectId), 999)
+        const existing = new Map(existingList.map((a) => [a.planItemId ?? a.id, a]))
         let generatedDrafts = 0
         let publishedArticles = 0
         for (const item of plan) {
           if (item.plannedDate === today && !existing.has(item.id)) {
             if (generatedDrafts >= remainingCredits) continue
             // Create lightweight draft and queue provider-backed generation
-            articlesRepo.createDraft({ projectId: String(projectId), planItemId: item.id, title: item.title })
-            generatedDrafts++
+            try {
+              await articlesRepo.createDraft({ projectId: String(projectId), planItemId: item.id, title: item.title })
+              generatedDrafts++
+            } catch (e) {
+              if ((e as Error)?.message === 'credit_exceeded') {
+                console.warn('[api/schedules/run] credit exceeded; stopping draft generation')
+                break
+              }
+              throw e
+            }
             if (queueEnabled()) {
               const jobId = await publishJob({ type: 'generate', payload: { projectId: String(projectId), planItemId: item.id } })
               console.info('[api/schedules/run] queued generate', { projectId: String(projectId), planItemId: item.id, jobId })
@@ -79,64 +68,22 @@ export const Route = createFileRoute('/api/schedules/run')({
 
         // Autopublish pathway (buffered or manual publish window)
         // Publish only drafts with sufficient body (avoid placeholder-only) and buffer window satisfied
-        const integrations = integrationsRepo.list(String(projectId))
+        const integrations = await integrationsRepo.list(String(projectId))
         const target = integrations.find((i) => i.status === 'connected' && env.publicationAllowed.includes(String(i.type)))
-        if (target) {
-          const drafts = articlesRepo.list(String(projectId), 200).filter((a) => a.status === 'draft')
+        if (target && queueEnabled()) {
+          const drafts = (await articlesRepo.list(String(projectId), 200)).filter((a) => a.status === 'draft')
           for (const d of drafts) {
-            const planItem = plan.find((p) => p.id === d.planItemId)
+            const planItem = plan.find((p) => p.id === (d.planItemId ?? d.id))
             if (!planItem) continue
-            const ageOk = policy === 'immediate'
-              ? false // immediate handled by generate/enrich pipeline; skip here
-              : (policy === 'buffered' && planItem.plannedDate
-                  ? daysBetween(new Date(planItem.plannedDate), new Date()) >= Math.max(0, bufferDays)
-                  : false)
+            const ageOk = policy === 'immediate' ? false : (policy === 'buffered' && planItem.plannedDate ? daysBetween(new Date(planItem.plannedDate), new Date()) >= Math.max(0, bufferDays) : false)
             const hasBody = typeof d.bodyHtml === 'string' && d.bodyHtml.replace(/<[^>]+>/g, ' ').trim().length > 500
             if (ageOk && hasBody) {
-              let result: { externalId?: string; url?: string } | null = null
-              if (target.type === 'webhook') {
-                result = await publishViaWebhook({
-                  article: d,
-                  targetUrl: String(target.configJson?.targetUrl ?? ''),
-                  secret: (target.configJson as any)?.secret ?? null
-                })
-              } else if (target.type === 'webflow') {
-                result = await publishViaWebflow({
-                  article: d,
-                  siteId: String((target.configJson as any)?.siteId ?? ''),
-                  collectionId: String((target.configJson as any)?.collectionId ?? ''),
-                  draft: Boolean((target.configJson as any)?.draft)
-                })
-              }
-              articlesRepo.update(d.id, {
-                status: 'published',
-                cmsExternalId: result?.externalId ?? null,
-                url: result?.url ?? null,
-                publicationDate: new Date().toISOString()
-              })
+              await publishJob({ type: 'publish', payload: { articleId: d.id, integrationId: target.id } })
               publishedArticles++
             }
           }
         }
-        // Persist usage increment if credits were limited
-        if (hasDatabase() && activeOrgId && Number.isFinite(remainingCredits)) {
-          try {
-            const db = getDb()
-            // @ts-ignore
-            const urows = await (db.select().from(orgUsage).where((orgUsage as any).orgId.eq(activeOrgId)).limit(1) as any)
-            const used = Number(urows?.[0]?.postsUsed || 0)
-            await db
-              .update(orgUsage)
-              .set({ postsUsed: used + generatedDrafts, updatedAt: new Date() as any })
-              // @ts-ignore
-              .where((orgUsage as any).orgId.eq(activeOrgId))
-            const total = Number.isFinite(remainingCredits) ? used + generatedDrafts + (remainingCredits as number) : 0
-            const newUsed = used + generatedDrafts
-            if (total > 0 && newUsed / total >= 0.9) {
-              console.warn('[billing] usage high', { orgId: activeOrgId, used: newUsed, total })
-            }
-          } catch {}
-        }
+        // No usage persistence (org_usage removed)
         return json({ result: { generatedDrafts, publishedArticles } })
       })
     }

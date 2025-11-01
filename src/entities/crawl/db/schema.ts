@@ -1,4 +1,4 @@
-import { jsonb, pgTable, text, integer, timestamp, index } from 'drizzle-orm/pg-core'
+import { jsonb, pgTable, text, integer, timestamp, index, uniqueIndex } from 'drizzle-orm/pg-core'
 
 import { projects } from '../../project/db/schema'
 
@@ -18,11 +18,14 @@ export const crawlPages = pgTable(
     headingsJson: jsonb('headings_json').$type<Array<{ level: number; text: string }> | null>().default(null),
     linksJson: jsonb('links_json').$type<Array<{ href: string; text?: string }> | null>().default(null),
     contentBlobUrl: text('content_blob_url'),
+    contentText: text('content_text'),
+    summaryJson: jsonb('summary_json').$type<Record<string, unknown> | null>().default(null),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow()
   },
   (t) => ({
-    byProjectUrl: index('idx_crawl_pages_project_url').on(t.projectId, t.url)
+    byProjectUrl: index('idx_crawl_pages_project_url').on(t.projectId, t.url),
+    uniqProjectUrl: uniqueIndex('uniq_crawl_pages_project_url').on(t.projectId, t.url)
   })
 )
 

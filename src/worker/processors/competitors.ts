@@ -1,7 +1,7 @@
 import { ensureCanon } from '@features/keyword/server/ensureCanon'
 import { ensureSerp } from '@features/serp/server/ensureSerp'
 import type { SerpItem } from '@common/providers/interfaces/serp'
-import { saveText } from '@common/blob/store'
+import { config } from '@common/config'
 import { env } from '@common/infra/env'
 import * as bundle from '@common/bundle/store'
 
@@ -38,7 +38,13 @@ export async function processCompetitors(payload: { projectId: string; siteUrl: 
         const html = await res.text()
         textDump = html.replace(/<script[\s\S]*?<\/script>/gi, ' ').replace(/<style[\s\S]*?<\/style>/gi, ' ').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim()
       }
-      saveText(textDump, payload.projectId)
+      // Avoid file-based blobs in production; only write when debug bundles enabled
+      try {
+        if ((config.debug?.writeBundle)) {
+          const { saveText } = await import('@common/blob/store')
+          saveText(textDump, payload.projectId)
+        }
+      } catch {}
       rows.push({ url, title: '', textDump })
     } catch {}
   }

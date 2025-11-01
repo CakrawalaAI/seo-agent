@@ -22,9 +22,10 @@ Single‑app structure using TanStack Start + TanStack Router (server routes + w
 
 TanStack Start + TanStack Router (server routes for all APIs).
 
-DB: PostgreSQL via Drizzle.
+DB: PostgreSQL via Drizzle. Workers are stateless: page text stored in `crawl_pages.content_text`. Site summaries and representative URL lists are kept in debug bundles when enabled, not persisted in DB.
+Debug bundles: file-based bundles are disabled by default. To enable optional debug bundle writes (for lineage/costs inspection), set `config.debug.writeBundle=true`. In production and normal dev, no files are written.
 
-Auth: Custom Google OAuth 2.0 (PKCE) + signed session cookies.
+Auth: Server-side Google OAuth 2.0 (no PKCE) + signed session cookies.
 
 Payments: Polar plugin (org‑scoped entitlements).
 
@@ -32,20 +33,55 @@ Jobs: RabbitMQ-backed queue (durable, per-project routing); daily cron calls /ap
 
 Crawl: Playwright as the default fetcher (JS‑rendered), robots.txt + sitemap aware.
 
-Providers: everything swappable via interfaces (LLM, metrics/SERP, research, CMS, crawler). Default impls: DataForSEO (metrics+SERP), OpenAI (LLM), Exa (research), Playwright (crawler).
+Providers: everything swappable via interfaces (LLM, keyword discovery, metrics/SERP, research, CMS, crawler). Default impls: DataForSEO (keyword discovery + metrics + SERP), OpenAI (LLM), Exa (research), Playwright (crawler).
+Connectors:
+- Webhook (prod-ready), Webflow (basic), WordPress/Framer (not implemented: fail in production; allowed only when `providers.allowStubs=true`).
 
 CLI (seo) + Web FE share the same REST API.
 
-1.6 Auth, Orgs, Payments — Mental Model (Custom OAuth + Polar)
+Security & Admin
+- RBAC: All project-scoped APIs require a session and project access. Membership is checked via `org_members`.
+- Admin: Global schedules and admin tools require `ADMIN_EMAILS` (comma-separated list). Endpoints: `/api/admin/*`, `/api/schedules/{metrics,serp-monthly,crawl-weekly}`, `/api/{keyword,serp}/refresh`.
+- Bundles: Debug bundle endpoints are disabled by default and only respond when `config.debug.writeBundle=true`.
+- OAuth redirect safety: `redirect`/`to` params in `/api/auth/login` are sanitized to internal paths only (no external redirects). Callbacks also sanitize the stored `redirectTo` from the temp cookie.
 
-- Identity: Custom Google OAuth 2.0 implementation with PKCE for sign‑in (`/api/auth/**`).
+1.7 Workers in Development (no Docker)
+
+- Development runs workers as local processes, not containers.
+- Commands (sane defaults):
+  - General worker: `bun run worker`
+  - Crawler worker: `bun run crawler`
+- `docker-compose.yml` only provisions Postgres, RabbitMQ, and Adminer.
+
+Scheduler (daily)
+- The general worker runs a lightweight daily scheduler to trigger the same logic as `/api/schedules/run` across all projects.
+- Enabled by default; disable with `SEOA_ENABLE_SCHEDULER=0`.
+- Interval configurable via `SEOA_SCHEDULER_INTERVAL_MS` (default 600,000ms = 10 minutes in dev).
+
+1.9 Crawl Strategy (LLM-guided representatives)
+
+- Discover sitemap URLs (handles sitemap index). Sample up to 200.
+- LLM ranks top N representative URLs (home, about, pricing, product/services). Config: `config.crawl.maxRepresentatives`.
+- Crawl only those URLs (Playwright-first). Robots ignored by default (owner consent). Dev default expands one hop (`config.crawl.expandDepth=1`).
+- Store page text in DB; summaries written to debug bundles (optional), not persisted in DB.
+
+1.8 Providers & Stubs (central config)
+
+- Central config at `src/common/config.ts` controls providers and stub behavior.
+- Defaults: in development, stubs allowed; in production, fail without credentials.
+- Edit `config.providers.allowStubs`, `config.serp.ttlDays`, `config.serp.topKDefault`, and email transport in one place.
+
+1.6 Auth, Orgs, Payments — Mental Model (Server-side OAuth + Polar)
+
+- Identity: Custom Google OAuth 2.0 implementation using the Authorization Code flow on the server (no PKCE). The app is a confidential client; token exchange uses `GOOGLE_CLIENT_SECRET` on the server (`/api/auth/**`).
 - Sessions: Signed session cookies (HMAC-SHA256) with 7-day TTL; payload includes user + activeOrg + entitlements.
-- Storage: All auth data persists in Postgres via Drizzle (`users`, `sessions`, `oauth_states`).
+- Storage: All auth data persists in Postgres via Drizzle (`users`, `sessions`, `accounts`). No `oauth_states` table is used; state is held via a short‑lived httpOnly temp cookie.
 - Organizations: Custom org/member model in `orgs` and `org_members` tables with role-based access (owner/admin/member).
-- Invitations: Token-based invites stored in `org_invites` table; base64-encoded tokens sent via email.
+- Invitations: Token-based invites stored in `org_invites` (token, orgId, email?, expiresAt, consumedAt). Accept consumes token and adds membership; expired/used tokens rejected.
 - Payments: Polar SDK for checkout/portal; webhooks at `/api/billing/webhooks/polar` update org entitlements.
 - Entitlements: source of truth is DB `orgs.entitlementsJson` (updated by Polar webhooks). Server endpoints read plan/entitlements from DB to avoid live Polar calls.
 - Usage tracking: `org_usage` table tracks `postsUsed` per billing cycle; enforced via middleware.
+  - Consumption model: a post credit is consumed when the first draft for a plan item is created (deduped). Publishing does not consume additional credits.
 
 Single plan credits (v1)
 
@@ -58,7 +94,7 @@ Single plan credits (v1)
 
 Implementation decisions
 
-- Auth flow: Google OAuth 2.0 with PKCE (state + code_verifier stored in `oauth_states` table).
+- Auth flow: Google OAuth 2.0 server-side Authorization Code (no PKCE). State maintained in a short‑lived httpOnly cookie (`seoa_oauth`).
 - Route structure:
   - `/api/auth/login` → initiates OAuth, redirects to Google
   - `/api/auth/callback/google` → exchanges code for tokens, creates user + session
@@ -83,12 +119,12 @@ Implementation decisions
   - `POLAR_ACCESS_TOKEN=…`, `POLAR_WEBHOOK_SECRET=…`
   - `DATABASE_URL=postgres://…`
 - Auth implementation
-  - `src/common/auth/google.ts` implements OAuth 2.0 with PKCE
+  - `src/common/auth/google.ts` implements Google OAuth 2.0 server-side code exchange
   - `src/common/infra/session.ts` handles signed cookie encoding/decoding
   - Routes at `src/app/routes/api/auth/**`
 - Database tables
   - Run `npx drizzle-kit generate && npx drizzle-kit migrate`
-  - Required tables: `users`, `sessions`, `oauth_states`, `orgs`, `org_members`, `org_invites`, `org_usage`
+  - Required tables: `users`, `sessions`, `accounts`, `orgs`, `org_members`, `org_invites`, `org_usage`
 - Google redirect URIs (configure in Google Cloud Console)
   - Dev: `http://localhost:3000/api/auth/callback/google`
   - Prod: `https://YOUR_DOMAIN/api/auth/callback/google`
@@ -104,7 +140,7 @@ ENV (dev)
 
 DB migration plan
 
-- Run Drizzle migrations to create all auth tables (`users`, `sessions`, `oauth_states`).
+- Run Drizzle migrations to create all auth tables (`users`, `sessions`, `accounts`).
 - Create org tables: `orgs` (with `plan`, `entitlementsJson`), `org_members`, `org_invites`, `org_usage`.
 - Backfill: seed default org for existing users; create `org_usage` rows for all orgs.
 
@@ -342,6 +378,29 @@ Build order: Webhook → Webflow → WordPress → Framer → Shopify/Wix.
 
 5. Core flows (behavioral specs)
 See also: ./workflow.md (Background Jobs & Loops)
+
+5.1 Discovery Flow (multi‑source, cost‑optimized)
+- Baseline first: Keywords For Site API to capture existing rankings and quick wins.
+- LLM topical seeds from site summary (20–30), plus headings‑derived phrases.
+- Expansion: Related Keywords API (broad) + Keyword Ideas API (category) to enlarge space.
+- Scoring: Bulk Keyword Difficulty (batch) for 1k candidates.
+- Enrichment: Keyword Overview for top 200 only (rich metrics).
+- Caching: Persist global canon + monthly metrics snapshot; slice per project on access.
+
+5. API Contract (discovery pipeline)
+- 10 explicit steps: crawl → summarize → seeds → expand (site/related/ideas) → dedupe → bulk difficulty → rankability → overview(200) → persist canon+metrics → upsert project keywords.
+- New env: `SEOA_PROVIDER_KEYWORD_DISCOVERY` selects discovery provider (default: dataforseo).
+
+17. Provider Interfaces
+- KeywordDiscoveryProvider: expand({ phrases, language, locationCode, limit }) → { phrase[] }.
+- KeywordMetricsProvider: bulkDifficulty(phrases, locale, loc) and overview(phrases, locale, loc) split for cost control.
+- Toggle via `SEOA_PROVIDER_KEYWORD_DISCOVERY`.
+
+19.3 DataForSEO Endpoints (by phase)
+- Discovery: keywords_for_site, related_keywords, keyword_ideas
+- Scoring: bulk_keyword_difficulty
+- Enrichment: keyword_overview (top 200 only)
+- Competitive: serp/competitor endpoints when needed
 5.1 Onboarding → Crawl → Discovery → Planning
 
 Create Project (siteUrl).
@@ -356,9 +415,17 @@ LLM Summary: run on the content dump to extract:
 
 business model, audience, products/services, writing style, topic clusters.
 
-Seed generation: LLM yields seed keywords by topic.
+Keyword Discovery (multi-source):
 
-Metrics enrichment: ensure monthly KeywordMetricsSnapshot (global) via provider (DataForSEO when enabled): searchVolume, CPC, competition, difficulty; per (canon, location, YYYY‑MM).
+Source A (existing rankings): Keywords For Site API extracts keywords the domain already ranks for (position 1-50, with volume/metrics).
+
+Source B (LLM-guided expansion): LLM yields 20-30 topical seed keywords → Related Keywords API expands each seed (up to 4,680 variations) → Keyword Ideas API provides category-based, non-obvious terms.
+
+Source C (optional v0.2): competitor gap analysis via Ranked Keywords API.
+
+Deduplication: merge all sources by canonical (phrase_norm + language_code).
+
+Metrics enrichment: Bulk Keyword Difficulty API (1,000 keywords/request) for efficient scoring → Keyword Overview API (top 200 only) for rich metrics: searchVolume, CPC, competition, difficulty, intent, monthly trends; ensure monthly KeywordMetricsSnapshot (global) via provider per (canon, location, YYYY‑MM).
 
 Keyword list appears in Keywords Page (status=recommended).
 
@@ -534,7 +601,17 @@ GET /api/crawl/runs?projectId=... → list
 GET /api/crawl/pages?projectId=...&q=... → paginated extracted pages
 
 POST /api/keywords/generate → {jobId}
-Pipeline: use latest crawl dump → LLM summary → seed keywords → metrics provider → upsert Keyword rows; compute Opportunity and set status:"recommended".
+Pipeline:
+  1. Use latest crawl dump → LLM summary (business model, audience, topics)
+  2. Keywords For Site API → baseline (what you already rank for; filter: position 1-50)
+  3. LLM seed generation → 20-30 topical seeds from business context
+  4. Related Keywords API → expand each seed (depth 2, min volume 100)
+  5. Keyword Ideas API → category-based non-obvious terms (optional)
+  6. Merge & deduplicate by canonical (phrase_norm + language_code)
+  7. Bulk Keyword Difficulty API → efficient batch scoring (1k/request)
+  8. Keyword Overview API → rich metrics for top 200 by volume (search_volume, cpc, intent, monthly_searches[])
+  9. Compute Opportunity score → High Volume × Low Difficulty × Intent Fit
+  10. Upsert Keyword rows (projectId, canonId, phrase, source, opportunity, status: "recommended")
 
 GET /api/projects/:id/keywords?status=...
 
@@ -647,21 +724,29 @@ Budget caps (provider calls)
 
 Interfaces live in `src/common/providers/interfaces/*` and are bound to concrete implementations by `src/common/providers/registry.ts` via env variables.
 
-- KeywordMetricsProvider → default DataForSEO Labs (keyword_overview)
-- KeywordExpandProvider → default DataForSEO Google Ads keywords_for_keywords
+- KeywordDiscoveryProvider → default DataForSEO Labs
+  - keywordsForSite(domain) → existing rankings baseline
+  - relatedKeywords(seed[]) → "related searches" expansion
+  - keywordIdeas(seed[]) → category-based suggestions
+- KeywordMetricsProvider → default DataForSEO Labs
+  - bulkKeywordDifficulty(phrases[]) → batch scoring (1k/request)
+  - keywordOverview(phrases[]) → rich metrics (up to 700/request)
+- KeywordExpandProvider → default DataForSEO Google Ads (legacy)
+  - keywordsForKeywords(seed[]) → Google Ads suggestions
 - SerpProvider → default DataForSEO SERP live regular
 - LlmProvider → default OpenAI
 - ResearchProvider → default Exa
 - WebCrawler → default Playwright
 
 Env switches
+- `SEOA_PROVIDER_KEYWORD_DISCOVERY` (default `dataforseo`)
 - `SEOA_PROVIDER_METRICS` (default `dataforseo`)
 - `SEOA_PROVIDER_SERP` (default `dataforseo`)
 - `SEOA_PROVIDER_LLM` (default `openai`)
 - `SEOA_PROVIDER_RESEARCH` (default `exa`)
 
 Storage
-- Crawl/Serp store text dumps (no HTML), accessible via `/api/blobs/:id` with correct content-type.
+- Crawl/Serp store text dumps (no HTML), accessible via `/api/blobs/:id` with correct content-type. Competitor page dumps and other bundle files are only written when debug mode is enabled (`config.debug.writeBundle=true`); default production does not write files.
 
 13. PortableArticle
 {
@@ -916,9 +1001,24 @@ Separate worker app ships in v0 (not deferred).
 - Scaling/ops: separate queues via `SEOA_BINDING_KEY` or run single queue until split is needed.
 
 19.3 DataForSEO endpoints (default provider)
-- Labs: `google/keyword_overview/live` → `keyword_info` (+ `monthly_searches`).
-- Keywords: `google_ads/keywords_for_keywords/live` → expansion items.
-- SERP: `serp/google/organic/live/regular` → items with `rank_group/title/description/url`.
+Discovery phase:
+- Labs: `google/keywords_for_site/live` → existing rankings (baseline; what domain ranks for).
+- Labs: `google/related_keywords/live` → "related searches" expansion (up to 4,680 per seed).
+- Labs: `google/keyword_ideas/live` → category-based non-obvious keywords.
+- Keywords: `google_ads/keywords_for_keywords/live` → Google Ads keyword suggestions (legacy/alternative).
+
+Scoring phase:
+- Labs: `google/bulk_keyword_difficulty/live` → batch difficulty (1,000 keywords/request).
+- Labs: `google/keyword_overview/live` → rich metrics: `search_volume`, `cpc`, `competition`, `keyword_difficulty`, `search_intent_info`, `monthly_searches[]` (up to 700 keywords; use for top N only).
+
+Enrichment phase:
+- SERP: `serp/google/organic/live/regular` → top 10 organic results with `rank_group/title/description/url`.
+- SERP: `serp/google/organic/live/advanced` → full SERP features (optional: People Also Ask, Featured Snippets).
+
+Competitive intelligence (optional v0.2):
+- Labs: `google/ranked_keywords/live` → all keywords a competitor ranks for.
+- Labs: `google/serp_competitors/live` → domains ranking for specific keywords with traffic estimates.
+- Labs: `google/domain_rank_overview/live` → competitor authority metrics.
 
 20. What the coding agent should build first
 

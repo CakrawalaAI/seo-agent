@@ -2,6 +2,8 @@ export type KeywordMetrics = {
   searchVolume?: number | null
   difficulty?: number | null
   cpc?: number | null
+  competition?: number | null
+  rankability?: number | null
   asOf?: string | null
 }
 

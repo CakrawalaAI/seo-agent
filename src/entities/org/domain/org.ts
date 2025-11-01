@@ -21,4 +21,5 @@ export type MeSession = {
   entitlements: OrgEntitlements | null
   usage?: { postsUsed?: number; monthlyPostCredits?: number; cycleStart?: string | null } | null
   orgs: Org[]
+  activeProjectId?: string | null
 }

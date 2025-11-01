@@ -1,15 +1,16 @@
 // @ts-nocheck
 import { createFileRoute } from '@tanstack/react-router'
-import { json, httpError } from '@app/api-utils'
+import { json, httpError, requireSession, requireProjectAccess } from '@app/api-utils'
 import { hasDatabase, getDb } from '@common/infra/db'
 import { crawlPages, linkGraph } from '@entities/crawl/db/schema'
 import { eq } from 'drizzle-orm'
-import { crawlRepo } from '@entities/crawl/repository'
 
 export const Route = createFileRoute('/api/projects/$projectId/link-graph')({
   server: {
     handlers: {
-      GET: async ({ params }) => {
+      GET: async ({ params, request }) => {
+        await requireSession(request)
+        await requireProjectAccess(request, params.projectId)
         const projectId = params.projectId
         const nodes: Array<{ id: string; url: string; title?: string | null }> = []
         const edges: Array<{ from: string; to: string; text?: string | null }> = []
@@ -26,27 +27,26 @@ export const Route = createFileRoute('/api/projects/$projectId/link-graph')({
               urls.add(e.fromUrl)
               urls.add(e.toUrl)
             }
-            // Fetch titles for known urls from crawl_pages if available
+            // Fetch titles and fallback edges from crawl_pages if available
             // @ts-ignore
             const pages = (await db.select().from(crawlPages).where(eq(crawlPages.projectId, projectId)).limit(1000)) as any[]
             const titleByUrl = new Map<string, string | null>()
             for (const p of pages) titleByUrl.set(p.url, p?.metaJson?.title ?? null)
+            if (rows.length === 0) {
+              for (const p of pages) {
+                const links = Array.isArray(p?.linksJson) ? p.linksJson : []
+                for (const l of links.slice(0, 50)) {
+                  edges.push({ from: p.url, to: String(l.href || ''), text: (l as any)?.text ?? null })
+                  urls.add(p.url)
+                  urls.add(String(l.href || ''))
+                }
+              }
+            }
             for (const u of Array.from(urls)) {
               nodes.push({ id: u, url: u, title: titleByUrl.get(u) ?? null })
             }
-            if (nodes.length > 0 || edges.length > 0) return json({ nodes, edges })
-            // else fall through to in-memory
+            return json({ nodes, edges })
           } catch {}
-        }
-
-        const pages = crawlRepo.list(projectId, 500)
-        if (!pages.length) return json({ nodes, edges })
-        for (const p of pages) {
-          nodes.push({ id: p.id, url: p.url, title: p?.metaJson?.title as any })
-          const links = Array.isArray((p as any).linksJson) ? (p as any).linksJson : []
-          for (const l of links.slice(0, 50)) {
-            edges.push({ from: p.url, to: l.href, text: l.text ?? null })
-          }
         }
         return json({ nodes, edges })
       }

@@ -1,5 +1,5 @@
 import { db } from './db'
-import { orgs, orgUsage } from '@entities/org/db/schema'
+import { orgs } from '@entities/org/db/schema'
 import { eq } from 'drizzle-orm'
 
 /**
@@ -13,12 +13,9 @@ export type Entitlements = {
 }
 
 /**
- * Usage data from org_usage table.
+ * Usage data not persisted (org_usage removed).
  */
-export type Usage = {
-  postsUsed: number
-  cycleStart: Date | null
-}
+export type Usage = { postsUsed: number; cycleStart: Date | null }
 
 /**
  * Combined entitlements and usage check result.
@@ -55,44 +52,10 @@ export async function checkPostEntitlement(orgId: string): Promise<EntitlementCh
   const org = orgRows[0]
   const entitlements = (org.entitlementsJson as Entitlements) ?? { monthlyPostCredits: 1 }
 
-  // Fetch usage
-  const usageRows = await db.select().from(orgUsage).where(eq(orgUsage.orgId, orgId)).limit(1)
-
-  let usage: Usage = { postsUsed: 0, cycleStart: null }
-  if (usageRows.length > 0) {
-    usage = {
-      postsUsed: usageRows[0].postsUsed,
-      cycleStart: usageRows[0].cycleStart
-    }
-  } else {
-    // Create usage row if doesn't exist
-    await db.insert(orgUsage).values({
-      orgId,
-      cycleStart: new Date(),
-      postsUsed: 0,
-      updatedAt: new Date()
-    })
-  }
-
-  const monthlyPostCredits = entitlements.monthlyPostCredits ?? 1
-  const remaining = monthlyPostCredits - usage.postsUsed
-
-  if (usage.postsUsed >= monthlyPostCredits) {
-    return {
-      allowed: false,
-      reason: `Monthly post limit reached (${usage.postsUsed}/${monthlyPostCredits})`,
-      entitlements,
-      usage,
-      remaining: 0
-    }
-  }
-
-  return {
-    allowed: true,
-    entitlements,
-    usage,
-    remaining
-  }
+  // Usage gating removed: always allow; return zero usage
+  const usage: Usage = { postsUsed: 0, cycleStart: null }
+  const remaining = entitlements.monthlyPostCredits ?? Infinity
+  return { allowed: true, entitlements, usage, remaining }
 }
 
 /**
@@ -102,32 +65,7 @@ export async function checkPostEntitlement(orgId: string): Promise<EntitlementCh
  * @param orgId - Organization ID
  * @returns New usage count
  */
-export async function incrementPostUsage(orgId: string): Promise<number> {
-  const usageRows = await db.select().from(orgUsage).where(eq(orgUsage.orgId, orgId)).limit(1)
-
-  if (usageRows.length === 0) {
-    // Create usage row
-    await db.insert(orgUsage).values({
-      orgId,
-      cycleStart: new Date(),
-      postsUsed: 1,
-      updatedAt: new Date()
-    })
-    return 1
-  }
-
-  const newUsage = usageRows[0].postsUsed + 1
-
-  await db
-    .update(orgUsage)
-    .set({
-      postsUsed: newUsage,
-      updatedAt: new Date()
-    })
-    .where(eq(orgUsage.orgId, orgId))
-
-  return newUsage
-}
+export async function incrementPostUsage(_orgId: string): Promise<number> { return 0 }
 
 /**
  * Middleware helper: Require post entitlement for the request.
@@ -159,15 +97,4 @@ export async function getEntitlements(orgId: string): Promise<Entitlements | nul
 /**
  * Get usage for an organization (for display purposes).
  */
-export async function getUsage(orgId: string): Promise<Usage> {
-  const usageRows = await db.select().from(orgUsage).where(eq(orgUsage.orgId, orgId)).limit(1)
-
-  if (usageRows.length === 0) {
-    return { postsUsed: 0, cycleStart: null }
-  }
-
-  return {
-    postsUsed: usageRows[0].postsUsed,
-    cycleStart: usageRows[0].cycleStart
-  }
-}
+export async function getUsage(_orgId: string): Promise<Usage> { return { postsUsed: 0, cycleStart: null } }

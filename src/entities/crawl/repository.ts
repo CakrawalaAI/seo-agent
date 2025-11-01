@@ -1,66 +1,73 @@
 import type { CrawlPage } from './domain/page'
 import { hasDatabase, getDb } from '@common/infra/db'
 import { crawlPages as crawlPagesTable } from './db/schema'
-// import { desc, eq } from 'drizzle-orm'
-
-const byProject = new Map<string, CrawlPage[]>()
+import { eq } from 'drizzle-orm'
 
 export const crawlRepo = {
-  list(projectId: string, limit = 100): CrawlPage[] {
-    const all = byProject.get(projectId) ?? []
-    return all.slice(0, limit)
+  async list(projectId: string, limit = 100): Promise<CrawlPage[]> {
+    if (!hasDatabase()) return []
+    const db = getDb()
+    const rows = await db.select().from(crawlPagesTable).where(eq(crawlPagesTable.projectId, projectId)).limit(limit)
+    return rows as any
   },
-  addOrUpdate(projectId: string, page: Omit<CrawlPage, 'id' | 'projectId' | 'createdAt' | 'updatedAt'> & { id?: string }) {
-    const list = byProject.get(projectId) ?? []
-    const idx = list.findIndex((p) => p.url === page.url)
-    const now = new Date().toISOString()
-    const record: CrawlPage = {
-      id: page.id ?? genId('page'),
+  async addOrUpdate(projectId: string, page: Omit<CrawlPage, 'id' | 'projectId' | 'createdAt' | 'updatedAt'> & { id?: string }): Promise<CrawlPage> {
+    const id = page.id ?? genId('page')
+    const now = new Date()
+    if (hasDatabase()) {
+      try {
+        const db = getDb()
+        // upsert by (projectId,url)
+        // @ts-ignore
+        await db
+          .insert(crawlPagesTable)
+          .values({
+            id,
+            projectId,
+            url: page.url,
+            depth: (page.depth ?? 0) as any,
+            httpStatus: (page.httpStatus as any) ?? null,
+            status: (page.status as any) ?? ('completed' as any),
+            extractedAt: page.extractedAt ? (new Date(page.extractedAt as any) as any) : (now as any),
+            metaJson: (page.metaJson as any) ?? null,
+            headingsJson: ((page as any).headingsJson as any) ?? null,
+            linksJson: ((page as any).linksJson as any) ?? null,
+            contentBlobUrl: ((page as any).contentBlobUrl as any) ?? null,
+            createdAt: now as any,
+            updatedAt: now as any
+          } as any)
+          .onConflictDoUpdate?.({ target: [crawlPagesTable.projectId, crawlPagesTable.url], set: {
+            depth: (page.depth ?? 0) as any,
+            httpStatus: (page.httpStatus as any) ?? null,
+            status: (page.status as any) ?? ('completed' as any),
+            extractedAt: page.extractedAt ? (new Date(page.extractedAt as any) as any) : (now as any),
+            metaJson: (page.metaJson as any) ?? null,
+            headingsJson: ((page as any).headingsJson as any) ?? null,
+            linksJson: ((page as any).linksJson as any) ?? null,
+            contentBlobUrl: ((page as any).contentBlobUrl as any) ?? null,
+            updatedAt: now as any
+          } })
+        console.info('[crawl] inserted page', { projectId, url: page.url, id })
+      } catch (err) {
+        console.error('[crawl] insert page failed', { projectId, url: page.url, error: (err as Error)?.message || String(err) })
+      }
+    }
+    return {
+      id,
       projectId,
       url: page.url,
       depth: page.depth ?? 0,
       httpStatus: page.httpStatus ?? null,
-      status: page.status ?? 'completed',
+      status: (page.status as any) ?? 'completed',
       metaJson: page.metaJson ?? null,
       headingsJson: (page as any).headingsJson ?? null,
       linksJson: (page as any).linksJson ?? null,
       contentBlobUrl: (page as any).contentBlobUrl ?? null,
-      extractedAt: page.extractedAt ?? now,
-      createdAt: idx >= 0 ? list[idx]!.createdAt : now,
-      updatedAt: now
+      extractedAt: (page.extractedAt as any) ?? now.toISOString(),
+      createdAt: now.toISOString(),
+      updatedAt: now.toISOString()
     }
-    if (idx >= 0) list[idx] = record
-    else list.unshift(record)
-    byProject.set(projectId, list)
-    if (hasDatabase()) void (async () => {
-      try {
-        const db = getDb()
-        await db
-          .insert(crawlPagesTable)
-          .values({
-            id: record.id,
-            projectId: record.projectId,
-            url: record.url,
-            depth: record.depth as any,
-            httpStatus: (record.httpStatus as any) ?? null,
-            status: record.status as any,
-            extractedAt: record.extractedAt ? (new Date(record.extractedAt as any) as any) : null,
-            metaJson: record.metaJson as any,
-            headingsJson: record.headingsJson as any,
-            linksJson: record.linksJson as any,
-            contentBlobUrl: record.contentBlobUrl as any,
-            createdAt: record.createdAt ? (new Date(record.createdAt as any) as any) : (new Date() as any),
-            updatedAt: record.updatedAt ? (new Date(record.updatedAt as any) as any) : (new Date() as any)
-          } as any)
-          .onConflictDoNothing?.()
-        console.info('[crawl] inserted page', { projectId, url: record.url, id: record.id })
-      } catch (err) {
-        console.error('[crawl] insert page failed', { projectId, url: record.url, error: (err as Error)?.message || String(err) })
-      }
-    })()
-    return record
   },
-  seedRun(projectId: string): { jobId: string; added: number } {
+  async seedRun(projectId: string): Promise<{ jobId: string; added: number }> {
     const now = new Date().toISOString()
     const sample = [
       { url: 'https://example.com/', depth: 0, httpStatus: 200, metaJson: { title: 'Home page' } },
@@ -68,13 +75,14 @@ export const crawlRepo = {
       { url: 'https://example.com/blog', depth: 1, httpStatus: 200, metaJson: { title: 'Blog' } }
     ]
     for (const p of sample) {
-      crawlRepo.addOrUpdate(projectId, { ...p, status: 'completed', extractedAt: now })
+      await crawlRepo.addOrUpdate(projectId, { ...p, status: 'completed', extractedAt: now })
     }
     return { jobId: genId('crawl'), added: sample.length }
-  }
-  ,
-  removeByProject(projectId: string) {
-    byProject.delete(projectId)
+  },
+  async removeByProject(projectId: string) {
+    if (!hasDatabase()) return
+    const db = getDb()
+    await db.delete(crawlPagesTable).where(eq(crawlPagesTable.projectId, projectId))
   }
 }
 

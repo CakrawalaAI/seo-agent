@@ -1,6 +1,6 @@
 // @ts-nocheck
 import { createFileRoute } from '@tanstack/react-router'
-import { json, httpError, safeHandler, requireSession } from '@app/api-utils'
+import { json, httpError, safeHandler, requireSession, requireProjectAccess } from '@app/api-utils'
 import { projectsRepo } from '@entities/project/repository'
 import { keywordsRepo } from '@entities/keyword/repository'
 import { publishJob, queueEnabled } from '@common/infra/queue'
@@ -10,13 +10,14 @@ export const Route = createFileRoute('/api/projects/$projectId/competitors/warm'
     handlers: {
       POST: safeHandler(async ({ params, request }) => {
         await requireSession(request)
-        const project = projectsRepo.get(params.projectId)
+        await requireProjectAccess(request, params.projectId)
+        const project = await projectsRepo.get(params.projectId)
         if (!project) return httpError(404, 'Project not found')
         const url = new URL(request.url)
         const topM = Math.max(1, Math.min(50, Number(url.searchParams.get('topM') || '10')))
         const loc = Number(project?.serpLocationCode || project?.metricsLocationCode || 2840)
         const device = (project?.serpDevice as any) === 'mobile' ? 'mobile' : 'desktop'
-        const list = (keywordsRepo.list(params.projectId, { status: 'all', limit: 1000 }) || [])
+        const list = (await keywordsRepo.list(params.projectId, { status: 'all', limit: 1000 }) || [])
           .sort((a, b) => (b.opportunity ?? 0) - (a.opportunity ?? 0))
           .slice(0, topM)
         let queued = 0
@@ -31,4 +32,3 @@ export const Route = createFileRoute('/api/projects/$projectId/competitors/warm'
     }
   }
 })
-

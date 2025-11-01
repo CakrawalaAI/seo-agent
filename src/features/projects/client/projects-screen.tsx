@@ -4,7 +4,8 @@ import { Input } from '@src/common/ui/input'
 import { Label } from '@src/common/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@src/common/ui/select'
 import { useMutation, useQuery } from '@tanstack/react-query'
-import { Link } from '@tanstack/react-router'
+import { Link, useNavigate } from '@tanstack/react-router'
+import { useActiveProject } from '@common/state/active-project'
 import type { MeSession, Project } from '@entities'
 import {
   createProject as createProjectApi,
@@ -30,6 +31,8 @@ export function ProjectsScreen(): JSX.Element {
   const [locale, setLocale] = useState('en-US')
   const [creationResult, setCreationResult] = useState<CreateProjectResponse | null>(null)
   const [selectedOrgId, setSelectedOrgId] = useState<string | null>(null)
+  const navigate = useNavigate()
+  const { setId: setActiveProjectId } = useActiveProject()
 
   const meQuery = useQuery<MeSession>({
     queryKey: ['me'],
@@ -78,6 +81,12 @@ export function ProjectsScreen(): JSX.Element {
       setSiteUrl('')
       setLocale('en-US')
       projectsQuery.refetch()
+      try {
+        setActiveProjectId(result.project.id)
+      } catch {}
+      try {
+        navigate({ to: '/projects/$projectId', params: { projectId: result.project.id } })
+      } catch {}
     }
   })
 

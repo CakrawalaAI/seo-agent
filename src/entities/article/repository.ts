@@ -2,28 +2,50 @@ import type { Article, ArticleOutlineSection } from './domain/article'
 import { hasDatabase, getDb } from '@common/infra/db'
 import { articles } from './db/schema'
 import { desc, eq } from 'drizzle-orm'
-
-const byProject = new Map<string, Article[]>()
-const byId = new Map<string, Article>()
+import { projects } from '@entities/project/db/schema'
 
 export const articlesRepo = {
-  list(projectId: string, limit = 90): Article[] {
-    const all = byProject.get(projectId) ?? []
-    const sorted = [...all].sort(
-      (a, b) => new Date(b.createdAt ?? 0).getTime() - new Date(a.createdAt ?? 0).getTime()
-    )
-    return sorted.slice(0, limit)
+  async list(projectId: string, limit = 90): Promise<Article[]> {
+    if (!hasDatabase()) return []
+    const db = getDb()
+    // @ts-ignore
+    const rows = await db.select().from(articles).where(eq(articles.projectId as any, projectId)).orderBy(desc(articles.createdAt)).limit(limit)
+    return rows as any
   },
-  get(id: string): Article | null {
-    return byId.get(id) ?? null
+  async get(id: string): Promise<Article | null> {
+    if (!hasDatabase()) return null
+    const db = getDb()
+    const rows = await db.select().from(articles).where(eq(articles.id, id)).limit(1)
+    return (rows?.[0] as any) ?? null
   },
-  createDraft(input: {
-    projectId: string
-    planItemId: string
-    title: string
-    outline?: ArticleOutlineSection[]
-  }): Article {
-    const now = new Date().toISOString()
+  async createDraft(input: { projectId: string; planItemId: string; title: string; outline?: ArticleOutlineSection[] }): Promise<Article> {
+    const now = new Date()
+    // If a planned article exists with id = planItemId, convert it into a draft in place
+    if (hasDatabase()) {
+      const db = getDb()
+      try {
+        const rows = (await db.select().from(articles).where(eq(articles.id, input.planItemId)).limit(1)) as any[]
+        const found = rows?.[0]
+        if (found) {
+          await db
+            .update(articles)
+            .set({
+              title: input.title,
+              outlineJson: (input.outline ?? []) as any,
+              status: 'draft' as any,
+              language: 'en',
+              tone: 'neutral',
+              updatedAt: now as any
+            })
+            .where(eq(articles.id, input.planItemId))
+          const after = await db.select().from(articles).where(eq(articles.id, input.planItemId)).limit(1)
+          return (after?.[0] as any) as Article
+        }
+      } catch {}
+    }
+
+    // No org_usage gating; entitlements may be shown but not enforced
+
     const article: Article = {
       id: genId('article'),
       projectId: input.projectId,
@@ -34,35 +56,46 @@ export const articlesRepo = {
       status: 'draft',
       outlineJson: input.outline ?? [],
       bodyHtml: `<article><h1>${escapeHtml(input.title)}</h1><p>Generated draft body...</p></article>`,
-      generationDate: now,
-      createdAt: now,
-      updatedAt: now
+      generationDate: undefined as any,
+      createdAt: undefined as any,
+      updatedAt: undefined as any
     }
-    if (hasDatabase()) void (async () => { try { const db = getDb(); await db.insert(articles).values(article as any).onConflictDoNothing?.(); } catch {} })()
-    const current = byProject.get(input.projectId) ?? []
-    byProject.set(input.projectId, [article, ...current])
-    byId.set(article.id, article)
+    if (hasDatabase()) {
+      const db = getDb()
+      await db
+        .insert(articles)
+        .values({
+          id: article.id,
+          projectId: article.projectId,
+          planItemId: article.planItemId,
+          title: article.title,
+          language: article.language,
+          tone: article.tone,
+          status: article.status as any,
+          outlineJson: article.outlineJson as any,
+          bodyHtml: article.bodyHtml
+        } as any)
+        .onConflictDoNothing?.()
+      // No usage increment; org_usage removed
+    }
     return article
   },
-  update(id: string, patch: Partial<Article>): Article | null {
-    const current = this.get(id)
-    if (!current) return null
-    const updated: Article = { ...current, ...patch, updatedAt: new Date().toISOString() }
-    if (hasDatabase()) void (async () => { try { const db = getDb(); await db.update(articles).set(updated as any).where(eq(articles.id, id)); } catch {} })()
-    byId.set(id, updated)
-    const list = byProject.get(updated.projectId) ?? []
-    const idx = list.findIndex((a) => a.id === id)
-    if (idx >= 0) {
-      list[idx] = updated
-      byProject.set(updated.projectId, list)
+  async update(id: string, patch: Partial<Article>): Promise<Article | null> {
+    if (!hasDatabase()) return null
+    const db = getDb()
+    const set: any = { updatedAt: new Date() as any }
+    for (const k of ['projectId','planItemId','title','language','tone','status','outlineJson','bodyHtml','generationDate'] as const) {
+      const v = (patch as any)[k]
+      if (v !== undefined) set[k] = v as any
     }
-    return updated
-  }
-  ,
-  removeByProject(projectId: string) {
-    const list = byProject.get(projectId) ?? []
-    for (const a of list) byId.delete(a.id)
-    byProject.delete(projectId)
+    await db.update(articles).set(set).where(eq(articles.id, id))
+    const rows = await db.select().from(articles).where(eq(articles.id, id)).limit(1)
+    return (rows?.[0] as any) ?? null
+  },
+  async removeByProject(projectId: string) {
+    if (!hasDatabase()) return
+    const db = getDb()
+    await db.delete(articles).where(eq(articles.projectId, projectId))
   }
 }
 

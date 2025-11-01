@@ -1,4 +1,5 @@
 import { drizzle } from 'drizzle-orm/postgres-js'
+import { sql } from 'drizzle-orm'
 import postgres from 'postgres'
 import { schema } from './schema'
 
@@ -27,6 +28,23 @@ export function getDb() {
   const client = postgres(process.env.DATABASE_URL, { prepare: true, max: 1 })
   dbSingleton = drizzle(client, { schema })
   console.info('[db] drizzle ready')
+  // Lightweight bootstrap to avoid runtime failures when migrations lag behind
+  try {
+    // Run asynchronously; do not block startup
+    void (async () => {
+      try {
+        // Add columns introduced by plan→articles merge if missing
+        // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+        // @ts-ignore
+        await dbSingleton.execute(sql`ALTER TABLE articles ADD COLUMN IF NOT EXISTS planned_date text`)
+        // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+        // @ts-ignore
+        await dbSingleton.execute(sql`ALTER TABLE articles ADD COLUMN IF NOT EXISTS keyword_id text`)
+      } catch (e) {
+        try { console.warn('[db] bootstrap ensure columns failed (non-fatal)', (e as Error)?.message || String(e)) } catch {}
+      }
+    })()
+  } catch {}
   return dbSingleton
 }
 

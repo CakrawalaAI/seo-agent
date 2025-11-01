@@ -90,10 +90,7 @@ export async function requireProjectAccess(request: Request, projectId: string) 
       if (rows[0]) projectOrg = rows[0].orgId ?? null
     } catch {}
   }
-  if (!projectOrg) {
-    const proj = projectsRepo.get(projectId)
-    projectOrg = proj?.orgId ?? null
-  }
+  // DB-only repo: rely on DB for ownership
   if (projectOrg && projectOrg !== activeOrgId) throw httpError(403, 'Forbidden')
   // membership check if DB has org_members
   if (hasDatabase() && sess.user?.email && activeOrgId) {
@@ -109,6 +106,19 @@ export async function requireProjectAccess(request: Request, projectId: string) 
         if (!r2?.[0]) throw httpError(403, 'Forbidden')
       }
     } catch {}
+  }
+  return true
+}
+
+export async function requireAdmin(request: Request) {
+  const sess = await requireSession(request)
+  const email = sess.user?.email || ''
+  const allow = (process.env.ADMIN_EMAILS || '')
+    .split(',')
+    .map((s) => s.trim().toLowerCase())
+    .filter(Boolean)
+  if (!email || (allow.length > 0 && !allow.includes(email.toLowerCase()))) {
+    throw httpError(403, 'Forbidden')
   }
   return true
 }

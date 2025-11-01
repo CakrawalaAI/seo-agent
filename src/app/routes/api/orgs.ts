@@ -14,12 +14,17 @@ export const Route = createFileRoute('/api/orgs')({
         if (hasDatabase()) {
           try {
             const db = getDb()
+            if (!sess.user?.email) return json({ items: [] })
             // @ts-ignore
-            const rows = await (db.select().from(orgs).limit(100) as any)
-            return json({ items: rows })
+            const rows = await db.select().from(orgs).limit(500)
+            // @ts-ignore
+            const mems = await db.select().from(orgMembers).where(eq(orgMembers.userEmail, sess.user.email)).limit(500)
+            const allowed = new Set<string>(mems.map((m: any) => String(m.orgId)))
+            const items = rows.filter((o: any) => allowed.has(String(o.id)))
+            return json({ items })
           } catch {}
         }
-        return json({ items: sess.orgs ?? [] })
+        return json({ items: [] })
       }),
       POST: safeHandler(async ({ request }) => {
         const sess = await requireSession(request)
@@ -33,25 +38,7 @@ export const Route = createFileRoute('/api/orgs')({
           const cookie = session.set(updated as any)
           return new Response(null, { status: 204, headers: { 'Set-Cookie': cookie } })
         }
-        if (action === 'invite') {
-          const email = String(body?.email || '')
-          if (!email) return httpError(400, 'Missing email')
-          const orgId = sess.activeOrg?.id || 'org-dev'
-          // create invitation token (base64 json)
-          const token = Buffer.from(JSON.stringify({ orgId, email })).toString('base64')
-          // send stub email
-          try { const { sendEmailStub } = await import('@common/infra/email'); await sendEmailStub({ to: email, subject: 'SEO Agent org invite', text: `Accept: /api/orgs/invites/${token}/accept` }) } catch {}
-          if (hasDatabase()) {
-            try {
-              const db = getDb()
-              // Upsert org row to ensure it exists
-              await db.insert(orgs).values({ id: orgId, name: orgId }).onConflictDoNothing()
-              // Add membership
-              await db.insert(orgMembers).values({ orgId, userEmail: email, role: 'member' }).onConflictDoNothing?.()
-            } catch {}
-          }
-          return json({ ok: true, token })
-        }
+        // Invitations removed
         return httpError(400, 'Unsupported action')
       })
     }

@@ -9,6 +9,8 @@ export type Article = {
   id: string
   projectId: string
   planItemId?: string | null
+  keywordId?: string | null
+  plannedDate?: string | null
   title?: string | null
   language?: string | null
   tone?: string | null

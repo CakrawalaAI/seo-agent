@@ -1,10 +1,10 @@
 // @ts-nocheck
 import { createFileRoute } from '@tanstack/react-router'
-import { json, httpError, safeHandler } from '@app/api-utils'
+import { json, httpError, safeHandler, requireSession, requireProjectAccess } from '@app/api-utils'
 import { planRepo } from '@entities/plan/repository'
 import { hasDatabase, getDb } from '@common/infra/db'
-import { planItems } from '@entities/plan/db/schema'
-import { eq } from 'drizzle-orm'
+import { articles } from '@entities/article/db/schema'
+import { eq, and, asc } from 'drizzle-orm'
 
 export const Route = createFileRoute('/api/plan-items')({
   server: {
@@ -14,22 +14,30 @@ export const Route = createFileRoute('/api/plan-items')({
         const projectId = url.searchParams.get('projectId')
         const limit = Number(url.searchParams.get('limit') || '90')
         if (!projectId) return httpError(400, 'Missing projectId')
+        await requireSession(request)
+        await requireProjectAccess(request, projectId)
         if (hasDatabase()) {
           try {
             const db = getDb()
-            // @ts-ignore
-            const rows = await (db.select().from(planItems).where(eq(planItems.projectId, projectId)).limit(Number.isFinite(limit) ? limit : 90) as any)
-            return json({ items: rows })
+            const rows = await db
+              .select()
+              .from(articles)
+              .where(and(eq(articles.projectId, projectId), eq(articles.status as any, 'planned' as any)))
+              .orderBy(asc(articles.plannedDate as any))
+              .limit(Number.isFinite(limit) ? limit : 90)
+            return json({ items: rows.map((r: any) => ({ id: r.id, projectId: r.projectId, keywordId: r.keywordId ?? null, title: r.title, plannedDate: r.plannedDate, status: r.status, outlineJson: r.outlineJson })) })
           } catch {}
         }
-        const items = planRepo.list(projectId, Number.isFinite(limit) ? limit : 90)
+        const items = await planRepo.list(projectId, Number.isFinite(limit) ? limit : 90)
         return json({ items })
       }),
       POST: safeHandler(async ({ request }) => {
+        await requireSession(request)
         const body = await request.json().catch(() => ({}))
         const projectId = body?.projectId
         const days = Number(body?.days ?? 30)
         if (!projectId || !Number.isFinite(days) || days <= 0) return httpError(400, 'Invalid input')
+        await requireProjectAccess(request, String(projectId))
         const { jobId } = planRepo.createPlan(String(projectId), days)
         return json({ jobId }, { status: 202 })
       })

@@ -1,7 +1,8 @@
 // @ts-nocheck
 import { createFileRoute } from '@tanstack/react-router'
-import { safeHandler, requireSession, httpError } from '@app/api-utils'
+import { safeHandler, requireSession, httpError, requireProjectAccess } from '@app/api-utils'
 import { latestRunDir } from '@common/bundle/store'
+import { config } from '@common/config'
 import { join, normalize } from 'node:path'
 import { existsSync, readFileSync } from 'node:fs'
 
@@ -17,9 +18,11 @@ export const Route = createFileRoute('/api/projects/$projectId/bundle/file')({
     handlers: {
       GET: safeHandler(async ({ params, request }) => {
         await requireSession(request)
+        await requireProjectAccess(request, params.projectId)
         const url = new URL(request.url)
         const rel = String(url.searchParams.get('path') || '')
         if (!rel) return httpError(400, 'Missing path')
+        if (!config.debug?.writeBundle) return httpError(404, 'Debug bundles disabled')
         const base = latestRunDir(params.projectId)
         const full = normalize(join(base, rel))
         if (!full.startsWith(base)) return httpError(400, 'Invalid path')
@@ -34,4 +37,3 @@ export const Route = createFileRoute('/api/projects/$projectId/bundle/file')({
     }
   }
 })
-

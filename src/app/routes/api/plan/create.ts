@@ -20,7 +20,7 @@ export const Route = createFileRoute('/api/plan/create')({
           recordJobQueued(String(projectId), 'plan', jobId)
           return json({ jobId }, { status: 202 })
         } else {
-          const { jobId } = planRepo.createPlan(String(projectId), days)
+        const { jobId } = await planRepo.createPlan(String(projectId), days)
           return json({ jobId }, { status: 202 })
         }
       })

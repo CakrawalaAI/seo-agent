@@ -16,12 +16,12 @@ export const Route = createFileRoute('/api/articles/$articleId/publish')({
 
         if (!integrationId) return httpError(400, 'Missing integrationId')
 
-        const article = articlesRepo.get(params.articleId)
+        const article = await articlesRepo.get(params.articleId)
         if (!article) return httpError(404, 'Article not found')
 
         await requireProjectAccess(request, String(article.projectId))
 
-        const integration = integrationsRepo.get(String(integrationId))
+        const integration = await integrationsRepo.get(String(integrationId))
         if (!integration) return httpError(404, 'Integration not found')
 
         console.info('[API /articles/:id/publish] Request:', {
@@ -49,7 +49,7 @@ export const Route = createFileRoute('/api/articles/$articleId/publish')({
           return httpError(500, 'Publishing failed')
         }
 
-        articlesRepo.update(article.id, {
+        await articlesRepo.update(article.id, {
           status: 'published',
           bodyHtml: article.bodyHtml ?? '',
           cmsExternalId: result.externalId ?? null,

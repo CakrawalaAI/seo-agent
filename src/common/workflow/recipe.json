@@ -4,7 +4,8 @@
     "discovery": { "onSuccess": ["score"] },
     "score": { "onSuccess": ["plan"] },
     "plan": { "onSuccess": [] },
-    "generate": { "onSuccess": ["enrich"] },
+    "generate": { "onSuccess": [] },
     "enrich": { "onSuccess": [] }
   }
 }
+

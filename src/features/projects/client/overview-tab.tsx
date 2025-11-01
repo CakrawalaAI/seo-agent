@@ -53,6 +53,9 @@ export function OverviewTab({
   const topicClusters = Array.isArray(summary?.topicClusters)
     ? summary.topicClusters
     : []
+  const representatives: string[] = Array.isArray((snapshot as any)?.representatives)
+    ? ((snapshot as any).representatives as string[])
+    : []
 
   return (
     <section className="grid gap-6 lg:grid-cols-[2fr,1fr]">
@@ -179,6 +182,21 @@ export function OverviewTab({
             No discovery run yet. Start the keyword generation workflow to populate this summary.
           </p>
         )}
+
+        {representatives.length ? (
+          <div className="mt-6">
+            <h3 className="text-sm font-semibold text-foreground">Representative URLs</h3>
+            <ul className="mt-2 grid list-disc gap-1 pl-4 text-xs">
+              {representatives.slice(0, 10).map((u) => (
+                <li key={u} className="text-muted-foreground">
+                  <a href={u} target="_blank" rel="noreferrer" className="text-primary hover:underline">
+                    {u}
+                  </a>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
         <div className="mt-6">
           <h3 className="text-sm font-semibold text-foreground">Project settings</h3>
           <div className="mt-2 grid grid-cols-2 gap-3 text-xs">

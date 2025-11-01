@@ -1,3 +1,4 @@
+import '@common/infra/network'
 import { consumeJobs, queueEnabled, cleanupMetricCache, publishJob } from '@common/infra/queue'
 import { cleanupOldBlobs } from '@common/blob/store'
 import { env } from '@common/infra/env'
@@ -31,6 +32,20 @@ export async function runWorker(options: WorkerOptions = {}) {
       cleanupMetricCache().catch(() => {})
       try { cleanupOldBlobs(env.blobTtlDays) } catch {}
     }, 15 * 60 * 1000)
+
+    // Simple daily scheduler (enabled by default; disable with SEOA_ENABLE_SCHEDULER=0)
+    if ((process.env.SEOA_ENABLE_SCHEDULER || '1') !== '0') {
+      const SCHEDULE_EVERY_MS = Math.max(5 * 60 * 1000, Number(process.env.SEOA_SCHEDULER_INTERVAL_MS || '600000'))
+      setInterval(async () => {
+        try {
+          const { runDailySchedules } = await import('@common/scheduler/daily')
+          await runDailySchedules()
+        } catch (err) {
+          console.error('[scheduler] run failed', { error: (err as Error)?.message || String(err) })
+        }
+      }, SCHEDULE_EVERY_MS)
+      console.info('[worker] scheduler enabled', { intervalMs: Number(process.env.SEOA_SCHEDULER_INTERVAL_MS || '600000') })
+    }
     console.info('[worker] DB available?', { hasDb: Boolean(process.env.DATABASE_URL) })
     const perProjectRunning = new Map<string, number>()
     const projectConcurrency = Math.max(1, Number(process.env.SEOA_PROJECT_CONCURRENCY || '1'))
@@ -107,6 +122,7 @@ export async function runWorker(options: WorkerOptions = {}) {
         } catch {}
         console.info('[worker] completed', { id: msg.id, type: msg.type, projectId })
       } catch (error) {
+        const isCredit = error instanceof Error && error.message === 'credit_exceeded'
         const err = error instanceof Error ? { message: error.message } : { message: String(error) }
         if (projectId) recordJobFailed(projectId, msg.id, err)
         try {
@@ -118,7 +134,7 @@ export async function runWorker(options: WorkerOptions = {}) {
         console.error('[worker] failed', { id: msg.id, type: msg.type, projectId, error: err })
         // retry/backoff limited
         const attempt = Number(msg.retries ?? 0)
-        if (attempt < maxRetries) {
+        if (!isCredit && attempt < maxRetries) {
           const delay = baseDelayMs * Math.pow(2, attempt)
           console.warn('[worker] retrying', { id: msg.id, attempt: attempt + 1, delayMs: delay })
           setTimeout(() => publishJob({ type: msg.type, payload: msg.payload, retries: attempt + 1 }).catch(() => {}), delay)

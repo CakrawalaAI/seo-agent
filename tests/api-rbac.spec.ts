@@ -9,7 +9,7 @@ function reqWithCookie(cookie: string) {
 
 describe('RBAC helpers', () => {
   it('denies cross-org project access', async () => {
-    const p = projectsRepo.create({ orgId: 'org-b', name: 'B', siteUrl: 'https://b.com', defaultLocale: 'en-US' })
+    const p = await projectsRepo.create({ orgId: 'org-b', name: 'B', siteUrl: 'https://b.com', defaultLocale: 'en-US' })
     const cookie = session.set({ user: { email: 'a@ex.com' }, activeOrg: { id: 'org-a', plan: 'starter' } })
     const req = reqWithCookie(cookie)
     let status = 200
@@ -22,10 +22,9 @@ describe('RBAC helpers', () => {
   })
 
   it('allows same-org project access', async () => {
-    const p = projectsRepo.create({ orgId: 'org-a', name: 'A', siteUrl: 'https://a.com', defaultLocale: 'en-US' })
+    const p = await projectsRepo.create({ orgId: 'org-a', name: 'A', siteUrl: 'https://a.com', defaultLocale: 'en-US' })
     const cookie = session.set({ user: { email: 'a@ex.com' }, activeOrg: { id: 'org-a', plan: 'starter' } })
     const req = reqWithCookie(cookie)
     await expect(requireProjectAccess(req, p.id)).resolves.toBeTruthy()
   })
 })
-

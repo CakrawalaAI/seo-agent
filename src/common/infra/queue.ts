@@ -52,8 +52,22 @@ export async function getChannel(): Promise<any> {
   const amqp = await import('amqplib')
   const masked = maskRabbitUrl(process.env.RABBITMQ_URL)
   console.info(`[queue] connecting`, { url: masked })
-  conn = await (amqp as any).connect(process.env.RABBITMQ_URL)
+  // Ensure heartbeat parameter to avoid idle disconnects
+  const HEARTBEAT = Math.max(5, Number(process.env.RABBITMQ_HEARTBEAT || '30'))
+  let url = process.env.RABBITMQ_URL as string
+  try {
+    const u = new URL(url)
+    if (!u.searchParams.get('heartbeat')) {
+      u.searchParams.set('heartbeat', String(HEARTBEAT))
+      url = u.toString()
+    }
+  } catch {}
+  conn = await (amqp as any).connect(url)
+  // Defensive: avoid process crashes on heartbeat errors
+  try { conn.on('error', (e: any) => console.error('[queue] connection error', { message: e?.message || String(e) })) } catch {}
+  try { conn.on('close', () => { console.warn('[queue] connection closed'); chan = null; conn = null }) } catch {}
   chan = await conn.createChannel()
+  try { chan.on?.('error', (e: any) => console.error('[queue] channel error', { message: e?.message || String(e) })) } catch {}
   // Topic exchange for routing by type.projectId
   await chan.assertExchange(EXCHANGE_NAME, 'topic', { durable: true })
   await chan.assertExchange(DLX_NAME, 'topic', { durable: true })

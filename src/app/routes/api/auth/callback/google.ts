@@ -2,10 +2,10 @@
 import { createFileRoute } from '@tanstack/react-router'
 import crypto from 'crypto'
 import { httpError, safeHandler } from '@app/api-utils'
-import { clearTempCookie, exchangeCodeForTokens, fetchGoogleUser, parseTempCookie, upsertUserFromGoogle } from '@common/auth/google'
+import { clearTempCookie, exchangeCodeForTokens, fetchGoogleUser, parseTempCookie, sanitizeRedirect, upsertUserFromGoogle } from '@common/auth/google'
 import { hasDatabase, getDb } from '@common/infra/db'
 import { session } from '@common/infra/session'
-import { orgs, orgMembers, orgUsage } from '@entities/org/db/schema'
+import { orgs, orgMembers } from '@entities/org/db/schema'
 import { eq } from 'drizzle-orm'
 
 export const Route = createFileRoute('/api/auth/callback/google')({
@@ -18,7 +18,7 @@ export const Route = createFileRoute('/api/auth/callback/google')({
         if (!code || !state) return httpError(400, 'Missing code/state')
         const tmp = parseTempCookie(request)
         if (!tmp?.state || tmp.state !== state) return httpError(400, 'Invalid state')
-        const redirectTo = tmp.redirectTo || '/dashboard'
+        const redirectTo = sanitizeRedirect(tmp.redirectTo || '/dashboard')
 
         if ((process.env.SEOA_AUTH_DEBUG || '') === '1') {
           console.info('[auth/callback/google:start]', {
@@ -70,13 +70,7 @@ export const Route = createFileRoute('/api/auth/callback/google')({
             cookiePreview: String(cookie).slice(0, 48) + '...'
           })
         }
-        // Ensure org_usage row exists for active org
-        if (hasDatabase() && activeOrg?.id) {
-          try {
-            const db = getDb()
-            await db.insert(orgUsage).values({ orgId: activeOrg.id, postsUsed: 0 }).onConflictDoNothing?.()
-          } catch {}
-        }
+        // org_usage removed; no usage row required
         // Clear legacy Better Auth cookies if present
         headers.append('Set-Cookie', clearName('better-auth.session_token'))
         headers.append('Set-Cookie', clearName('better-auth.state'))

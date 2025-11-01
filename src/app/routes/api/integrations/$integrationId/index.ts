@@ -11,7 +11,7 @@ export const Route = createFileRoute('/api/integrations/$integrationId/')({
       PATCH: safeHandler(async ({ params, request }) => {
         await requireSession(request)
         const body = await request.json().catch(() => ({}))
-        const current = integrationsRepo.get(params.integrationId)
+        const current = await integrationsRepo.get(params.integrationId)
         if (current) await requireProjectAccess(request, String(current.projectId))
         if (hasDatabase()) {
           try {
@@ -23,13 +23,13 @@ export const Route = createFileRoute('/api/integrations/$integrationId/')({
               .where((projectIntegrations as any).id.eq(params.integrationId))
           } catch {}
         }
-        const updated = integrationsRepo.update(params.integrationId, { status: body?.status, configJson: body?.config ?? null })
+        const updated = await integrationsRepo.update(params.integrationId, { status: body?.status, configJson: body?.config ?? null })
         if (!updated && !current) return httpError(404, 'Integration not found')
         return json(updated ?? { id: params.integrationId })
       }),
       DELETE: safeHandler(async ({ params, request }) => {
         await requireSession(request)
-        const current = integrationsRepo.get(params.integrationId)
+        const current = await integrationsRepo.get(params.integrationId)
         if (current) await requireProjectAccess(request, String(current.projectId))
         if (hasDatabase()) {
           try {
@@ -38,7 +38,7 @@ export const Route = createFileRoute('/api/integrations/$integrationId/')({
             await db.delete(projectIntegrations).where((projectIntegrations as any).id.eq(params.integrationId))
           } catch {}
         }
-        const ok = integrationsRepo.remove(params.integrationId)
+        const ok = await integrationsRepo.remove(params.integrationId)
         if (!ok && !current) return httpError(404, 'Integration not found')
         return new Response(null, { status: 204 })
       })

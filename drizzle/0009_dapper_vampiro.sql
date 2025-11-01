@@ -1,0 +1,1 @@
+CREATE UNIQUE INDEX "uniq_crawl_pages_project_url" ON "crawl_pages" USING btree ("project_id","url");

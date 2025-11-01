@@ -1,6 +1,6 @@
 // @ts-nocheck
 import { createFileRoute } from '@tanstack/react-router'
-import { json, safeHandler, requireSession } from '@app/api-utils'
+import { json, safeHandler, requireSession, requireAdmin } from '@app/api-utils'
 import { hasDatabase, getDb } from '@common/infra/db'
 import { keywords } from '@entities/keyword/db/schema'
 import { keywordCanon } from '@entities/keyword/db/schema.canon'
@@ -11,6 +11,7 @@ export const Route = createFileRoute('/api/schedules/metrics')({
     handlers: {
       POST: safeHandler(async ({ request }) => {
         await requireSession(request)
+        await requireAdmin(request)
         if (!hasDatabase()) return json({ queued: 0 })
         const db = getDb()
         // Collect in-use canons from project keywords
@@ -42,4 +43,3 @@ export const Route = createFileRoute('/api/schedules/metrics')({
     }
   }
 })
-

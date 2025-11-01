@@ -7,7 +7,9 @@ type Recipe = { nodes: Record<string, { onSuccess?: string[] }> }
 const DEFAULT_RECIPE: Recipe = {
   nodes: {
     crawl: { onSuccess: ['discovery'] },
-    discovery: { onSuccess: ['plan'] },
+    // Per workflow: discovery → score → plan
+    discovery: { onSuccess: ['score'] },
+    score: { onSuccess: ['plan'] },
     plan: { onSuccess: [] },
     generate: { onSuccess: [] },
     enrich: { onSuccess: [] }

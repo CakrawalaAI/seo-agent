@@ -11,7 +11,7 @@ export const Route = createFileRoute('/api/articles/$articleId/')({
     handlers: {
       GET: async ({ params, request }) => {
         await requireSession(request)
-        const article = articlesRepo.get(params.articleId)
+        const article = await articlesRepo.get(params.articleId)
         if (!article) {
           if (hasDatabase()) {
             try {
@@ -32,7 +32,7 @@ export const Route = createFileRoute('/api/articles/$articleId/')({
       },
       PATCH: safeHandler(async ({ params, request }) => {
         const patch = await request.json().catch(() => ({}))
-        const current = articlesRepo.get(params.articleId)
+        const current = await articlesRepo.get(params.articleId)
         if (!current) return httpError(404, 'Not found')
         await requireProjectAccess(request, String(current.projectId))
         if (hasDatabase()) {
@@ -41,7 +41,7 @@ export const Route = createFileRoute('/api/articles/$articleId/')({
             await db.update(articles).set({ ...patch, updatedAt: new Date() as any }).where(eq(articles.id, params.articleId))
           } catch {}
         }
-        const updated = articlesRepo.update(params.articleId, patch)
+        const updated = await articlesRepo.update(params.articleId, patch)
         if (!updated) return httpError(404, 'Not found')
         return json(updated)
       })

@@ -1,7 +1,7 @@
 import { createFileRoute } from '@tanstack/react-router'
 import { httpError, json } from '@app/api-utils'
 import { db } from '@common/infra/db'
-import { orgs, orgUsage } from '@entities/org/db/schema'
+import { orgs } from '@entities/org/db/schema'
 import { eq } from 'drizzle-orm'
 
 /**
@@ -12,7 +12,7 @@ import { eq } from 'drizzle-orm'
  * - subscription.created → set plan, entitlements
  * - subscription.updated → update plan, entitlements
  * - subscription.canceled → downgrade to free
- * - order.paid → detect billing cycle renewal, reset usage
+ * - order.paid → detect billing cycle renewal
  */
 export const Route = createFileRoute('/api/billing/webhooks/polar')({
   server: {
@@ -138,35 +138,7 @@ async function handleSubscriptionUpdate(orgId: string, subscription: any): Promi
     })
     .where(eq(orgs.id, orgId))
 
-  // Reset usage if billing cycle changed
-  const existingUsage = await db.select().from(orgUsage).where(eq(orgUsage.orgId, orgId)).limit(1)
-
-  if (existingUsage.length === 0) {
-    // Create usage row
-    await db.insert(orgUsage).values({
-      orgId,
-      cycleStart: currentPeriodStart ? new Date(currentPeriodStart) : new Date(),
-      postsUsed: 0,
-      updatedAt: new Date()
-    })
-  } else {
-    const lastCycleStart = existingUsage[0].cycleStart
-
-    // If period changed, reset usage
-    if (currentPeriodStart && lastCycleStart) {
-      const newCycleDate = new Date(currentPeriodStart)
-      if (newCycleDate > lastCycleStart) {
-        await db
-          .update(orgUsage)
-          .set({
-            cycleStart: newCycleDate,
-            postsUsed: 0,
-            updatedAt: new Date()
-          })
-          .where(eq(orgUsage.orgId, orgId))
-      }
-    }
-  }
+  // org_usage removed: no usage reset
 
   console.log('[Polar Webhook] Updated org entitlements:', {
     orgId,
@@ -199,7 +171,6 @@ async function handleSubscriptionCanceled(orgId: string): Promise<void> {
 
 /**
  * Handle order.paid (renewal or one-time purchase).
- * Resets usage if billing cycle changed.
  */
 async function handleOrderPaid(orgId: string, order: any): Promise<void> {
   const subscriptionId = order.subscription_id

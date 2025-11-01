@@ -42,31 +42,3 @@ services:
 
 volumes:
   pgdata:
-  worker-general:
-    build:
-      context: .
-      dockerfile: Dockerfile.worker-general
-    environment:
-      RABBITMQ_URL: amqp://user:password@rabbitmq:5672
-      DATABASE_URL: postgres://user:password@postgres:5432/dev-seo-agent
-      SEOA_QUEUE_NAME: seo_jobs.general
-      SEOA_BINDING_KEY: discovery.*,score.*,plan.*,generate.*,publish.*,metrics.*,serp.*,competitors.*,enrich.*,feedback.*
-    depends_on:
-      - rabbitmq
-      - postgres
-    restart: unless-stopped
-
-  worker-crawler:
-    build:
-      context: .
-      dockerfile: Dockerfile.worker-crawler
-    environment:
-      RABBITMQ_URL: amqp://user:password@rabbitmq:5672
-      DATABASE_URL: postgres://user:password@postgres:5432/dev-seo-agent
-      SEOA_QUEUE_NAME: seo_jobs.crawler
-      SEOA_BINDING_KEY: crawl.*
-      SEOA_CRAWL_RENDER: playwright
-    depends_on:
-      - rabbitmq
-      - postgres
-    restart: unless-stopped

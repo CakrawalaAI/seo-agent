@@ -2,12 +2,15 @@ import { useMutation, useQuery } from '@tanstack/react-query'
 import { Button } from '@src/common/ui/button'
 import type { MeSession } from '@entities'
 import { fetchSession } from '@entities/org/service'
+import { PipelineTimelineCard } from './pipeline-timeline'
+import { getPlanItems, getProjectArticles, getProjectKeywords } from '@entities/project/service'
 
 export function DashboardScreen(): JSX.Element {
   const { data } = useQuery<MeSession>({ queryKey: ['me'], queryFn: fetchSession })
   const activeOrg = data?.activeOrg ?? null
   const entitlements = data?.entitlements ?? null
   const usage = data?.usage ?? null
+  const activeProjectId = (data as any)?.activeProjectId ?? null
 
   const subscribeMutation = useMutation({
     mutationFn: async () => {
@@ -62,7 +65,66 @@ export function DashboardScreen(): JSX.Element {
           portalPending={portalMutation.isPending}
           usage={usage}
         />
+        {activeProjectId ? (
+          <>
+            <ProjectSummaryCard projectId={activeProjectId} />
+            <PipelineTimelineCard projectId={activeProjectId} />
+          </>
+        ) : (
+          <section className="rounded-lg border bg-card p-6 shadow-sm">
+            <h2 className="text-lg font-semibold">Project Pipeline</h2>
+            <p className="text-sm text-muted-foreground mt-1">Create a project to view onboarding phases and progress.</p>
+          </section>
+        )}
       </div>
+    </div>
+  )
+}
+
+function ProjectSummaryCard({ projectId }: { projectId: string }) {
+  const keywordsQ = useQuery({
+    queryKey: ['dash.keywords', projectId],
+    queryFn: async () => (await getProjectKeywords(projectId, 1000)).items,
+    refetchInterval: 10000
+  })
+  const articlesQ = useQuery({
+    queryKey: ['dash.articles', projectId],
+    queryFn: async () => (await getProjectArticles(projectId, 300)).items,
+    refetchInterval: 10000
+  })
+  const planQ = useQuery({
+    queryKey: ['dash.plan', projectId],
+    queryFn: async () => (await getPlanItems(projectId, 120)).items,
+    refetchInterval: 15000
+  })
+
+  const keywords = keywordsQ.data || []
+  const articles = articlesQ.data || []
+  const plan = planQ.data || []
+  const published = articles.filter((a: any) => a.status === 'published').length
+  const drafts = articles.filter((a: any) => a.status !== 'published').length
+  const todayYmd = new Date().toISOString().slice(0, 10)
+  const scheduled = plan.filter((p: any) => typeof p.plannedDate === 'string' && p.plannedDate >= todayYmd).length
+
+  return (
+    <section className="rounded-lg border bg-card p-6 shadow-sm">
+      <h2 className="text-lg font-semibold">Project Summary</h2>
+      <p className="text-sm text-muted-foreground">Key counts for the active project</p>
+      <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <Stat label="Keywords" value={keywords.length} />
+        <Stat label="Drafts" value={drafts} />
+        <Stat label="Published" value={published} />
+        <Stat label="Scheduled" value={scheduled} />
+      </div>
+    </section>
+  )
+}
+
+function Stat({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="rounded-md border p-4">
+      <div className="text-xs text-muted-foreground">{label}</div>
+      <div className="mt-1 text-2xl font-semibold">{value}</div>
     </div>
   )
 }

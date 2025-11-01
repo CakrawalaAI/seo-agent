@@ -1,4 +1,4 @@
-import { pgTable, text, timestamp, index, integer } from 'drizzle-orm/pg-core'
+import { pgTable, text, timestamp, index, integer, jsonb } from 'drizzle-orm/pg-core'
 
 export const projects = pgTable(
   'projects',

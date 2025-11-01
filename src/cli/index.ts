@@ -266,33 +266,39 @@ export async function runCli(args: string[] = process.argv.slice(2)) {
     }
     case 'keyword-refresh': {
       const baseUrl = process.env.SEO_AGENT_BASE_URL || 'http://localhost:5173'
+      const canonId = getFlag(args, '--canon') || ''
       const phrase = getFlag(args, '--phrase') || ''
       const language = getFlag(args, '--language') || 'en-US'
       const locationCode = getFlag(args, '--location') || '2840'
       const what = getFlag(args, '--what') || 'metrics'
       const force = getFlag(args, '--force') || 'false'
-      if (!phrase) {
-        console.error('usage: seo keyword-refresh --phrase "best crm" [--language en-US] [--location 2840] [--what metrics|serp|both] [--force true]')
+      if (!canonId && !phrase) {
+        console.error('usage: seo keyword-refresh --canon <id> | --phrase "best crm" [--language en-US] [--location 2840] [--what metrics|serp|both] [--force true]')
         process.exitCode = 1
         return
       }
       const url = new URL('/api/keyword/refresh', baseUrl).toString()
-      const res = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ phrase, language, locationCode: Number(locationCode), what, force: force === 'true' }) })
+      const body: any = { language, locationCode: Number(locationCode), what, force: force === 'true' }
+      if (canonId) body.canonId = canonId; else body.phrase = phrase
+      const res = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) })
       if (!res.ok) { console.error(`keyword-refresh failed: HTTP ${res.status}`); process.exitCode = 1; return }
       console.log('queued')
       return
     }
     case 'serp-refresh': {
       const baseUrl = process.env.SEO_AGENT_BASE_URL || 'http://localhost:5173'
+      const canonId = getFlag(args, '--canon') || ''
       const phrase = getFlag(args, '--phrase') || ''
       const language = getFlag(args, '--language') || 'en-US'
       const locationCode = getFlag(args, '--location') || '2840'
       const device = getFlag(args, '--device') || 'desktop'
       const topK = getFlag(args, '--topK') || '10'
       const force = getFlag(args, '--force') || 'false'
-      if (!phrase) { console.error('usage: seo serp-refresh --phrase "best crm" [--language en-US] [--location 2840] [--device desktop|mobile] [--topK 10] [--force true]'); process.exitCode = 1; return }
+      if (!canonId && !phrase) { console.error('usage: seo serp-refresh --canon <id> | --phrase "best crm" [--language en-US] [--location 2840] [--device desktop|mobile] [--topK 10] [--force true]'); process.exitCode = 1; return }
       const url = new URL('/api/serp/refresh', baseUrl).toString()
-      const res = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ phrase, language, locationCode: Number(locationCode), device, topK: Number(topK), force: force === 'true' }) })
+      const body: any = { language, locationCode: Number(locationCode), device, topK: Number(topK), force: force === 'true' }
+      if (canonId) body.canonId = canonId; else body.phrase = phrase
+      const res = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) })
       if (!res.ok) { console.error(`serp-refresh failed: HTTP ${res.status}`); process.exitCode = 1; return }
       console.log('queued')
       return

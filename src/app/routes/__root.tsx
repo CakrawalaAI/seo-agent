@@ -33,7 +33,16 @@ export const Route = createRootRouteWithContext<RouterContext>()({
     ]
   }),
   component: RootComponent,
-  notFoundComponent: NotFound
+  notFoundComponent: NotFound,
+  errorComponent: ({ error }) => (
+    <div className="mx-auto max-w-2xl px-6 py-24">
+      <h1 className="text-2xl font-semibold">Something went wrong</h1>
+      <p className="mt-2 text-sm text-destructive">{(error as Error)?.message || String(error)}</p>
+      <a href="/" className="mt-6 inline-block text-sm font-medium underline">
+        Go home
+      </a>
+    </div>
+  )
 })
 
 function RootComponent(): JSX.Element {

@@ -27,7 +27,7 @@ export const Route = createFileRoute('/api/projects/$projectId/articles')({
             return json({ items: rows })
           } catch {}
         }
-        const items = articlesRepo.list(params.projectId, Number.isFinite(limit) ? limit : 90)
+        const items = await articlesRepo.list(params.projectId, Number.isFinite(limit) ? limit : 90)
         return json({ items })
       }
     }

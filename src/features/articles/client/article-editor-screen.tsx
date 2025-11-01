@@ -17,7 +17,9 @@ import {
   updateArticle,
   type UpdateArticlePayload
 } from '@entities/article/service'
-import type { Article, ProjectIntegration, ProjectSnapshot } from '@entities'
+import type { Article, ProjectIntegration, ProjectSnapshot, Project } from '@entities'
+import { getBundleList, getBundleFile, serpRefresh, getProject } from '@entities/project/service'
+import { badgeClassForTone } from '@features/projects/shared/helpers'
 
 type OutlineSection = {
   heading: string
@@ -69,6 +71,10 @@ export function ArticleEditorScreen({ projectId, articleId }: ArticleEditorScree
 
   const article = articleQuery.data ?? null
   const integrations: ProjectIntegration[] = snapshotQuery.data?.integrations ?? []
+  const projectQ = useQuery<Project>({
+    queryKey: ['project', projectId],
+    queryFn: () => getProject(projectId)
+  })
 
   const connectedIntegrations = useMemo(
     () => integrations.filter((integration) => integration.status === 'connected'),
@@ -129,6 +135,36 @@ export function ArticleEditorScreen({ projectId, articleId }: ArticleEditorScree
       queryClient.invalidateQueries({ queryKey: ['projectSnapshot', projectId] })
     },
     onError: (error) => pushNotice('error', extractErrorMessage(error))
+  })
+
+  // Execution loop state
+  const bundleQuery = useQuery({
+    queryKey: ['bundle.list', projectId],
+    queryFn: () => getBundleList(projectId),
+    refetchInterval: 15000
+  })
+  const [evalScore, setEvalScore] = useState<number | null>(null)
+  const [evalSuggestions, setEvalSuggestions] = useState<string[]>([])
+  useEffect(() => {
+    const loadEval = async () => {
+      try {
+        const { content } = await getBundleFile(projectId, `articles/eval/${articleId}.json`)
+        const json = JSON.parse(content)
+        if (typeof json?.score === 'number') setEvalScore(json.score)
+        if (Array.isArray(json?.suggestions)) setEvalSuggestions(json.suggestions)
+      } catch {}
+    }
+    loadEval()
+  }, [projectId, articleId, bundleQuery.data?.files])
+  const serpRefreshMutation = useMutation({
+    mutationFn: async () => {
+      const loc = Number(projectQ.data?.serpLocationCode || projectQ.data?.metricsLocationCode || 2840)
+      const device = (projectQ.data?.serpDevice as any) || 'desktop'
+      const phrase = article?.title || 'homepage'
+      const language = projectQ.data?.defaultLocale || 'en-US'
+      await serpRefresh({ phrase, language, locationCode: loc, device, topK: 10, force: true })
+    },
+    onSuccess: () => pushNotice('success', 'Deep SERP refreshed')
   })
 
   const handleSave = () => {
@@ -195,6 +231,52 @@ export function ArticleEditorScreen({ projectId, articleId }: ArticleEditorScree
           </div>
         </div>
       </header>
+
+      {/* Execution timeline */}
+      <section className="rounded-lg border bg-card p-4 shadow-sm">
+        <div className="flex items-center justify-between gap-3">
+          <h3 className="text-sm font-semibold text-foreground">Execution Loop</h3>
+          <Button
+            type="button"
+            className="rounded-md border border-input px-3 py-1.5 text-xs font-medium"
+            onClick={() => serpRefreshMutation.mutate()}
+            disabled={serpRefreshMutation.isPending}
+          >
+            {serpRefreshMutation.isPending ? 'Refreshing SERP…' : 'Refresh SERP now'}
+          </Button>
+        </div>
+        <ol className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+          {[
+            { key: 'serp', label: 'Deep SERP', status: 'info' as const },
+            { key: 'competitors', label: 'Competitors', status: (bundleQuery.data?.files || []).some((f: string) => f.startsWith('competitors/pages')) ? 'done' : 'idle' as const },
+            { key: 'draft', label: 'Draft', status: article?.bodyHtml ? 'done' : 'idle' as const },
+            { key: 'enrich', label: 'Enrich', status: (bundleQuery.data?.files || []).some((f: string) => f.startsWith(`articles/drafts/${articleId}`) && f.endsWith('.json')) ? 'done' : 'idle' as const }
+          ].map((step) => (
+            <li key={step.key} className="flex items-center justify-between rounded-md border px-3 py-2 text-xs">
+              <span className="font-medium text-foreground">{step.label}</span>
+              <span className={`rounded-full px-2 py-0.5 ${step.status === 'done' ? 'bg-emerald-100 text-emerald-800' : step.status === 'info' ? 'bg-blue-100 text-blue-800' : 'bg-muted text-foreground'}`}>{step.status === 'done' ? 'Done' : step.status === 'info' ? 'Available' : 'Pending'}</span>
+            </li>
+          ))}
+        </ol>
+        <div className="mt-3 grid gap-3 sm:grid-cols-2">
+          <div className="rounded-md border p-3">
+            <div className="text-xs text-muted-foreground">Article Score</div>
+            <div className="mt-1 text-2xl font-semibold">{evalScore != null ? evalScore : '—'}</div>
+          </div>
+          <div className="rounded-md border p-3">
+            <div className="text-xs text-muted-foreground">Suggestions</div>
+            {evalSuggestions.length ? (
+              <ul className="mt-1 list-disc pl-5 text-xs text-muted-foreground">
+                {evalSuggestions.slice(0, 5).map((s, i) => (
+                  <li key={i}>{s}</li>
+                ))}
+              </ul>
+            ) : (
+              <div className="mt-1 text-xs text-muted-foreground">None</div>
+            )}
+          </div>
+        </div>
+      </section>
 
       {notices.length > 0 ? (
         <section className="flex flex-col gap-2">

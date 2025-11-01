@@ -58,3 +58,8 @@ PostgreSQL
 - Date pickers: compose `@src/common/ui/date-picker` (Calendar + Popover).
 - Combobox: compose `@src/common/ui/combobox` (Popover + Command).
 - Selects: use `@src/common/ui/select` (no native `<select>`).
+
+## Networking Defaults
+- Outbound DNS is configured to prefer IPv4 by default to avoid IPv6 egress/DNS instability with external APIs (OpenAI, DataForSEO, etc.).
+- This is enforced at runtime via `dns.setDefaultResultOrder('ipv4first')` in `src/common/infra/network.ts` and loaded by workers and providers automatically.
+- Do not require users to export extra env for this. Only set `SEOA_IPV4_FIRST=0` if you explicitly need to disable IPv4-first (rare).

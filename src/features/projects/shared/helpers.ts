@@ -56,6 +56,14 @@ export function computeOpportunityBadge(keyword: Keyword) {
   return { label: 'Low', tone: 'blue' as const }
 }
 
+export function computeRankabilityBadge(keyword: Keyword) {
+  const r = (keyword.metricsJson as any)?.rankability
+  if (typeof r !== 'number' || Number.isNaN(r)) return { label: '—', tone: 'slate' as const }
+  if (r >= 70) return { label: 'High', tone: 'emerald' as const }
+  if (r >= 40) return { label: 'Medium', tone: 'amber' as const }
+  return { label: 'Low', tone: 'blue' as const }
+}
+
 export function resolvePlanStatus(planItem: PlanItem, articlesByPlanId: Map<string, Article>) {
   const article = articlesByPlanId.get(planItem.id)
   if (article?.status === 'published') {

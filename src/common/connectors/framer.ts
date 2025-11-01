@@ -1,6 +1,7 @@
 import type { Article } from '@entities/article/domain/article'
 import type { IntegrationConfig } from '@entities/integration/domain/integration'
 import type { CMSConnector, PublishResult } from './interface'
+import { config } from '@common/config'
 import { buildPortableArticle } from './interface'
 
 /**
@@ -28,8 +29,8 @@ class FramerConnector implements CMSConnector {
   readonly name = 'Framer'
   readonly type = 'framer'
 
-  async publish(article: Article, config: IntegrationConfig): Promise<PublishResult | null> {
-    const framerConfig = config as FramerConfig
+  async publish(article: Article, cfg: IntegrationConfig): Promise<PublishResult | null> {
+    const framerConfig = cfg as FramerConfig
 
     if (!framerConfig.siteId) {
       console.error('[Framer] Missing required config: siteId')
@@ -44,6 +45,9 @@ class FramerConnector implements CMSConnector {
     // 2. Use Framer plugin/extension API (if they release one)
     // 3. Push to Framer CMS via undocumented API (not recommended)
 
+    if (!config.providers.allowStubs) {
+      throw new Error('Framer connector not implemented; enable stubs in dev or use webhook/webflow')
+    }
     console.warn('[Framer] Connector not yet implemented, returning stub')
     return {
       externalId: `framer_stub_${article.id}`,

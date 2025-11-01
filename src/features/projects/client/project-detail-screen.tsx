@@ -384,24 +384,6 @@ export function ProjectDetailScreen({ projectId, tab }: ProjectDetailScreenProps
     onError: (error) => pushNotice('error', extractErrorMessage(error))
   })
 
-  if (projectQuery.isLoading) {
-    return <p className="text-sm text-muted-foreground">Loading project…</p>
-  }
-
-  if (projectQuery.isError || !project) {
-    return (
-      <div className="flex flex-col gap-4">
-        <p className="text-sm text-destructive">Project not found. Try returning to the projects list.</p>
-        <Link
-          to="/projects"
-          className="inline-flex w-max items-center gap-2 rounded-md border border-input px-3 py-1.5 text-sm font-medium text-primary hover:bg-muted"
-        >
-          ← Back to projects
-        </Link>
-      </div>
-    )
-  }
-
   const crawlPages = crawlPagesQuery.data?.items ?? []
   const keywords = keywordsQuery.data?.items ?? []
   const mergedPlanItems = useMemo(() => {
@@ -445,6 +427,24 @@ export function ProjectDetailScreen({ projectId, tab }: ProjectDetailScreenProps
   const planEditItem = planEditOpen ? planEditState.item : null
   const planEditError = planEditState.status === 'error' ? planEditState.message : null
   const planEditSubmitting = planEditState.status === 'submitting'
+
+  if (projectQuery.isLoading) {
+    return <p className="text-sm text-muted-foreground">Loading project…</p>
+  }
+
+  if (projectQuery.isError || !project) {
+    return (
+      <div className="flex flex-col gap-4">
+        <p className="text-sm text-destructive">Project not found. Try returning to the projects list.</p>
+        <Link
+          to="/projects"
+          className="inline-flex w-max items-center gap-2 rounded-md border border-input px-3 py-1.5 text-sm font-medium text-primary hover:bg-muted"
+        >
+          ← Back to projects
+        </Link>
+      </div>
+    )
+  }
 
   return (
       <div className="mx-auto flex w-full max-w-6xl flex-col gap-6">

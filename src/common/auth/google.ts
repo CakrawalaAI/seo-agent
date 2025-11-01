@@ -16,6 +16,14 @@ export function getBaseUrl(request: Request): string {
   return base
 }
 
+export function sanitizeRedirect(redirectTo?: string | null): string {
+  const def = '/dashboard'
+  if (!redirectTo || typeof redirectTo !== 'string') return def
+  if (!redirectTo.startsWith('/')) return def
+  if (redirectTo.startsWith('//')) return def
+  return redirectTo
+}
+
 export function buildGoogleAuthUrl(request: Request, redirectTo?: string) {
   const clientId = process.env.GOOGLE_CLIENT_ID!
   const redirectUri = `${getBaseUrl(request)}/api/auth/callback/google`
@@ -24,7 +32,7 @@ export function buildGoogleAuthUrl(request: Request, redirectTo?: string) {
   const url = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${encodeURIComponent(clientId)}&response_type=code&redirect_uri=${encodeURIComponent(
     redirectUri,
   )}&scope=${scope}&state=${encodeURIComponent(state)}&access_type=offline&prompt=consent`
-  const cookie = setTempCookie({ state, redirectTo })
+  const cookie = setTempCookie({ state, redirectTo: sanitizeRedirect(redirectTo) })
   return { url, cookie }
 }
 

@@ -21,7 +21,7 @@ export const Route = createFileRoute('/api/jobs/$jobId')({
             if (row) return json(row)
           } catch {}
         }
-        const job = getJob(id)
+        const job = await getJob(id)
         if (!job) return httpError(404, 'Not found')
         return json(job)
       })

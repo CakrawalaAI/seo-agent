@@ -1,4 +1,5 @@
 import { getSerpProvider } from '@common/providers/registry'
+import { config } from '@common/config'
 import { hasDatabase, getDb } from '@common/infra/db'
 import { serpSnapshot } from '@entities/serp/db/schema'
 import { and, eq, gt } from 'drizzle-orm'
@@ -16,8 +17,8 @@ export async function ensureSerp(opts: {
   force?: boolean
 }) {
   // 1) DB cache check (TTL)
-  const ttlDays = Math.max(1, Number(process.env.SEOA_SERP_TTL_DAYS || '14'))
-  const defaultTopK = Math.max(1, Number(process.env.SEOA_SERP_K || '10'))
+  const ttlDays = Math.max(1, Number(config.serp.ttlDays))
+  const defaultTopK = Math.max(1, Number(config.serp.topKDefault))
   const ttlMs = ttlDays * 24 * 60 * 60 * 1000
   if (hasDatabase() && !opts.force) {
     try {

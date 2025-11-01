@@ -3,7 +3,7 @@ import { createFileRoute } from '@tanstack/react-router'
 import { json, httpError, safeHandler } from '@app/api-utils'
 import { planRepo } from '@entities/plan/repository'
 import { hasDatabase, getDb } from '@common/infra/db'
-import { planItems } from '@entities/plan/db/schema'
+import { articles } from '@entities/article/db/schema'
 import { eq } from 'drizzle-orm'
 
 export const Route = createFileRoute('/api/plan/$planId')({
@@ -23,17 +23,10 @@ export const Route = createFileRoute('/api/plan/$planId')({
         if (hasTitle) update.title = body.title
         if (hasOutline) update.outlineJson = body.outline
         if (hasStatus) update.status = body.status
-        if (hasDatabase()) {
-          try {
-            const db = getDb()
-            await db.update(planItems).set(update).where(eq(planItems.id, params.planId))
-          } catch {}
-        }
+        if (hasDatabase()) { try { const db = getDb(); await db.update(articles).set(update).where(eq(articles.id, params.planId)) } catch {} }
         let updated: any = null
-        if (hasPlannedDate) updated = planRepo.updateDate(params.planId, body.plannedDate)
-        if (hasTitle || hasOutline || hasStatus) {
-          updated = planRepo.updateFields(params.planId, { title: hasTitle ? body.title : undefined, outlineJson: hasOutline ? body.outline : undefined, status: hasStatus ? body.status : undefined })
-        }
+        if (hasPlannedDate) updated = await planRepo.updateDate(params.planId, body.plannedDate)
+        if (hasTitle || hasOutline || hasStatus) updated = await planRepo.updateFields(params.planId, { title: hasTitle ? body.title : undefined, outlineJson: hasOutline ? body.outline : undefined, status: hasStatus ? body.status : undefined })
         if (!updated) return httpError(404, 'Plan item not found')
         return json(updated)
       })

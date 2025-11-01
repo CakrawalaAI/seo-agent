@@ -42,7 +42,12 @@ export async function enrichMetrics(inputs: MetricInput[], locale: string, locat
       // fallthrough to pseudo
     }
   }
-  // Deterministic pseudo metrics fallback for missing
+  // No creds or provider failed and stubs disabled → throw
+  const { config } = await import('@common/config')
+  if (!config.providers.allowStubs) {
+    throw new Error('Metrics enrichment failed and stubs disabled')
+  }
+  // Fallback pseudo metrics (only when explicitly allowed)
   const pseudo = missing.map((i) => ({ phrase: i.phrase, metrics: pseudoMetrics(i.phrase) }))
   const { setMetric: setCached } = await import('./metric-cache')
   for (const p of pseudo) {

@@ -1,6 +1,6 @@
 // @ts-nocheck
 import { createFileRoute } from '@tanstack/react-router'
-import { json } from '@app/api-utils'
+import { json, requireSession, requireProjectAccess } from '@app/api-utils'
 import { keywordsRepo } from '@entities/keyword/repository'
 import { hasDatabase, getDb } from '@common/infra/db'
 import { keywords } from '@entities/keyword/db/schema'
@@ -10,6 +10,8 @@ export const Route = createFileRoute('/api/projects/$projectId/keywords')({
   server: {
     handlers: {
       GET: async ({ params, request }) => {
+        await requireSession(request)
+        await requireProjectAccess(request, params.projectId)
         const url = new URL(request.url)
         const status = url.searchParams.get('status') || undefined
         const limit = Number(url.searchParams.get('limit') || '100')
@@ -24,7 +26,7 @@ export const Route = createFileRoute('/api/projects/$projectId/keywords')({
             return json({ items: rows })
           } catch {}
         }
-        const items = keywordsRepo.list(params.projectId, {
+        const items = await keywordsRepo.list(params.projectId, {
           status: status ?? 'all',
           limit: Number.isFinite(limit) ? limit : 100
         })

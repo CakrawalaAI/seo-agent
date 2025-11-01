@@ -1,6 +1,7 @@
 import type { Article } from '@entities/article/domain/article'
 import type { IntegrationConfig } from '@entities/integration/domain/integration'
 import type { CMSConnector, PublishResult } from './interface'
+import { config } from '@common/config'
 import { buildPortableArticle } from './interface'
 
 /**
@@ -31,8 +32,8 @@ class WordPressConnector implements CMSConnector {
   readonly name = 'WordPress'
   readonly type = 'wordpress'
 
-  async publish(article: Article, config: IntegrationConfig): Promise<PublishResult | null> {
-    const wpConfig = config as WordPressConfig
+  async publish(article: Article, cfg: IntegrationConfig): Promise<PublishResult | null> {
+    const wpConfig = cfg as WordPressConfig
 
     if (!wpConfig.siteUrl || !wpConfig.apiToken) {
       console.error('[WordPress] Missing required config: siteUrl, apiToken')
@@ -64,6 +65,9 @@ class WordPressConnector implements CMSConnector {
     //   body: JSON.stringify(payload)
     // })
 
+    if (!config.providers.allowStubs) {
+      throw new Error('WordPress connector not implemented; enable stubs in dev or use webhook/webflow')
+    }
     console.warn('[WordPress] Connector not yet implemented, returning stub')
     return {
       externalId: `wp_stub_${article.id}`,

@@ -8,8 +8,8 @@ import * as bundle from '@common/bundle/store'
  * Uses the connector registry to dispatch to the appropriate CMS connector.
  */
 export async function processPublish(payload: { articleId: string; integrationId: string }) {
-  const article = articlesRepo.get(payload.articleId)
-  const integration = integrationsRepo.get(payload.integrationId)
+  const article = await articlesRepo.get(payload.articleId)
+  const integration = await integrationsRepo.get(payload.integrationId)
 
   if (!article || !integration) {
     console.error('[Publish] Article or integration not found', { articleId: payload.articleId, integrationId: payload.integrationId })
@@ -30,7 +30,7 @@ export async function processPublish(payload: { articleId: string; integrationId
   }
 
   // Update article with publish result
-  articlesRepo.update(article.id, {
+  await articlesRepo.update(article.id, {
     status: 'published',
     cmsExternalId: result.externalId ?? null,
     url: result.url ?? null,

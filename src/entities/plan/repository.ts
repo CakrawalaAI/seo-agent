@@ -1,86 +1,86 @@
 import type { PlanItem } from './domain/plan-item'
 import { clusterKey } from '@common/keyword/cluster'
-import { keywordsRepo } from '@entities/keyword/repository'
 import { hasDatabase, getDb } from '@common/infra/db'
-import { planItems as planItemsTable } from './db/schema'
-import { eq } from 'drizzle-orm'
-
-const byProject = new Map<string, PlanItem[]>()
+import { keywords as keywordsTable } from '@entities/keyword/db/schema'
+import { articles as articlesTable } from '@entities/article/db/schema'
+import { eq, and, desc, asc } from 'drizzle-orm'
 
 export const planRepo = {
-  createPlan(projectId: string, days: number): { jobId: string; created: number } {
-    const todayIso = new Date().toISOString().slice(0, 10)
+  async createPlan(projectId: string, days: number): Promise<{ jobId: string; created: number }> {
     const millisPerDay = 24 * 60 * 60 * 1000
-    // pick top N by opportunity (fallback: first N)
-    const all = keywordsRepo.list(projectId, { status: 'all', limit: 1000 })
-    const sorted = [...all].sort((a, b) => (b.opportunity ?? 0) - (a.opportunity ?? 0))
-    const unique: typeof sorted = []
+    if (!hasDatabase()) return { jobId: genId('job'), created: 0 }
+    const db = getDb()
+    // Keywords by opportunity desc
+    const kws: any[] = await db.select().from(keywordsTable).where(eq(keywordsTable.projectId, projectId)).orderBy(desc(keywordsTable.opportunity as any)).limit(Math.max(1, days * 3))
+    const unique: any[] = []
     const seenCluster = new Set<string>()
-    for (const k of sorted) {
+    for (const k of kws) {
       const ck = clusterKey(k.phrase)
       if (seenCluster.has(ck)) continue
       seenCluster.add(ck)
       unique.push(k)
       if (unique.length >= Math.max(1, days)) break
     }
-    const items: PlanItem[] = unique.map((kw, idx) => {
-      const plannedDate = new Date(Date.now() + idx * millisPerDay).toISOString().slice(0, 10)
-      return {
-        id: genId('plan'),
-        projectId,
-        keywordId: (kw as any).id ?? undefined,
-        title: kw.phrase,
-        plannedDate: plannedDate || todayIso,
-        status: 'planned',
-        outlineJson: null,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString()
-      }
-    })
-    byProject.set(projectId, items)
-    if (hasDatabase()) void (async () => { try { const db = getDb(); await db.insert(planItemsTable).values(items as any).onConflictDoNothing?.(); } catch {} })()
-    return { jobId: genId('job'), created: items.length }
-  },
-  list(projectId: string, limit = 90): PlanItem[] {
-    const all = byProject.get(projectId) ?? []
-    const sorted = [...all].sort((a, b) => a.plannedDate.localeCompare(b.plannedDate))
-    return sorted.slice(0, limit)
-  },
-  updateDate(planItemId: string, plannedDate: string): PlanItem | null {
-    for (const [projectId, items] of byProject.entries()) {
-      const idx = items.findIndex((i) => i.id === planItemId)
-      if (idx >= 0) {
-        const updated: PlanItem = { ...items[idx]!, plannedDate, updatedAt: new Date().toISOString() }
-        items[idx] = updated
-        byProject.set(projectId, items)
-        if (hasDatabase()) void (async () => { try { const db = getDb(); await db.update(planItemsTable).set({ plannedDate, updatedAt: new Date() as any }).where(eq(planItemsTable.id, planItemId)); } catch {} })()
-        return updated
-      }
+    const baseDate = new Date()
+    const items: PlanItem[] = []
+    const values: any[] = []
+    for (let idx = 0; idx < unique.length; idx++) {
+      const kw = unique[idx] as any
+      const plannedDate = new Date(baseDate.getTime() + idx * millisPerDay).toISOString().slice(0, 10)
+      const id = genId('plan')
+      items.push({ id, projectId, keywordId: kw.id, title: kw.phrase, plannedDate, status: 'planned', outlineJson: null, createdAt: undefined as any, updatedAt: undefined as any })
+      values.push({ id, projectId, planItemId: id, keywordId: kw.id, title: kw.phrase, plannedDate, status: 'planned' })
     }
-    return null
+    if (!values.length) return { jobId: genId('job'), created: 0 }
+    await db.insert(articlesTable).values(values as any).onConflictDoNothing?.()
+    return { jobId: genId('job'), created: values.length }
   },
-  updateFields(planItemId: string, patch: Partial<Pick<PlanItem, 'title' | 'outlineJson' | 'status'>>): PlanItem | null {
-    for (const [projectId, items] of byProject.entries()) {
-      const idx = items.findIndex((i) => i.id === planItemId)
-      if (idx >= 0) {
-        const updated: PlanItem = { ...items[idx]!, ...patch, updatedAt: new Date().toISOString() }
-        items[idx] = updated
-        byProject.set(projectId, items)
-        if (hasDatabase()) void (async () => { try { const db = getDb(); const set: any = { updatedAt: new Date() as any }; if (typeof patch.title === 'string') set.title = patch.title; if (patch.outlineJson) set.outlineJson = patch.outlineJson as any; if (typeof patch.status === 'string') set.status = patch.status; await db.update(planItemsTable).set(set).where(eq(planItemsTable.id, planItemId)); } catch {} })()
-        return updated
-      }
-    }
-    return null
+  async list(projectId: string, limit = 90): Promise<PlanItem[]> {
+    if (!hasDatabase()) return []
+    const db = getDb()
+    const rows = await db
+      .select()
+      .from(articlesTable)
+      .where(and(eq(articlesTable.projectId, projectId), eq(articlesTable.status as any, 'planned' as any)))
+      .orderBy(asc(articlesTable.plannedDate as any))
+      .limit(limit)
+    // Map Article -> PlanItem shape
+    return (rows as any[]).map((r) => ({ id: r.id, projectId: r.projectId, keywordId: r.keywordId ?? null, title: r.title ?? '', plannedDate: r.plannedDate ?? '', status: (r.status as any) ?? 'planned', outlineJson: (r as any).outlineJson ?? null, createdAt: r.createdAt, updatedAt: r.updatedAt })) as any
   },
-  findById(planItemId: string): { projectId: string; item: PlanItem } | null {
-    for (const [projectId, items] of byProject.entries()) {
-      const found = items.find((i) => i.id === planItemId)
-      if (found) return { projectId, item: found }
-    }
-    return null
+  async updateDate(planItemId: string, plannedDate: string): Promise<PlanItem | null> {
+    if (!hasDatabase()) return null
+    const db = getDb()
+    await db.update(articlesTable).set({ plannedDate, updatedAt: new Date() as any }).where(eq(articlesTable.id, planItemId))
+    const rows = await db.select().from(articlesTable).where(eq(articlesTable.id, planItemId)).limit(1)
+    const r: any = rows?.[0]
+    if (!r) return null
+    return { id: r.id, projectId: r.projectId, keywordId: r.keywordId, title: r.title, plannedDate: r.plannedDate, status: r.status, outlineJson: r.outlineJson, createdAt: r.createdAt, updatedAt: r.updatedAt } as any
   },
-  removeByProject(projectId: string) {
-    byProject.delete(projectId)
+  async updateFields(planItemId: string, patch: Partial<Pick<PlanItem, 'title' | 'outlineJson' | 'status'>>): Promise<PlanItem | null> {
+    if (!hasDatabase()) return null
+    const db = getDb()
+    const set: any = { updatedAt: new Date() as any }
+    if (typeof patch.title === 'string') set.title = patch.title
+    if (patch.outlineJson) set.outlineJson = patch.outlineJson as any
+    if (typeof patch.status === 'string') set.status = patch.status
+    await db.update(articlesTable).set(set).where(eq(articlesTable.id, planItemId))
+    const rows = await db.select().from(articlesTable).where(eq(articlesTable.id, planItemId)).limit(1)
+    const r: any = rows?.[0]
+    if (!r) return null
+    return { id: r.id, projectId: r.projectId, keywordId: r.keywordId, title: r.title, plannedDate: r.plannedDate, status: r.status, outlineJson: r.outlineJson, createdAt: r.createdAt, updatedAt: r.updatedAt } as any
+  },
+  async findById(planItemId: string): Promise<{ projectId: string; item: PlanItem } | null> {
+    if (!hasDatabase()) return null
+    const db = getDb()
+    const rows = await db.select().from(articlesTable).where(eq(articlesTable.id, planItemId)).limit(1)
+    const r: any = rows?.[0]
+    if (!r) return null
+    return { projectId: r.projectId, item: { id: r.id, projectId: r.projectId, keywordId: r.keywordId, title: r.title, plannedDate: r.plannedDate, status: r.status, outlineJson: r.outlineJson } as any }
+  },
+  async removeByProject(projectId: string) {
+    if (!hasDatabase()) return
+    const db = getDb()
+    await db.delete(articlesTable).where(and(eq(articlesTable.projectId, projectId), eq(articlesTable.status as any, 'planned' as any)))
   }
 }
 

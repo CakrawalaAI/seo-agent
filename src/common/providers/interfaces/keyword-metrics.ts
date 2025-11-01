@@ -16,5 +16,21 @@ export interface KeywordMetricsProvider {
     month: string,
     opts?: { force?: boolean }
   ): Promise<MonthlyMetric>
-}
+  /**
+   * Cheap scoring across many candidates. Returns difficulty for up to 1000 keywords.
+   */
+  bulkDifficulty(
+    phrases: string[],
+    language: string,
+    locationCode: number
+  ): Promise<Array<{ phrase: string; difficulty?: number }>>
 
+  /**
+   * Rich metrics for top N (<=200). Returns overview per phrase.
+   */
+  overviewBatch(
+    phrases: string[],
+    language: string,
+    locationCode: number
+  ): Promise<Map<string, MonthlyMetric & { competition?: number }>>
+}

@@ -133,6 +133,10 @@ export async function getBundleFile(projectId: string, relPath: string): Promise
   return { content, contentType }
 }
 
+export function serpRefresh(payload: { phrase: string; language: string; locationCode: number; device?: 'desktop'|'mobile'; topK?: number; force?: boolean }) {
+  return postJson(`/api/serp/refresh`, payload)
+}
+
 export function runScore(projectId: string) {
   return postJson<{ jobId?: string; queued?: boolean }>(`/api/projects/${projectId}/score`, {})
 }

@@ -1,6 +1,6 @@
 // @ts-nocheck
 import { createFileRoute } from '@tanstack/react-router'
-import { json, safeHandler, requireSession } from '@app/api-utils'
+import { json, safeHandler, requireSession, requireAdmin } from '@app/api-utils'
 import { hasDatabase, getDb } from '@common/infra/db'
 import { keywords } from '@entities/keyword/db/schema'
 import { projects } from '@entities/project/db/schema'
@@ -12,6 +12,7 @@ export const Route = createFileRoute('/api/admin/backfill-canon')({
     handlers: {
       POST: safeHandler(async ({ request }) => {
         await requireSession(request)
+        await requireAdmin(request)
         if (!hasDatabase()) return json({ updated: 0 })
         const db = getDb()
         const url = new URL(request.url)
@@ -37,4 +38,3 @@ export const Route = createFileRoute('/api/admin/backfill-canon')({
     }
   }
 })
-

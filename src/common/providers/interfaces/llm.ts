@@ -21,4 +21,7 @@ export interface LlmProvider {
     bodyPreview?: string
     citations?: Array<{ title?: string; url: string; snippet?: string }>
   }): Promise<{ score: number; notes?: string }>
+
+  // Optional: rank top-N representative URLs from sitemap
+  rankRepresentatives?(siteUrl: string, candidates: string[], maxN: number): Promise<string[]>
 }
