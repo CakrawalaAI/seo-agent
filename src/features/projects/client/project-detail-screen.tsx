@@ -27,6 +27,7 @@ import { KeywordsTab } from '@features/keywords/client/keywords-tab'
 import { PlanTab } from '@features/plan/client/plan-tab'
 import { ArticlesTab } from '@features/articles/client/articles-tab'
 import { IntegrationsTab } from '@features/integrations/client/integrations-tab'
+import { IntegrationsSidebar } from '@features/integrations/client/integrations-sidebar'
 import { ProjectJobsTab } from '@features/projects/client/jobs-tab'
 import { OpsTab } from '@features/projects/client/ops-tab'
 import { SettingsTab } from '@features/projects/client/settings-tab'
@@ -527,23 +528,26 @@ export function ProjectDetailScreen({ projectId, tab }: ProjectDetailScreenProps
         </section>
       ) : null}
 
-      <nav className="mt-2 flex flex-wrap gap-2 border-b border-border pb-2">
-        {TABS.map((tab) => (
-          <Link
-            key={tab.key}
-            to="/projects/$projectId"
-            params={{ projectId }}
-            search={{ tab: tab.key }}
-            className={`rounded-md px-3 py-1.5 text-sm font-medium transition ${
-              tab.key === activeTab
-                ? 'bg-primary/10 text-primary'
-                : 'text-muted-foreground hover:bg-muted'
-            }`}
-          >
-            {tab.label}
-          </Link>
-        ))}
-      </nav>
+      {/* Hide tabs entirely on Keywords screen */}
+      {activeTab !== 'keywords' ? (
+        <nav className="mt-2 flex flex-wrap gap-2 border-b border-border pb-2">
+          {TABS.map((tab) => (
+            <Link
+              key={tab.key}
+              to="/projects/$projectId"
+              params={{ projectId }}
+              search={{ tab: tab.key }}
+              className={`rounded-md px-3 py-1.5 text-sm font-medium transition ${
+                tab.key === activeTab
+                  ? 'bg-primary/10 text-primary'
+                  : 'text-muted-foreground hover:bg-muted'
+              }`}
+            >
+              {tab.label}
+            </Link>
+          ))}
+        </nav>
+      ) : null}
 
       {activeTab === 'overview' ? (
         <OverviewTab
@@ -581,17 +585,26 @@ export function ProjectDetailScreen({ projectId, tab }: ProjectDetailScreenProps
       ) : null}
 
       {activeTab === 'keywords' ? (
-        <KeywordsTab
-          keywords={keywords}
-          isLoading={keywordsQuery.isLoading}
-          onRefresh={() => keywordsQuery.refetch()}
-          onGenerate={() => generateKeywordsMutation.mutate()}
-          isGenerating={generateKeywordsMutation.isPending}
-          onPlan={(keywordId) => planKeywordMutation.mutate(keywordId)}
-          onToggleStar={(keywordId, starred) =>
-            toggleStarKeywordMutation.mutate({ keywordId, starred })
-          }
-        />
+        <section className="grid gap-6 lg:grid-cols-[2fr,1fr]">
+          <KeywordsTab
+            keywords={keywords}
+            isLoading={keywordsQuery.isLoading}
+            onRefresh={() => keywordsQuery.refetch()}
+            onGenerate={() => generateKeywordsMutation.mutate()}
+            isGenerating={generateKeywordsMutation.isPending}
+            onPlan={(keywordId) => planKeywordMutation.mutate(keywordId)}
+            onToggleStar={(keywordId, starred) =>
+              toggleStarKeywordMutation.mutate({ keywordId, starred })
+            }
+          />
+          <IntegrationsSidebar
+            integrations={snapshot?.integrations ?? []}
+            onTest={(integrationId) => testIntegrationMutation.mutate(integrationId)}
+            testingIntegrationId={testingIntegrationId}
+            onCreateWebhook={createWebhookMutation.mutateAsync}
+            creatingWebhook={createWebhookMutation.isPending}
+          />
+        </section>
       ) : null}
 
       {activeTab === 'plan' ? (

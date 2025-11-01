@@ -14,6 +14,7 @@ import { computeOpportunity } from '@features/keyword/server/computeOpportunity'
 import { filterSeeds } from '@features/keyword/server/seedFilter'
 import { ensureSerpLite, computeRankability } from '@features/serp/server/serp-lite'
 import { queueEnabled, publishJob } from '@common/infra/queue'
+import { recordJobQueued } from '@common/infra/jobs'
 
 export async function processDiscovery(payload: { projectId: string; locale?: string }) {
   const projectId = String(payload.projectId)
@@ -134,7 +135,14 @@ export async function processDiscovery(payload: { projectId: string; locale?: st
     const enriched = await enrichMetrics(after.map((k: any) => ({ phrase: k.phrase })), locale, undefined, projectId)
     await keywordsRepo.upsertMetrics(projectId, enriched)
   }
-  // 6b) Prioritization handled by 'score' job; skip writing prioritized here
+  // 6b) Queue prioritization via 'score' job
+  try {
+    if (queueEnabled()) {
+      const jobId = await publishJob({ type: 'score', payload: { projectId } })
+      try { await recordJobQueued(projectId, 'score', jobId) } catch {}
+      console.info('[discovery] queued score', { projectId, jobId })
+    }
+  } catch {}
   // 6c) Optionally queue SERP for top-M to warm cache
   try {
     const TOP_M = Math.max(1, Number(process.env.SEOA_TOP_M || '50'))
@@ -144,10 +152,12 @@ export async function processDiscovery(payload: { projectId: string; locale?: st
       .slice(0, TOP_M)
     if (queueEnabled()) {
       for (const k of top) {
-        await publishJob({ type: 'serp', payload: { canonPhrase: k.phrase, language: locale, locationCode: Number(project?.serpLocationCode || project?.metricsLocationCode || 2840), device: (project?.serpDevice as any) || 'desktop', topK: 10 } })
+        const jid = await publishJob({ type: 'serp', payload: { canonPhrase: k.phrase, language: locale, locationCode: Number(project?.serpLocationCode || project?.metricsLocationCode || 2840), device: (project?.serpDevice as any) || 'desktop', topK: 10, projectId } })
+        try { await recordJobQueued(projectId, 'serp', jid) } catch {}
       }
       for (const k of top.slice(0, 10)) {
-        await publishJob({ type: 'competitors', payload: { projectId, siteUrl: String(project?.siteUrl || ''), canonPhrase: k.phrase, language: locale, locationCode: Number(project?.serpLocationCode || project?.metricsLocationCode || 2840), device: (project?.serpDevice as any) || 'desktop', topK: 10 } })
+        const jid = await publishJob({ type: 'competitors', payload: { projectId, siteUrl: String(project?.siteUrl || ''), canonPhrase: k.phrase, language: locale, locationCode: Number(project?.serpLocationCode || project?.metricsLocationCode || 2840), device: (project?.serpDevice as any) || 'desktop', topK: 10 } })
+        try { await recordJobQueued(projectId, 'competitors', jid) } catch {}
       }
     }
   } catch {}

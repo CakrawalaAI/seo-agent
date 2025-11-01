@@ -11,6 +11,8 @@ import { eq } from 'drizzle-orm'
 import { linkGraph, crawlPages } from '@entities/crawl/db/schema'
 import { config } from '@common/config'
 import { getLlmProvider } from '@common/providers/registry'
+import { queueEnabled, publishJob } from '@common/infra/queue'
+import { recordJobQueued } from '@common/infra/jobs'
 
 export async function processCrawl(payload: { projectId: string }) {
   let project = await projectsRepo.get(payload.projectId) as any
@@ -210,4 +212,15 @@ export async function processCrawl(payload: { projectId: string }) {
   }
   try { bundle.appendLineage(project.id, { node: 'crawl', outputs: { pages: seen.size } }) } catch {}
   console.info('[crawler] done', { visited: seen.size })
+  // auto-queue keyword discovery after crawl (if queue enabled)
+  try {
+    if (queueEnabled() && project?.id) {
+      const locale = String(project?.defaultLocale || 'en-US')
+      const jobId = await publishJob({ type: 'discovery', payload: { projectId: String(project.id), locale } })
+      try { await recordJobQueued(String(project.id), 'discovery', jobId) } catch {}
+      console.info('[crawler] queued discovery', { projectId: String(project.id), locale, jobId })
+    }
+  } catch (err) {
+    console.warn('[crawler] failed to queue discovery', { error: (err as Error)?.message || String(err) })
+  }
 }

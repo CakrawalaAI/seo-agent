@@ -17,6 +17,7 @@ type CliCommand =
   | 'crawl-run'
   | 'crawl-pages'
   | 'keyword-generate'
+  | 'keyword-discover'
   | 'keyword-ls'
   | 'plan-ls'
   | 'plan-move'
@@ -430,6 +431,70 @@ export async function runCli(args: string[] = process.argv.slice(2)) {
       }
       const data = (await res.json()) as { jobId?: string }
       console.log(`keyword job ${data?.jobId ?? 'queued'}`)
+      return
+    }
+    case 'keyword-discover': {
+      // Live discovery from seed keywords (DataForSEO-backed via provider interfaces)
+      const seedsCsv = getFlag(args, '--seeds') || ''
+      const siteUrl = getFlag(args, '--site') || ''
+      const language = getFlag(args, '--language') || 'en-US'
+      const location = Number(getFlag(args, '--location') || '2840')
+      const limit = Number(getFlag(args, '--limit') || '100')
+      const withMetrics = (getFlag(args, '--metrics') || 'false') === 'true'
+      if (!seedsCsv && !siteUrl) {
+        console.error('usage: seo keyword-discover --seeds "kw1,kw2" [--site https://example.com] [--language en-US] [--location 2840] [--limit 100] [--metrics true]')
+        process.exitCode = 1
+        return
+      }
+      const seeds = seedsCsv.split(',').map((s) => s.trim()).filter(Boolean)
+      const { getDiscoveryProvider, getMetricsProvider } = await import('@common/providers/registry')
+      const prov = getDiscoveryProvider()
+      const items: Array<{ phrase: string; source: 'site' | 'related' | 'ideas' }> = []
+      const seen = new Set<string>()
+      if (siteUrl) {
+        try {
+          const domain = new URL(siteUrl).hostname
+          const base = await prov.keywordsForSite({ domain, language, locationCode: location, limit })
+          for (const r of base) {
+            const k = r.phrase.toLowerCase()
+            if (!seen.has(k)) { seen.add(k); items.push({ phrase: r.phrase, source: 'site' }) }
+            if (items.length >= limit) break
+          }
+        } catch {}
+      }
+      if (seeds.length) {
+        try {
+          const rel = await prov.relatedKeywords({ seeds, language, locationCode: location, limit })
+          for (const r of rel) {
+            const k = r.phrase.toLowerCase()
+            if (!seen.has(k)) { seen.add(k); items.push({ phrase: r.phrase, source: 'related' }) }
+            if (items.length >= limit) break
+          }
+        } catch {}
+        if (items.length < limit) {
+          try {
+            const ideas = await prov.keywordIdeas({ seeds, language, locationCode: location, limit: Math.max(0, limit - items.length) })
+            for (const r of ideas) {
+              const k = r.phrase.toLowerCase()
+              if (!seen.has(k)) { seen.add(k); items.push({ phrase: r.phrase, source: 'ideas' }) }
+              if (items.length >= limit) break
+            }
+          } catch {}
+        }
+      }
+      const top = items.slice(0, limit)
+      if (!withMetrics) {
+        for (const r of top) console.log(`${r.source}\t${r.phrase}`)
+        return
+      }
+      const metricsProv = getMetricsProvider()
+      const map = await metricsProv.overviewBatch(top.map((i) => i.phrase), language, location)
+      for (const r of top) {
+        const m = map.get(r.phrase.toLowerCase())
+        const vol = m?.searchVolume ?? ''
+        const diff = m?.difficulty ?? ''
+        console.log(`${r.source}\t${vol}\t${diff}\t${r.phrase}`)
+      }
       return
     }
     case 'keyword-ls': {
@@ -865,6 +930,7 @@ function normalizeCommand(input?: string): CliCommand {
   if (input.toLowerCase() === 'job-watch') return 'job-watch'
   if (input.toLowerCase() === 'keyword-refresh') return 'keyword-refresh'
   if (input.toLowerCase() === 'serp-refresh') return 'serp-refresh'
+  if (input.toLowerCase() === 'keyword-discover') return 'keyword-discover'
   if (input.toLowerCase() === 'schedule-metrics') return 'schedule-metrics'
   if (input.toLowerCase() === 'schedule-serp-anchors') return 'schedule-serp-anchors'
   if (input.toLowerCase() === 'keyword-snapshots') return 'keyword-snapshots'
@@ -930,6 +996,7 @@ function printHelp() {
       '  crawl-run --project <id>',
       '  crawl-pages --project <id> [--limit 100]',
       '  keyword-generate --project <id> [--locale en-US]',
+      '  keyword-discover --seeds "kw1,kw2" [--site https://example.com] [--language en-US] [--location 2840] [--limit 100] [--metrics true]',
       '  keyword-ls --project <id> [--status all] [--limit 100]',
       '  keyword-refresh --phrase "best crm" [--language en-US] [--location 2840] [--what metrics|serp|both] [--force true]',
       '  keyword-snapshots --canon <id> [--from YYYY-MM] [--to YYYY-MM]',
