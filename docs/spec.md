@@ -230,7 +230,9 @@ orgId, userId, role (owner|admin|member)
 
 Project (1 project = 1 website)
 
-id, orgId, name, siteUrl, defaultLocale, brandingJson, createdAt
+id, orgId, name, siteUrl, status (draft|crawling|crawled|keywords_ready|active), createdAt, updatedAt
+
+**Status lifecycle:** draft → crawling → crawled → keywords_ready → active
 
 Integration
 
@@ -238,77 +240,52 @@ id, projectId, type (webhook|webflow|wordpress|framer|shopify|wix)
 
 configJson (secrets encrypted), status (connected|error|paused)
 
-CrawlPage
-
-id, projectId, url, httpStatus, contentHash, extractedAt
-
-metaJson (title, meta description), headingsJson (h1..h3), linksJson (internal links)
-
-contentBlobUrl (pointer to object storage for full text/html)
-
-DiscoveryRun
-
-id, projectId, providersUsed[] (["crawl","llm","dataforseo"]), startedAt, finishedAt, status, costMeterJson
-
-summaryJson (business summary, audience, topics)
-
 KeywordCanon (global)
 
 id, phraseNorm, languageCode, createdAt
 
 Unique by (phraseNorm, languageCode)
 
-KeywordMetricsSnapshot (global slice)
+**Purpose:** Global deduplication - same phrase shared across all projects
 
-id, canonId (FK KeywordCanon), provider, locationCode, asOfMonth (YYYY‑MM), metricsJson, fetchedAt, ttlSeconds (default 30d)
+MetricCache (1:1 with keyword_canon)
 
-Unique by (canonId, provider, locationCode, asOfMonth)
+id, canonId (FK KeywordCanon, UNIQUE), provider, metricsJson, fetchedAt, ttlSeconds
 
-SerpSnapshot (global slice)
+**Purpose:** Cache keyword metrics globally (search volume, difficulty, CPC, etc.) - only query API for uncached keywords
 
-id, canonId (FK KeywordCanon), engine ('google'), locationCode, device ('desktop'|'mobile'), topK, resultsJson, fetchedAt, anchorMonth? (optional)
+Keyword (per-project junction + rotation control)
 
-Unique latest by (canonId, engine, locationCode, device, topK); optional monthly anchors for trends
-
-Keyword (per‑project)
-
-id, projectId, canonId (FK KeywordCanon), phrase, locale, primaryTopic, source ("crawl"|"llm"|"manual"),
-
-status (recommended|planned|generated), starred?, opportunity?, createdAt, updatedAt
+id, projectId, canonId (FK KeywordCanon), status (recommended|excluded|planned), starred (boolean), createdAt, updatedAt
 
 Unique by (projectId, canonId)
 
-PlanItem (30‑day title+outline plan; no body yet)
+**Purpose:** Links projects to global keywords; controls which keywords are eligible for article rotation (exclude/star for priority)
 
-id, projectId, keywordId, plannedDate, title, outlineJson, status (planned|skipped|consumed)
+Article (merged plan + content)
+
+id, projectId, keywordId (FK Keyword), plannedDate (YYYY-MM-DD)
+
+title, outlineJson, bodyHtml, language, tone
+
+status (draft|generating|ready|published), generationDate?, publishDate?, url?
 
 createdAt, updatedAt
 
-Article
+**Lifecycle:** draft (title+outline only) → generating (body in progress) → ready (body complete) → published (pushed to CMS)
 
-id, projectId, keywordId, planItemId?
+ArticleAttachment
 
-title, outlineJson, bodyHtml, language, tone, mediaJson
+id, articleId (FK Article), type (image|youtube|vimeo), url, caption, order
 
-seoScore?, status (draft|published|failed), cmsExternalId?, url?
+**Removed tables (ephemeral or merged):**
+- ✗ CrawlPage (ephemeral - processed in RabbitMQ, not persisted)
+- ✗ DiscoveryRun (ephemeral - status tracked via project.status)
+- ✗ SerpSnapshot (ephemeral - fetched on-demand, not persisted in v0)
+- ✗ PlanItem (merged into Article table)
+- ✗ Job (ephemeral - RabbitMQ queue state only)
 
-generationDate?, publicationDate?
-
-Job
-
-id, projectId, type (crawl|discovery|plan|generate|publish|linking|reoptimize)
-
-payloadJson, status (queued|running|succeeded|failed|canceled)
-
-progressPct, retries, startedAt, finishedAt, logs[]
-
-MetricCache (legacy helper)
-
-id, provider, hash (e.g., request payload hash), projectId?, metricsJson, fetchedAt, ttlSeconds
-
-Note: Keep for non‑canonical caches; canonical metrics live in KeywordMetricsSnapshot.
-
-(Later: SearchMetrics from GSC; InternalLinks for link graph.)
+(Later: SearchMetrics from GSC; InternalLinks for link graph)
 
 3. Providers (swappable)
 
@@ -521,26 +498,23 @@ seo login
 seo whoami
 seo project create --name "Acme" --site https://acme.com
 seo project ls
+seo project status --project <id>           # shows project.status (draft|crawling|crawled|keywords_ready|active)
 seo integration add webhook --project <id> --url https://hook.url --secret *****
 seo integration test --integration <id>
 seo keyword generate --project <id> --location "United States" --locale "en-US" --provider dataforseo   # runs crawl+summary+metrics (idempotent)
 seo keyword ls --project <id> --status recommended
-seo plan ls --project <id> --month 2025-11
-seo plan move --plan <planId> --date 2025-11-12
-seo schedule run --project <id>              # triggers today’s body generation
-seo job watch --id <jobId>
-seo article ls --project <id> --status draft
-seo article publish --article <id> --integration <integrationId>
+seo keyword exclude --keyword <id>          # sets status='excluded' (removes from rotation)
+seo keyword star --keyword <id>             # sets starred=true (priority in rotation)
+seo article ls --project <id> --status draft --month 2025-11   # calendar view
+seo article reschedule --article <id> --date 2025-11-12
+seo article delete --article <id>           # removes from schedule, auto-generates replacement
+seo schedule run --project <id>             # triggers generation for articles in next 3 days
+seo article publish --article <id> --integration <integrationId>   # manual publish (auto-publish is default)
 
 # Ops & maintenance (additional)
-seo bundle-ls --project <id>
 seo costs
 seo logs --project <id> [--tail 200]
-seo serp-warm --project <id> [--topM 50]
-seo competitors-warm --project <id> [--topM 10]
-seo score-run --project <id>
 seo keyword-prioritized --project <id> [--limit 50]
-seo schedule-crawl-weekly
 
 
 All functionality must be available both in Web and CLI.
@@ -619,40 +593,35 @@ PATCH /api/keywords/:id (star, delete, manual edit)
 
 Planning (Titles + Outlines only)
 
-POST /api/plan/create → {jobId}
-Creates 30 PlanItems (or per entitlements) with Title+Outline via LLM for top keywords.
+POST /api/plan/create
+Creates 30 Articles (status='draft') with Title+Outline via LLM for top keywords. Enqueues 'plan' job in RabbitMQ.
 
-GET /api/projects/:id/plan?from=...&to=...
+GET /api/projects/:id/articles?status=draft&sort=planned_date
+Returns calendar view of planned articles (title+outline only)
 
-PATCH /api/plan/:id (reschedule date, edit title/outline, skip/unskip)
+PATCH /api/articles/:id
+Edit article (reschedule planned_date, edit title/outline, body)
 
-Generation (body = lazy, on the day)
+DELETE /api/articles/:id
+Remove article from schedule → system auto-generates replacement from next eligible keyword
 
-POST /api/articles/generate → {jobId} *(payload: {planItemId})`
+Generation (body = lazy, 3 days before publish)
+
+POST /api/schedules/run?projectId=...
+Triggers daily generation for articles with planned_date in next 3 days. Enqueues 'generate' jobs in RabbitMQ.
 
 GET /api/articles/:id
-
-PATCH /api/articles/:id (edit before publish)
+Get article by ID (includes title, outline, body_html if generated, status)
 
 Publishing
 
 POST /api/articles/:id/publish → {externalId, url}
+Manually publish article to configured CMS integration.
 
 For Webhook: POST PortableArticle + HMAC.
+For Webflow: create CMS item + (optional) publish.
 
-For Webflow: create + (optional) publish.
-
-Jobs
-
-GET /api/jobs/:id
-
-GET /api/projects/:id/jobs?type=...&status=...
-
-Daily scheduler (lazy generation)
-
-POST /api/schedules/run?projectId=...
-
-Finds today’s PlanItems (status=planned), generates bodies → update Articles; apply policy (auto‑publish or wait).
+**Note:** Auto-publish is default - no manual trigger needed. Articles auto-publish on planned_date after body generation.
 
 10. Scoring & metrics (free‑first, provider‑swappable)
 
@@ -677,11 +646,11 @@ Robots.txt + sitemaps respected; fallback to shallow crawl (same‑host only, pa
 
 Fetch: Playwright Chromium; 10‑second timeout; render, then extract: <title>, <meta>, <h1..h3>, visible text (size‑capped), internal links.
 
-Storage: CrawlPage rows + contentBlobUrl (chunk large text to object storage).
+Storage: **Ephemeral** - crawl data processed in-memory during RabbitMQ job execution. Text dumps passed to LLM summary, then discarded. No DB persistence of crawl pages.
 
-LLM input: top N pages by internal link rank + representative samples by section to cap tokens.
+LLM input: top N pages (5-10 representatives selected by LLM from sitemap sample) to cap tokens and processing time.
 
-Idempotency: re‑crawl only if lastCrawled > N days or hash changed.
+Idempotency: project.status tracks crawl completion (draft → crawling → crawled). Re-crawl via manual API trigger or weekly cron.
 
 12. Worker & cron
 See also: ./workflow.md (Queues, DAG transitions, loops)
@@ -912,44 +881,23 @@ Web: Mapping UI; publish to draft/live.
 
 (Next: drag‑drop calendar, WordPress, Framer, GSC feedback, internal links.)
 
-16. Sequence diagrams (text)
+16. Sequence diagrams
 
-Onboard → Crawl → Keywords → Plan
+**See `docs/sequence-diagram.md` for detailed sequence diagrams with actual implementation flows.**
 
-User -> Web: Create Project(siteUrl)
-Web -> API: POST /projects
-API -> RabbitMQ: publish(crawl)
-Worker -> Crawler: run(siteUrl)
-Crawler -> DB: store CrawlPage[*]
-Worker -> Discovery/LLM: summarize(contentDump)
-Worker -> Discovery/LLM: generate seedKeywords
-Worker -> MetricsProvider: enrichMetrics(seedKeywords)
-MetricsProvider -> DB: upsert Keyword[*]
-Worker -> DB: create 30 PlanItems (title+outline)
-Web -> User: Keywords page + Calendar populated
+Key flows documented:
+1. **Initial Setup → Content Strategy**: Site URL → Playwright crawl → LLM summary → DataForSEO keyword discovery → global cache dedup → 30-day planning
+2. **Daily Auto-Generation → Auto-Publish**: 3-day lookahead → LLM body generation → auto-publish to CMS
+3. **Auto-Replacement**: User deletes article → system generates replacement from next eligible keyword
+4. **Keyword Management**: Include/exclude from rotation, starring for priority
+5. **Team Collaboration**: Invite teammates → RBAC (read/write permissions)
 
-
-Daily generation → Publish (buffered)
-
-Cron -> API: POST /schedules/run
-API -> DB: select today's PlanItems
-API -> RabbitMQ: publish(generateBody) per item
-Worker -> LLM: generate body from title+outline
-Worker -> DB: create Draft Article
-[Policy=buffered]
-  if PlanItem older than bufferDays:
-     Worker -> Publisher(Webhook/Webflow): publish PortableArticle
-     Publisher -> DB: set Article.published
-Web/CLI -> User: see Draft or Published status
-
-
-Publish (manual)
-
-User -> Web/CLI: publish article
-Web/CLI -> API: POST /articles/:id/publish
-API -> Publisher: publish(...)
-Publisher -> API: { externalId, url }
-API -> DB: update Article
+**Key behavioral notes:**
+- No jobs table - RabbitMQ queue state only, project.status tracks lifecycle
+- No plan_items table - merged into articles (status: draft → generating → ready → published)
+- No crawl_pages persistence - ephemeral processing in-memory
+- Auto-publish is default (no review gate), users can edit pre/post-publish
+- Global keyword canon with cache-first metrics (cost optimization)
 
 17. Security & compliance
 
@@ -989,10 +937,10 @@ Playwright as the main fetcher.
 
 Separate worker app ships in v0 (not deferred).
 
-19.1 Keyword/SERP canon & refresh policy
-- Canon identity = `phrase_norm + language_code` (shared across orgs/projects). Snapshots carry geo/device: `location_code`, `device`, `topK`.
-- Metrics snapshots (DataForSEO Labs) are monthly; refresh on calendar month change; keep history.
-- SERP snapshots are cached with TTL (7–14 days) and may record a monthly anchor; always store `textDump` for LLM.
+19.1 Keyword canon & metrics policy
+- Canon identity = `phrase_norm + language_code` (shared across orgs/projects).
+- Metrics cached globally in metric_cache (1:1 with keyword_canon) - monthly refresh.
+- SERP data: **ephemeral** - fetched on-demand during article generation, not persisted in v0.
 - Default geo = 2840 (US) unless project overrides.
 
 19.2 Worker split rationale

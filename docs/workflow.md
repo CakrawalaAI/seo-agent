@@ -9,17 +9,16 @@
 Init loop (on project create or manual generate keywords/plan):
 ```
 ProjectCreated / PlanRequested
-  └─▶ crawl            # sitemap→LLM select 5–10 reps → crawl only reps (stateless)
-        └─▶ discovery  # summarize from DB page text → seeds (LLM+headings) → expand (DFS)
-               └─▶ plan # create 30 items; enrich titles/outlines; enqueue generate for next 3 days
+  └─▶ crawl            # sitemap→LLM select 5–10 reps → crawl only reps (ephemeral)
+        └─▶ discovery  # summarize from in-memory page text → seeds (LLM+headings) → expand (DFS)
+               └─▶ plan # create 30 Articles (status='draft'); titles+outlines only
 ```
 
-Periodic loop (daily or buffered cadence):
+Periodic loop (daily auto-generation):
 ```
 DailySchedule (cron or seo schedule run)
-  └─▶ generate  # body for today’s PlanItems (lazy)
-        ├─▶ enrich   # youtube, citations, internal links (opt-in; uses SERP/competitor slices)
-        └─▶ publish  # policy: immediate | buffered | manual
+  └─▶ generate  # body for Articles with planned_date in next 3 days (lazy)
+        └─▶ publish  # auto-publish (no review gate); users can edit pre/post
 ```
 
 Notes
@@ -27,24 +26,21 @@ Notes
 - “Periodic loop” can run daily or every N days; buffer default: 3 days (see docs/spec.md §5.2).
 
 ## 2) DAG nodes (concise contracts)
-- crawl (N1): input { projectId }; Playwright crawl (robots+sitemap), store CrawlPage rows + blobs.
-- discovery (N2–N5): summarize site (LLM) → Keywords For Site (baseline) → LLM seeds (20–30) → Related Keywords + Keyword Ideas (expansion) → dedupe by canon → Bulk Keyword Difficulty (batch) → Keyword Overview (top 200) → ensureMetrics(month) → upsert project keywords.
+- crawl (N1): input { projectId }; Playwright crawl (robots+sitemap), **ephemeral** processing (in-memory page text, no DB persistence).
+- discovery (N2–N5): summarize site (LLM) → Keywords For Site (baseline) → LLM seeds (20–30) → Related Keywords + Keyword Ideas (expansion) → dedupe by canon → Bulk Keyword Difficulty (batch) → Keyword Overview (top 200) → ensureMetrics(month) → upsert project keywords + global metric_cache.
 - score (N8): compute OpportunityScore; cluster by root phrase to avoid cannibalization; pick primary + secondary terms per topic.
-  - writes: summary/site_summary.json, keywords/seeds.jsonl, keywords/prioritized.jsonl
-  - writes: keywords/candidates.raw.jsonl
-- serp (N6) [optional]: ensureSerp for top‑M; global cache TTL 7–14 days; optional monthly anchors.
-- competitors (N7) [optional]: fetch competitor pages for top‑M; store dumps (project‑scoped).
-  - writes: competitors/pages.jsonl (text dumps)
-- plan (N9): create 30 PlanItems (title+outline), distributed over upcoming days.
-  - writes: planning/plan_v1.json
-- generate (N10): for today’s PlanItems, LLM bodyHtml; create/update Article(draft).
-  - writes: articles/drafts/<id>.html
+  - writes: summary/site_summary.json, keywords/seeds.jsonl, keywords/prioritized.jsonl (debug only)
+- serp (N6) [optional]: **ephemeral** SERP fetch on-demand during generation; not persisted in v0.
+- competitors (N7) [optional]: **ephemeral** fetch competitor pages for context; not persisted in v0.
+- plan (N9): create 30 Articles (status='draft') with title+outline, distributed over upcoming days.
+  - DB: INSERT articles (project_id, keyword_id, planned_date, title, outline_json, status='draft')
+- generate (N10): for Articles with planned_date in next 3 days, LLM bodyHtml.
+  - DB: UPDATE articles SET body_html=$body, status='generating' → 'ready'
 - enrich (N11) [optional]: citations, YouTube, internal links; update Article.mediaJson/seoScore.
-  - writes: articles/drafts/<id>.json (citations, youtube, internal links, fact-check)
-- publish (N12): publish via integration (Webhook/Webflow); update Article.url/status.
+- publish (N12): auto-publish via integration (Webhook/Webflow); update Article.url/status='published'.
 - feedback (N13) [optional]: GSC ingest; emit follow‑up tasks.
 
-Note: “writes” above refer to optional debug bundle files and are only produced when `config.debug.writeBundle=true`. In production, workers do not write files; all state persists in the database.
+Note: "writes" above refer to optional debug bundle files (only when `config.debug.writeBundle=true`). In production, workers process ephemerally. Only articles, keywords, and metric_cache persist in DB. No jobs, crawl_pages, or serp_snapshot tables.
 
 All nodes idempotent by (projectId, nodeName, inputsHash). Failures retried with backoff and DLQ.
 
@@ -55,7 +51,7 @@ All nodes idempotent by (projectId, nodeName, inputsHash). Failures retried with
   - Queue `seo_jobs.general` binds `discovery.* plan.* generate.* publish.* metrics.* serp.*`
 - Routing keys: `${type}.${projectOrCanon}`; message: `{ id, type, payload, retries }`.
 - Workers: dedicated crawler worker; general worker for the rest. Dispatch by `type`. Non‑destructive: can run as a single queue until split is adopted.
-- New global job types: `metrics` (monthly keyword snapshots), `serp` (SERP snapshots).
+- Global job types: `metrics` (monthly keyword metric refresh), `serp` (ephemeral SERP fetch for generation context).
 
 Providers (interfaces)
 - Keyword discovery: `KeywordDiscoveryProvider` → DataForSEO Labs (switch via `SEOA_PROVIDER_KEYWORD_DISCOVERY`)
@@ -74,8 +70,8 @@ Providers (interfaces)
 Binding via `src/common/providers/registry.ts` to allow swapping implementations by env.
 
 Manager (thin)
-- Lives in API app (or small service). Listens to job completion events in DB (or emits after handler returns) and enqueues next node(s) per recipe.
-- For v0, transitions are coded in API routes and worker processors (no extra runtime required).
+- Lives in worker processors. After task completion, enqueues next node(s) per recipe (crawl → discovery → plan; generate → publish).
+- For v0, transitions are coded directly in worker processors (no extra runtime required). project.status tracks lifecycle (draft → crawling → crawled → keywords_ready → active).
 
 Optional DAG recipe (YAML)
 ```
@@ -244,15 +240,23 @@ Smoke env vars
 - `SMOKE_PROJECT_NAME` (optional project name)
 - `SMOKE_TIMEOUT_MS` (poll timeout, default 180000)
 
-## 12) ASCII: ERD (keywords/SERP)
+## 12) ASCII: ERD (simplified schema)
 ```
 keyword_canon(id, phrase_norm, language_code)
-  ├─< keyword_metrics_snapshot(canon_id, provider, location_code, as_of_month)
-  └─< serp_snapshot(canon_id, engine, location_code, device, top_k, fetched_at, anchor_month?)
+  └─< metric_cache(id, canon_id [UNIQUE], provider, metrics_json, fetched_at)  // 1:1 global cache
 
-project_keywords(project_id, canon_id?, phrase, status, opportunity)
-plan_items(project_id, keyword_id, date, title, outline)
-articles(id, project_id, status, body_html, url)
+keywords(id, project_id, canon_id, status, starred)  // junction + rotation control
+
+articles(id, project_id, keyword_id, planned_date, title, outline_json, body_html, status, publish_date, url)
+  // status: draft → generating → ready → published
+
+article_attachments(id, article_id, type, url, caption, order)
+
+Removed (ephemeral or merged):
+  ✗ serp_snapshot (ephemeral - fetched on-demand, not persisted)
+  ✗ plan_items (merged into articles table)
+  ✗ jobs (RabbitMQ queue state only)
+  ✗ crawl_pages (ephemeral - in-memory processing)
 ```
 
 ## 13) Folder Map (tiny links)
