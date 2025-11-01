@@ -2,9 +2,6 @@
 import { createFileRoute } from '@tanstack/react-router'
 import { json, httpError, safeHandler, requireSession, requireProjectAccess } from '@app/api-utils'
 import { crawlRepo } from '@entities/crawl/repository'
-import { hasDatabase, getDb } from '@common/infra/db'
-import { crawlPages } from '@entities/crawl/db/schema'
-import { desc, eq } from 'drizzle-orm'
 import { queueEnabled, publishJob } from '@common/infra/queue'
 import { recordJobQueued } from '@common/infra/jobs'
 
@@ -23,21 +20,9 @@ export const Route = createFileRoute('/api/crawl/run')({
         if (!force) {
           const minDays = Math.max(1, Number(process.env.SEOA_CRAWL_MIN_INTERVAL_DAYS || '3'))
           const cutoff = Date.now() - minDays * 24 * 60 * 60 * 1000
-          let recent = false
-          if (hasDatabase()) {
-            try {
-              const db = getDb()
-              // @ts-ignore
-              const rows = await (db.select().from(crawlPages).where(eq(crawlPages.projectId, String(projectId))).orderBy(desc(crawlPages.extractedAt)).limit(1) as any)
-              const last = rows?.[0]?.extractedAt ? new Date(rows[0].extractedAt).getTime() : 0
-              if (last && last > cutoff) recent = true
-            } catch {}
-          }
-          if (!recent) {
-            const list = await crawlRepo.list(String(projectId), 1)
-            const last = list[0]?.extractedAt ? new Date(list[0].extractedAt as any).getTime() : 0
-            if (last && last > cutoff) recent = true
-          }
+          const list = await crawlRepo.list(String(projectId), 1)
+          const last = list[0]?.extractedAt ? new Date(list[0].extractedAt as any).getTime() : 0
+          const recent = Boolean(last && last > cutoff)
           if (recent) {
             console.info('[api/crawl/run] skipped recent crawl', { projectId: String(projectId) })
             return json({ skipped: true, reason: 'recent_crawl' }, { status: 200 })

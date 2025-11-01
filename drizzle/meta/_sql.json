@@ -1,0 +1,9 @@
+{
+  "version": "5",
+  "dialect": "postgresql",
+  "entries": {
+    "0000_init": {
+      "statements": []
+    }
+  }
+}

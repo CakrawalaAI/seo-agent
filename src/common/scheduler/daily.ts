@@ -20,7 +20,7 @@ export async function runDailySchedules() {
     let remainingCredits = Infinity
     // Generate drafts for today
     const plan = await planRepo.list(projectId, 365)
-    const existing = new Map((await articlesRepo.list(projectId, 999)).map((a) => [a.planItemId ?? a.id, a]))
+    const existing = new Map((await articlesRepo.list(projectId, 999)).map((a) => [a.id, a]))
     for (const item of plan) {
       if (item.plannedDate === today && !existing.has(item.id)) {
         if (totalDrafts >= remainingCredits) break
@@ -44,7 +44,7 @@ export async function runDailySchedules() {
       if (target) {
         const drafts = (await articlesRepo.list(projectId, 200)).filter((a) => a.status === 'draft')
         for (const d of drafts) {
-          const planItem = plan.find((p) => p.id === (d.planItemId ?? d.id))
+          const planItem = plan.find((p) => p.id === d.id)
           if (!planItem) continue
           const ageOk = policy === 'buffered' && planItem.plannedDate ? daysBetween(new Date(planItem.plannedDate), new Date()) >= Math.max(0, bufferDays) : false
           const hasBody = typeof d.bodyHtml === 'string' && d.bodyHtml.replace(/<[^>]+>/g, ' ').trim().length > 5

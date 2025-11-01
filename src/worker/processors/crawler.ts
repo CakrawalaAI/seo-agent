@@ -5,32 +5,19 @@ import { discoverFromSitemap } from '@common/crawl/sitemap'
 import { env } from '@common/infra/env'
 import * as bundle from '@common/bundle/store'
 import { createHash } from 'node:crypto'
-import { hasDatabase, getDb } from '@common/infra/db'
-import { projects as projectsTable } from '@entities/project/db/schema'
-import { eq } from 'drizzle-orm'
-import { linkGraph, crawlPages } from '@entities/crawl/db/schema'
 import { config } from '@common/config'
 import { getLlmProvider } from '@common/providers/registry'
 import { queueEnabled, publishJob } from '@common/infra/queue'
 import { recordJobQueued } from '@common/infra/jobs'
 
 export async function processCrawl(payload: { projectId: string }) {
-  let project = await projectsRepo.get(payload.projectId) as any
-  if (!project && hasDatabase()) {
-    try {
-      const db = getDb()
-      const rows = (await (db.select().from(projectsTable).where(eq(projectsTable.id, payload.projectId)).limit(1) as any)) as any
-      project = rows?.[0] ?? null
-      if (!project) console.warn('[crawler] project not found in DB', { projectId: payload.projectId })
-    } catch (err) {
-      console.warn('[crawler] failed to load project from DB', { projectId: payload.projectId, error: (err as Error)?.message || String(err) })
-    }
-  }
+  const project = await projectsRepo.get(payload.projectId)
   if (!project?.siteUrl) {
     console.warn('[crawler] missing siteUrl; skipping', { projectId: payload.projectId })
     return
   }
-  console.info('[crawler] start', { projectId: payload.projectId, siteUrl: project.siteUrl, render: env.crawlRender })
+  const siteUrl = project.siteUrl!
+  console.info('[crawler] start', { projectId: payload.projectId, siteUrl, render: env.crawlRender })
 
   // 1) Gather candidates from sitemap (larger set), then let LLM pick representatives
   const candidates = await discoverFromSitemap(project.siteUrl, 200)
@@ -38,14 +25,13 @@ export async function processCrawl(payload: { projectId: string }) {
     try {
       const llm = getLlmProvider()
       if (typeof (llm as any).rankRepresentatives === 'function') {
-        // @ts-ignore
-        const ranked: string[] = await (llm as any).rankRepresentatives(project.siteUrl, candidates, config.crawl.maxRepresentatives)
+        const ranked: string[] = await (llm as any).rankRepresentatives(siteUrl, candidates, config.crawl.maxRepresentatives)
         if (Array.isArray(ranked) && ranked.length) return ranked.slice(0, config.crawl.maxRepresentatives)
       }
     } catch {}
     // Fallback heuristics
     const set = new Set<string>()
-    const push = (p: string) => { try { set.add(new URL(p, project.siteUrl).toString()) } catch {} }
+    const push = (p: string) => { try { set.add(new URL(p, siteUrl).toString()) } catch {} }
     push('/')
     push('/about')
     push('/pricing')
@@ -53,10 +39,6 @@ export async function processCrawl(payload: { projectId: string }) {
     for (const u of candidates) if (set.size < config.crawl.maxRepresentatives) set.add(u)
     return Array.from(set)
   })()
-  // Persist chosen reps on project for transparency
-  if (hasDatabase()) {
-    // representativeUrlsJson removed; no DB persistence
-  }
   console.info('[crawler] representatives selected', { count: reps.length, urls: reps })
   const initialSeeds = reps.map((u) => ({ url: u, depth: 0 }))
   // Write representatives to debug bundle for snapshot/overview (stateless workers)
@@ -95,6 +77,8 @@ export async function processCrawl(payload: { projectId: string }) {
   const visitLimit = Math.max(1, config.crawl.maxRepresentatives * (1 + Math.max(0, config.crawl.expandDepth)))
   const maxDepth = Math.max(0, config.crawl.expandDepth)
   const seen = new Set<string>()
+  const nodes = new Map<string, { url: string; title?: string | null }>()
+  const edges: Array<{ from: string; to: string; text?: string | null }> = []
   const queue: Array<{ url: string; depth: number }> = [...initialSeeds]
   console.info('[crawler] seeds', { count: initialSeeds.length })
   for (let qi = 0; qi < queue.length && seen.size < visitLimit; qi++) {
@@ -164,44 +148,27 @@ export async function processCrawl(payload: { projectId: string }) {
         headings = headingMatches.map((hm) => ({ level: Number(hm[1]!.slice(1)), text: (hm[2] || '').replace(/<[^>]+>/g, '').trim() }))
       }
       const now = new Date().toISOString()
-      crawlRepo.addOrUpdate(project.id, {
+      const pageId = pageIdFor(url)
+      crawlRepo.recordPage(project.id, {
+        id: pageId,
+        projectId: project.id,
         url,
-        depth: url === project.siteUrl ? 0 : 1,
+        depth,
         httpStatus: httpStatus ?? undefined,
         status: 'completed',
+        extractedAt: now,
         metaJson: { title },
         headingsJson: headings,
         linksJson: linksForJson,
-        contentBlobUrl: undefined,
-        extractedAt: now
+        contentText: textDump || pageHtml || null,
+        createdAt: now,
+        updatedAt: now
       })
-      // Persist content/text directly in DB (stateless worker)
-      if (hasDatabase()) {
-        try {
-          const db = getDb()
-          const id = `page_${Math.random().toString(36).slice(2,10)}_${Date.now().toString(36)}`
-          // upsert by projectId+url
-          // @ts-ignore
-          await db
-            .insert(crawlPages)
-            .values({ id, projectId: project.id, url, depth: depth, httpStatus: String(httpStatus || ''), status: 'completed', extractedAt: new Date(now) as any, metaJson: { title } as any, headingsJson: headings as any, linksJson: linksForJson as any, contentText: (textDump || pageHtml || '') as any })
-            .onConflictDoUpdate?.({ target: [crawlPages.projectId, crawlPages.url], set: { depth: depth as any, httpStatus: String(httpStatus || ''), status: 'completed' as any, extractedAt: new Date(now) as any, metaJson: { title } as any, headingsJson: headings as any, linksJson: linksForJson as any, contentText: (textDump || pageHtml || '') as any, updatedAt: new Date() as any } })
-        } catch {}
-      }
-      // Bundle writes skipped for stateless mode
-      // Persist link edges when DB is available
-      if (hasDatabase() && linksForJson.length) {
-        try {
-          const db = getDb()
-          for (const l of linksForJson.slice(0, 50)) {
-            const id = `edge_${Math.random().toString(36).slice(2, 10)}_${Date.now().toString(36)}`
-            // @ts-ignore
-            await db
-              .insert(linkGraph)
-              .values({ id, projectId: project.id, fromUrl: url, toUrl: l.href, anchorText: l.text ?? null })
-              .onConflictDoNothing?.()
-          }
-        } catch {}
+      nodes.set(url, { url, title })
+      if (linksForJson.length) {
+        for (const link of linksForJson.slice(0, 50)) {
+          edges.push({ from: url, to: link.href, text: link.text || null })
+        }
       }
       seen.add(url)
     } catch {}
@@ -211,6 +178,12 @@ export async function processCrawl(payload: { projectId: string }) {
     try { await browser.close() } catch {}
   }
   try { bundle.appendLineage(project.id, { node: 'crawl', outputs: { pages: seen.size } }) } catch {}
+  try {
+    const nodesArr = Array.from(nodes.values())
+    const uniqueEdges = dedupeEdges(edges)
+    crawlRepo.writeLinkGraph(project.id, { nodes: nodesArr, edges: uniqueEdges })
+  } catch {}
+
   console.info('[crawler] done', { visited: seen.size })
   // auto-queue keyword discovery after crawl (if queue enabled)
   try {
@@ -223,4 +196,21 @@ export async function processCrawl(payload: { projectId: string }) {
   } catch (err) {
     console.warn('[crawler] failed to queue discovery', { error: (err as Error)?.message || String(err) })
   }
+}
+
+function pageIdFor(url: string) {
+  return `page_${createHash('sha1').update(url).digest('hex').slice(0, 20)}`
+}
+
+function dedupeEdges(edges: Array<{ from: string; to: string; text?: string | null }>) {
+  const seen = new Set<string>()
+  const out: typeof edges = []
+  for (const edge of edges) {
+    const key = `${edge.from}->${edge.to}`
+    if (seen.has(key)) continue
+    seen.add(key)
+    out.push(edge)
+    if (out.length >= 500) break
+  }
+  return out
 }

@@ -1,7 +1,5 @@
 import { mkdirSync, writeFileSync, readFileSync, existsSync, readdirSync, statSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
-import { hasDatabase, getDb } from '@common/infra/db'
-import { blobs } from '@entities/blob/db/schema'
 
 const BASE = join(process.cwd(), '.data', 'blobs')
 
@@ -14,15 +12,7 @@ export function saveHtml(html: string, projectId?: string) {
   const id = `blob_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`
   const path = join(BASE, `${id}.html`)
   try { writeFileSync(path, html, 'utf-8') } catch {}
-  if (projectId && hasDatabase()) {
-    void (async () => {
-      try {
-        const db = getDb()
-        // @ts-ignore
-        await db.insert(blobs).values({ id, projectId }).onConflictDoNothing?.()
-      } catch {}
-    })()
-  }
+  void projectId
   return { id, url: `/api/blobs/${id}` }
 }
 
@@ -31,15 +21,7 @@ export function saveText(text: string, projectId?: string) {
   const id = `blob_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`
   const path = join(BASE, `${id}.txt`)
   try { writeFileSync(path, text, 'utf-8') } catch {}
-  if (projectId && hasDatabase()) {
-    void (async () => {
-      try {
-        const db = getDb()
-        // @ts-ignore
-        await db.insert(blobs).values({ id, projectId }).onConflictDoNothing?.()
-      } catch {}
-    })()
-  }
+  void projectId
   return { id, url: `/api/blobs/${id}` }
 }
 

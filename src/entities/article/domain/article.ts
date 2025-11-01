@@ -1,4 +1,4 @@
-export type ArticleStatus = 'draft' | 'published' | 'queued' | string
+export type ArticleStatus = 'draft' | 'generating' | 'ready' | 'published' | 'failed' | string
 
 export type ArticleOutlineSection = {
   heading: string
@@ -8,7 +8,6 @@ export type ArticleOutlineSection = {
 export type Article = {
   id: string
   projectId: string
-  planItemId?: string | null
   keywordId?: string | null
   plannedDate?: string | null
   title?: string | null
@@ -18,7 +17,7 @@ export type Article = {
   outlineJson?: ArticleOutlineSection[] | null
   bodyHtml?: string | null
   generationDate?: string | null
-  publicationDate?: string | null
+  publishDate?: string | null
   cmsExternalId?: string | null
   url?: string | null
   createdAt?: string | null

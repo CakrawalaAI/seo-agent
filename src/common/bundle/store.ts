@@ -1,6 +1,5 @@
 import { mkdirSync, writeFileSync, existsSync, readFileSync } from 'node:fs'
 import { join, dirname } from 'node:path'
-import { config } from '@common/config'
 
 const ROOT = join(process.cwd(), '.data', 'bundle')
 const INDEX = join(process.cwd(), '.data', 'bundle-index.json')
@@ -29,9 +28,6 @@ function writeIndex(idx: Record<string, string>) {
 }
 
 export function startRun(projectId: string) {
-  if (!config.debug?.writeBundle) {
-    return join(ROOT, projectId, 'disabled')
-  }
   const stamp = nowStamp()
   const dir = join(ROOT, projectId, stamp)
   ensureDir(dir)
@@ -42,9 +38,6 @@ export function startRun(projectId: string) {
 }
 
 export function latestRunDir(projectId: string) {
-  if (!config.debug?.writeBundle) {
-    return join(ROOT, projectId, 'disabled')
-  }
   const idx = readIndex()
   const dir = idx[projectId]
   if (dir) ensureDir(dir)
@@ -52,7 +45,6 @@ export function latestRunDir(projectId: string) {
 }
 
 export function writeJson(projectId: string, relPath: string, data: unknown) {
-  if (!config.debug?.writeBundle) return join(ROOT, projectId, relPath)
   const base = latestRunDir(projectId)
   const file = join(base, relPath)
   ensureDir(dirname(file))
@@ -61,7 +53,6 @@ export function writeJson(projectId: string, relPath: string, data: unknown) {
 }
 
 export function writeJsonl(projectId: string, relPath: string, rows: unknown[]) {
-  if (!config.debug?.writeBundle) return join(ROOT, projectId, relPath)
   const base = latestRunDir(projectId)
   const file = join(base, relPath)
   ensureDir(dirname(file))
@@ -70,7 +61,6 @@ export function writeJsonl(projectId: string, relPath: string, rows: unknown[]) 
 }
 
 export function writeText(projectId: string, relPath: string, content: string) {
-  if (!config.debug?.writeBundle) return join(ROOT, projectId, relPath)
   const base = latestRunDir(projectId)
   const file = join(base, relPath)
   ensureDir(dirname(file))
@@ -79,7 +69,6 @@ export function writeText(projectId: string, relPath: string, content: string) {
 }
 
 export function appendJsonl(projectId: string, relPath: string, row: unknown) {
-  if (!config.debug?.writeBundle) return join(ROOT, projectId, relPath)
   const base = latestRunDir(projectId)
   const file = join(base, relPath)
   ensureDir(dirname(file))
@@ -88,7 +77,6 @@ export function appendJsonl(projectId: string, relPath: string, row: unknown) {
 }
 
 export function appendLineage(projectId: string, entry: { node: string; at?: string; outputs?: Record<string, unknown> }) {
-  if (!config.debug?.writeBundle) return true
   const base = latestRunDir(projectId)
   const file = join(base, 'logs', 'lineage.json')
   ensureDir(dirname(file))

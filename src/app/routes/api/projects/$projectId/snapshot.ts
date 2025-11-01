@@ -3,15 +3,14 @@ import { createFileRoute } from '@tanstack/react-router'
 import { json, httpError, requireSession, requireProjectAccess } from '@app/api-utils'
 import { projectsRepo } from '@entities/project/repository'
 import { hasDatabase, getDb } from '@common/infra/db'
-import { jobs } from '@entities/job/db/schema'
-import { desc, eq, and } from 'drizzle-orm'
-import { articles } from '@entities/article/db/schema'
+import { eq } from 'drizzle-orm'
 import { projectIntegrations } from '@entities/integration/db/schema'
-import { crawlPages } from '@entities/crawl/db/schema'
-import { keywords } from '@entities/keyword/db/schema'
 import { latestRunDir } from '@common/bundle/store'
 import { join } from 'node:path'
 import { readFileSync, existsSync } from 'node:fs'
+import { crawlRepo } from '@entities/crawl/repository'
+import { keywordsRepo } from '@entities/keyword/repository'
+import { articlesRepo } from '@entities/article/repository'
 
 export const Route = createFileRoute('/api/projects/$projectId/snapshot')({
   server: {
@@ -21,19 +20,15 @@ export const Route = createFileRoute('/api/projects/$projectId/snapshot')({
         await requireProjectAccess(request, params.projectId)
         const project = await projectsRepo.get(params.projectId)
         if (!project) return httpError(404, 'Project not found')
-        let inflightCount = 0
         if (hasDatabase()) {
           try {
             const db = getDb()
-            // @ts-ignore
-            const [pItems, ints, cPages, kws, jobRows] = await Promise.all([
-              db.select().from(articles).where(and(eq(articles.projectId, params.projectId), eq(articles.status as any, 'planned' as any))).limit(90),
-              db.select().from(projectIntegrations).where(eq(projectIntegrations.projectId, params.projectId)),
-              db.select().from(crawlPages).where(eq(crawlPages.projectId, params.projectId)).limit(50),
-              db.select().from(keywords).where(eq(keywords.projectId, params.projectId)).limit(50),
-              db.select().from(jobs).where(eq(jobs.projectId, params.projectId)).orderBy(desc(jobs.queuedAt)).limit(100)
+            const [draftArticles, ints] = await Promise.all([
+              articlesRepo.list(params.projectId, 120),
+              db.select().from(projectIntegrations).where(eq(projectIntegrations.projectId, params.projectId))
             ])
-            inflightCount = (jobRows || []).filter((j: any) => j.status === 'queued' || j.status === 'running').length
+            const crawlPages = await crawlRepo.list(params.projectId, 50)
+            const keywords = await keywordsRepo.list(params.projectId, { status: 'all', limit: 50 })
             // Try reading bundle artifacts for summary and representatives
             let siteSummary: any = null
             let reps: string[] | null = null
@@ -50,18 +45,21 @@ export const Route = createFileRoute('/api/projects/$projectId/snapshot')({
               }
             } catch {}
             return json({
-              queueDepth: inflightCount,
-              planItems: pItems,
+              queueDepth: 0,
+              planItems: draftArticles.filter((a) => (a.status ?? 'draft') === 'draft'),
               integrations: ints,
-              crawlPages: cPages,
-              keywords: kws,
+              crawlPages,
+              keywords,
               latestDiscovery: siteSummary ? { providersUsed: ['llm'], status: 'completed', summaryJson: siteSummary } : null,
               representatives: reps
             })
           } catch {}
         }
-        // DB is required for snapshot; if unavailable, return minimal object
-        return json({ queueDepth: inflightCount, planItems: [], integrations: [], crawlPages: [], keywords: [], latestDiscovery: null })
+        const [crawlPages, keywords] = await Promise.all([
+          crawlRepo.list(params.projectId, 50),
+          keywordsRepo.list(params.projectId, { status: 'all', limit: 50 })
+        ])
+        return json({ queueDepth: 0, planItems: [], integrations: [], crawlPages, keywords, latestDiscovery: null })
       }
     }
   }

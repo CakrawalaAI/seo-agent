@@ -105,7 +105,7 @@ export function ArticlesTab({
             </TableHeader>
             <TableBody className="divide-y divide-border">
               {visible.map((article) => {
-                const planItem = planItemMap.get(article.planItemId ?? '')
+                const planItem = planItemMap.get(article.id)
                 const chosenIntegration = selections[article.id] ?? connected[0]?.id ?? ''
                 const status = article.status ?? 'unknown'
                 const statusTone: 'emerald' | 'amber' | 'rose' =

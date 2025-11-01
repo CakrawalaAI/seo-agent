@@ -1,43 +1,65 @@
 import type { Keyword, KeywordMetrics } from './domain/keyword'
 import { hasDatabase, getDb } from '@common/infra/db'
 import { keywords } from './db/schema'
-import { eq, and, desc } from 'drizzle-orm'
+import { keywordCanon } from './db/schema.canon'
+import { metricCache } from '@entities/metrics/db/schema'
+import { and, asc, eq } from 'drizzle-orm'
 
 export const keywordsRepo = {
   async generate(projectId: string, locale = 'en-US'): Promise<{ jobId: string; added: number }> {
-    const now = new Date()
-    const base = sampleSeeds()
-    const items: Keyword[] = base.map((phrase) => {
-      const mk = mkMetrics()
-      const opp = computeOpportunity(mk.searchVolume ?? null, mk.difficulty ?? null)
-      return {
-        id: genId('kw'),
-        projectId,
-        phrase,
-        status: 'recommended',
-        starred: false,
-        opportunity: opp,
-        metricsJson: mk,
-        createdAt: undefined as any,
-        updatedAt: undefined as any
-      }
-    })
-    if (hasDatabase()) { const db = getDb(); const values = items.map(i => ({ id: i.id, projectId: i.projectId, phrase: i.phrase, status: i.status, starred: i.starred, opportunity: i.opportunity, metricsJson: i.metricsJson as any })); await db.insert(keywords).values(values as any).onConflictDoNothing?.() }
-    return { jobId: genId('job'), added: items.length }
+    const phrases = sampleSeeds()
+    if (!hasDatabase()) {
+      return { jobId: genId('job'), added: phrases.length }
+    }
+    const db = getDb()
+    let added = 0
+    for (const phrase of phrases) {
+      const normalized = normalizePhrase(phrase)
+      const canonId = canonIdFor(normalized, locale)
+      try {
+        await db
+          .insert(keywordCanon)
+          .values({ id: canonId, phraseNorm: normalized, languageCode: locale })
+          .onConflictDoNothing?.()
+      } catch {}
+      try {
+        await db
+          .insert(keywords)
+          .values({ id: genId('kw'), projectId, canonId, status: 'recommended', starred: false })
+          .onConflictDoNothing?.()
+        added++
+      } catch {}
+    }
+    return { jobId: genId('job'), added }
   },
 
   async list(projectId: string, opts: { status?: string; limit?: number } = {}): Promise<Keyword[]> {
-    const limit = opts.limit && opts.limit > 0 ? opts.limit : 100
-    const status = opts.status && opts.status !== 'all' ? String(opts.status) : null
     if (!hasDatabase()) return []
     const db = getDb()
-    let q = db.select().from(keywords).where(eq(keywords.projectId, projectId)).limit(limit)
-    if (status) {
-      // @ts-ignore
-      q = db.select().from(keywords).where(and(eq(keywords.projectId, projectId), eq(keywords.status as any, status))).limit(limit)
+    const limit = opts.limit && opts.limit > 0 ? opts.limit : 100
+    const base = db
+      .select({
+        id: keywords.id,
+        projectId: keywords.projectId,
+        canonId: keywords.canonId,
+        status: keywords.status,
+        starred: keywords.starred,
+        createdAt: keywords.createdAt,
+        updatedAt: keywords.updatedAt,
+        phraseNorm: keywordCanon.phraseNorm,
+        metricsJson: metricCache.metricsJson
+      })
+      .from(keywords)
+      .innerJoin(keywordCanon, eq(keywords.canonId, keywordCanon.id))
+      .leftJoin(metricCache, eq(metricCache.canonId, keywordCanon.id))
+      .where(eq(keywords.projectId, projectId))
+      .orderBy(asc(keywordCanon.phraseNorm))
+      .limit(limit)
+    let rows = await base
+    if (opts.status && opts.status !== 'all') {
+      rows = rows.filter((r) => String(r.status) === opts.status)
     }
-    const rows = (await q) as any[]
-    return rows as any
+    return rows.map((row) => composeKeyword(row))
   },
 
   async upsertMetrics(projectId: string, updates: Array<{ phrase: string; metrics: KeywordMetrics }>): Promise<number> {
@@ -45,61 +67,96 @@ export const keywordsRepo = {
     const db = getDb()
     let updated = 0
     for (const u of updates) {
-      // find keyword id by (projectId, phrase)
-      const rows = await db.select().from(keywords).where(and(eq(keywords.projectId, projectId), eq(keywords.phrase, u.phrase))).limit(1)
-      const row: any = rows?.[0]
-      if (!row) continue
-      const opportunity = computeOpportunity((u.metrics as any)?.searchVolume, (u.metrics as any)?.difficulty, (u.metrics as any)?.rankability)
-      await db.update(keywords).set({ metricsJson: u.metrics as any, opportunity, updatedAt: new Date() as any }).where(eq(keywords.id, row.id))
-      updated++
+      const normalized = normalizePhrase(u.phrase)
+      const canonRow = await ensureCanonRow(db, normalized, 'en-US')
+      if (!canonRow) continue
+      try {
+        await db
+          .insert(metricCache)
+          .values({
+            id: genId('mcache'),
+            canonId: canonRow.id,
+            provider: 'dataforseo',
+            metricsJson: u.metrics as any,
+            ttlSeconds: 30 * 24 * 60 * 60
+          })
+          .onConflictDoUpdate({
+            target: [metricCache.canonId],
+            set: { metricsJson: u.metrics as any, fetchedAt: new Date() as any }
+          })
+        updated++
+      } catch {}
     }
     return updated
   },
+
   async upsertMany(projectId: string, phrases: string[], locale = 'en-US'): Promise<number> {
     if (!phrases.length) return 0
-    const now = new Date()
-    const toAdd: Keyword[] = []
-    const db = hasDatabase() ? getDb() : null
-    for (const p of phrases) {
-      const phrase = String(p || '').trim()
-      if (!phrase) continue
-      toAdd.push({ id: genId('kw'), projectId, phrase, status: 'recommended', metricsJson: mkMetrics(), createdAt: undefined as any, updatedAt: undefined as any })
-    }
-    if (db) { const values = toAdd.map(i => ({ id: i.id, projectId: i.projectId, phrase: i.phrase, status: i.status, metricsJson: i.metricsJson as any })); await db.insert(keywords).values(values as any).onConflictDoNothing?.() }
-    return toAdd.length
-  },
-  async linkCanon(projectId: string, mappings: Array<{ phrase: string; canonId: string }>): Promise<number> {
-    if (!mappings.length || !hasDatabase()) return 0
+    if (!hasDatabase()) return phrases.length
     const db = getDb()
-    let count = 0
-    for (const m of mappings) {
-      const rows = await db.select().from(keywords).where(and(eq(keywords.projectId, projectId), eq(keywords.phrase, m.phrase))).limit(1)
-      const row: any = rows?.[0]
-      if (!row) continue
-      await db.update(keywords).set({ canonId: m.canonId, updatedAt: new Date() as any }).where(eq(keywords.id, row.id))
-      count++
+    let inserted = 0
+    for (const raw of phrases) {
+      const phrase = String(raw || '').trim()
+      if (!phrase) continue
+      const normalized = normalizePhrase(phrase)
+      const canonId = canonIdFor(normalized, locale)
+      try {
+        await db
+          .insert(keywordCanon)
+          .values({ id: canonId, phraseNorm: normalized, languageCode: locale })
+          .onConflictDoNothing?.()
+      } catch {}
+      try {
+        await db
+          .insert(keywords)
+          .values({ id: genId('kw'), projectId, canonId, status: 'recommended', starred: false })
+          .onConflictDoNothing?.()
+        inserted++
+      } catch {}
     }
-    return count
+    return inserted
   },
+
+  async linkCanon(_projectId: string, _mappings: Array<{ phrase: string; canonId: string }>): Promise<number> {
+    // keywords now require canonId on insert; keep method for compatibility
+    return 0
+  },
+
   async update(id: string, patch: Partial<Keyword>): Promise<Keyword | null> {
     if (!hasDatabase()) return null
     const db = getDb()
     const set: any = { updatedAt: new Date() as any }
-    if (patch.phrase !== undefined) set.phrase = patch.phrase
     if (patch.status !== undefined) set.status = patch.status
     if (patch.starred !== undefined) set.starred = Boolean(patch.starred)
-    if (patch.opportunity !== undefined) set.opportunity = patch.opportunity
-    if (patch.metricsJson !== undefined) set.metricsJson = patch.metricsJson as any
     await db.update(keywords).set(set).where(eq(keywords.id, id))
-    const out = await db.select().from(keywords).where(eq(keywords.id, id)).limit(1)
-    return (out?.[0] as any) ?? null
+    const rows = await db
+      .select({
+        id: keywords.id,
+        projectId: keywords.projectId,
+        canonId: keywords.canonId,
+        status: keywords.status,
+        starred: keywords.starred,
+        createdAt: keywords.createdAt,
+        updatedAt: keywords.updatedAt,
+        phraseNorm: keywordCanon.phraseNorm,
+        metricsJson: metricCache.metricsJson
+      })
+      .from(keywords)
+      .innerJoin(keywordCanon, eq(keywords.canonId, keywordCanon.id))
+      .leftJoin(metricCache, eq(metricCache.canonId, keywordCanon.id))
+      .where(eq(keywords.id, id))
+      .limit(1)
+    const row = rows?.[0]
+    return row ? composeKeyword(row) : null
   },
+
   async remove(id: string): Promise<boolean> {
     if (!hasDatabase()) return false
     const db = getDb()
     await db.delete(keywords).where(eq(keywords.id, id))
     return true
   },
+
   async removeByProject(projectId: string) {
     if (!hasDatabase()) return
     const db = getDb()
@@ -107,11 +164,59 @@ export const keywordsRepo = {
   }
 }
 
-function mkMetrics(): KeywordMetrics {
-  const volume = Math.floor(100 + Math.random() * 5000)
-  const difficulty = Math.floor(10 + Math.random() * 70)
-  const cpc = Number((Math.random() * 5).toFixed(2))
-  return { searchVolume: volume, difficulty, cpc, asOf: new Date().toISOString() }
+function composeKeyword(row: {
+  id: string
+  projectId: string
+  canonId: string
+  status: string | null
+  starred: boolean | null
+  createdAt: Date | string | null
+  updatedAt: Date | string | null
+  phraseNorm: string
+  metricsJson: Record<string, unknown> | null
+}): Keyword {
+  const metrics = (row.metricsJson || null) as KeywordMetrics | null
+  const opportunity = computeOpportunity(
+    Number((metrics as any)?.searchVolume ?? null),
+    Number((metrics as any)?.difficulty ?? null),
+    Number((metrics as any)?.rankability ?? null)
+  )
+  return {
+    id: row.id,
+    projectId: row.projectId,
+    canonId: row.canonId,
+    phrase: row.phraseNorm,
+    status: row.status || 'recommended',
+    starred: Boolean(row.starred),
+    metricsJson: metrics,
+    opportunity,
+    createdAt: row.createdAt ? new Date(row.createdAt).toISOString() : null,
+    updatedAt: row.updatedAt ? new Date(row.updatedAt).toISOString() : null
+  }
+}
+
+function normalizePhrase(raw: string) {
+  return raw.normalize('NFKC').trim().replace(/\s+/g, ' ').toLowerCase()
+}
+
+function canonIdFor(phraseNorm: string, language: string) {
+  return `kcan_${Buffer.from(`${phraseNorm}|${language}`).toString('base64').slice(0, 20)}`
+}
+
+async function ensureCanonRow(db: ReturnType<typeof getDb>, phraseNorm: string, language: string) {
+  const id = canonIdFor(phraseNorm, language)
+  try {
+    await db
+      .insert(keywordCanon)
+      .values({ id, phraseNorm, languageCode: language })
+      .onConflictDoNothing?.()
+    return { id }
+  } catch {
+    const rows = await db.select().from(keywordCanon).where(and(eq(keywordCanon.id, id), eq(keywordCanon.languageCode, language))).limit(1)
+    const row = rows?.[0]
+    if (row) return { id: row.id }
+    return null
+  }
 }
 
 function sampleSeeds() {
@@ -133,13 +238,17 @@ function genId(prefix: string) {
   return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`
 }
 
-function computeOpportunity(volume: number | null | undefined, difficulty: number | null | undefined, rankability?: number | null | undefined) {
-  const v = typeof volume === 'number' && isFinite(volume) ? Math.max(0, Math.min(10000, volume)) : 0
-  const d = typeof difficulty === 'number' && isFinite(difficulty) ? Math.max(0, Math.min(100, difficulty)) : 50
-  const vNorm = Math.min(1, Math.log10(1 + v) / 4)
-  const diffNorm = 1 - d / 100
+function computeOpportunity(
+  volume: number | null | undefined,
+  difficulty: number | null | undefined,
+  rankability?: number | null | undefined
+) {
+  if (typeof volume !== 'number' || !Number.isFinite(volume)) volume = 0
+  if (typeof difficulty !== 'number' || !Number.isFinite(difficulty)) difficulty = 50
+  const vNorm = Math.min(1, Math.log10(1 + Math.max(0, volume)) / 4)
+  const diffNorm = 1 - Math.max(0, Math.min(100, difficulty)) / 100
   const base = Math.round(100 * (0.7 * vNorm + 0.3 * diffNorm))
-  if (typeof rankability === 'number' && isFinite(rankability)) {
+  if (typeof rankability === 'number' && Number.isFinite(rankability)) {
     return Math.max(0, Math.min(100, Math.round(0.5 * base + 0.5 * Math.max(0, Math.min(100, rankability)))))
   }
   return Math.max(0, Math.min(100, base))

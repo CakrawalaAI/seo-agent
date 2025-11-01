@@ -1,54 +1,29 @@
 // @ts-nocheck
 import { createFileRoute } from '@tanstack/react-router'
-import { json, httpError, requireSession, requireProjectAccess } from '@app/api-utils'
-import { hasDatabase, getDb } from '@common/infra/db'
-import { crawlPages, linkGraph } from '@entities/crawl/db/schema'
-import { eq } from 'drizzle-orm'
+import { json, requireSession, requireProjectAccess } from '@app/api-utils'
+import { latestRunDir } from '@common/bundle/store'
+import { join } from 'node:path'
+import { existsSync, readFileSync } from 'node:fs'
 
 export const Route = createFileRoute('/api/projects/$projectId/link-graph')({
   server: {
     handlers: {
       GET: async ({ params, request }) => {
-        await requireSession(request)
-        await requireProjectAccess(request, params.projectId)
-        const projectId = params.projectId
-        const nodes: Array<{ id: string; url: string; title?: string | null }> = []
-        const edges: Array<{ from: string; to: string; text?: string | null }> = []
-
-        if (hasDatabase()) {
-          try {
-            const db = getDb()
-            // Prefer dedicated linkGraph table
-            // @ts-ignore
-            const rows = (await db.select().from(linkGraph).where(eq(linkGraph.projectId, projectId)).limit(2000)) as any[]
-            const urls = new Set<string>()
-            for (const e of rows) {
-              edges.push({ from: e.fromUrl, to: e.toUrl, text: e.anchorText ?? null })
-              urls.add(e.fromUrl)
-              urls.add(e.toUrl)
-            }
-            // Fetch titles and fallback edges from crawl_pages if available
-            // @ts-ignore
-            const pages = (await db.select().from(crawlPages).where(eq(crawlPages.projectId, projectId)).limit(1000)) as any[]
-            const titleByUrl = new Map<string, string | null>()
-            for (const p of pages) titleByUrl.set(p.url, p?.metaJson?.title ?? null)
-            if (rows.length === 0) {
-              for (const p of pages) {
-                const links = Array.isArray(p?.linksJson) ? p.linksJson : []
-                for (const l of links.slice(0, 50)) {
-                  edges.push({ from: p.url, to: String(l.href || ''), text: (l as any)?.text ?? null })
-                  urls.add(p.url)
-                  urls.add(String(l.href || ''))
-                }
-              }
-            }
-            for (const u of Array.from(urls)) {
-              nodes.push({ id: u, url: u, title: titleByUrl.get(u) ?? null })
-            }
-            return json({ nodes, edges })
-          } catch {}
+        if (process.env.E2E_NO_AUTH !== '1' && request) {
+          await requireSession(request)
+          await requireProjectAccess(request, params.projectId)
         }
-        return json({ nodes, edges })
+        try {
+          const base = latestRunDir(params.projectId)
+          const file = join(base, 'crawl', 'link-graph.json')
+          if (!existsSync(file)) return json({ nodes: [], edges: [] })
+          const parsed = JSON.parse(readFileSync(file, 'utf-8'))
+          const nodes = Array.isArray(parsed?.nodes) ? parsed.nodes : []
+          const edges = Array.isArray(parsed?.edges) ? parsed.edges : []
+          return json({ nodes, edges })
+        } catch {
+          return json({ nodes: [], edges: [] })
+        }
       }
     }
   }

@@ -1,6 +1,4 @@
 import { keywordsRepo } from '@entities/keyword/repository'
-import { hasDatabase, getDb } from '@common/infra/db'
-import { crawlPages } from '@entities/crawl/db/schema'
 import { crawlRepo } from '@entities/crawl/repository'
 import { summarizeSite, expandSeeds } from '@common/providers/llm'
 import { getDiscoveryProvider, getMetricsProvider } from '@common/providers/registry'
@@ -8,7 +6,6 @@ import { enrichMetrics } from '@common/providers/metrics'
 import { ensureCanon } from '@features/keyword/server/ensureCanon'
 import { ensureMetrics } from '@features/keyword/server/ensureMetrics'
 import { projectsRepo } from '@entities/project/repository'
-import { eq, desc } from 'drizzle-orm'
 import * as bundle from '@common/bundle/store'
 import { computeOpportunity } from '@features/keyword/server/computeOpportunity'
 import { filterSeeds } from '@features/keyword/server/seedFilter'
@@ -19,20 +16,15 @@ import { recordJobQueued } from '@common/infra/jobs'
 export async function processDiscovery(payload: { projectId: string; locale?: string }) {
   const projectId = String(payload.projectId)
   const locale = payload.locale || 'en-US'
-  // 1) Get representative pages (pull DB content if present)
-  let pages: Array<{ url: string; title?: string; text?: string }> = []
-  if (hasDatabase()) {
-    try {
-      const db = getDb()
-      // @ts-ignore
-      const rows = await (db.select().from(crawlPages).where(eq(crawlPages.projectId, projectId)).orderBy(desc(crawlPages.depth)).limit(50) as any)
-      pages = rows.map((r: any) => ({ url: r.url, title: r?.metaJson?.title, text: r?.contentText || '' }))
-    } catch {}
-  }
-  if (pages.length === 0) {
-    const sample = await crawlRepo.list(projectId, 50)
-    pages = sample.map((p: any) => ({ url: p.url, title: p?.metaJson?.title, text: '' }))
-  }
+  const project = await projectsRepo.get(projectId)
+  const defaultLocationCode = Number(process.env.SEOA_DEFAULT_LOCATION_CODE || '2840')
+  // 1) Gather recent crawl pages from bundle
+  const crawlPages = await crawlRepo.list(projectId, 200)
+  const pages = crawlPages.slice(0, 50).map((p) => ({
+    url: p.url,
+    title: (p.metaJson as any)?.title as string | undefined,
+    text: p.contentText || ''
+  }))
   // 2) LLM summary + topic clusters
   const summary = await summarizeSite(pages)
   console.info('[discovery] summary generated', { projectId, hasSummary: Boolean(summary?.businessSummary), clusters: (summary?.topicClusters || []).length })
@@ -46,32 +38,37 @@ export async function processDiscovery(payload: { projectId: string; locale?: st
   let seeds: string[] = [...seedsLlm]
   // derive phrases from headings in crawl dump
   try {
-    if (hasDatabase()) {
-      const db = getDb()
-      // @ts-ignore
-      const rows = (await db.select().from(crawlPages).where(eq(crawlPages.projectId, projectId)).limit(500)) as any
-      const allHeadings: Array<{ level: number; text: string }> = []
-      for (const r of rows) {
-        const hs = Array.isArray(r?.headingsJson) ? (r.headingsJson as any[]) : []
-        for (const h of hs) allHeadings.push({ level: Number(h.level || 2), text: String(h.text || '') })
+    const { phrasesFromHeadings } = await import('@features/keyword/server/fromHeadings')
+    const headingsSource: Array<{ level: number; text: string }> = []
+    for (const page of crawlPages) {
+      const hs = Array.isArray(page.headingsJson) ? (page.headingsJson as Array<{ level?: number; text?: string }>) : []
+      for (const h of hs) {
+        headingsSource.push({ level: Number(h.level ?? 2), text: String(h.text ?? '') })
+        if (headingsSource.length >= 500) break
       }
-      const { phrasesFromHeadings } = await import('@features/keyword/server/fromHeadings')
-      const fromHeads = phrasesFromHeadings(allHeadings, 50)
-      const set = new Set(seeds.map((s) => s.toLowerCase()))
-      for (const p of fromHeads) if (!set.has(p.toLowerCase())) { seeds.push(p); set.add(p.toLowerCase()) }
-      try { if ((await import('@common/config')).config.debug?.writeBundle) {
+      if (headingsSource.length >= 500) break
+    }
+    const fromHeads = phrasesFromHeadings(headingsSource, 50)
+    const set = new Set(seeds.map((s) => s.toLowerCase()))
+    for (const phrase of fromHeads) {
+      const key = phrase.toLowerCase()
+      if (set.has(key)) continue
+      seeds.push(phrase)
+      set.add(key)
+    }
+    try {
+      if ((await import('@common/config')).config.debug?.writeBundle) {
         bundle.writeJsonl(projectId, 'keywords/seeds.jsonl', [
           ...seedsLlm.map((p) => ({ phrase: p, source: 'llm' })),
           ...fromHeads.map((p) => ({ phrase: p, source: 'headings' }))
         ])
-      } } catch {}
-    }
+      }
+    } catch {}
   } catch {}
   try {
-    const projL = await projectsRepo.get(projectId)
-    const loc = Number((projL?.metricsLocationCode) || 2840)
+    const loc = defaultLocationCode
     const { discoverKeywords } = await import('@features/keyword/server/discoverKeywords')
-    const added = await discoverKeywords({ siteUrl: projL?.siteUrl || null, seeds: seedsLlm, language: locale, locationCode: loc })
+    const added = await discoverKeywords({ siteUrl: project?.siteUrl || null, seeds: seedsLlm, language: locale, locationCode: loc })
     const set = new Set(seeds.map((s) => s.toLowerCase()))
     for (const p of added) { const k = p.toLowerCase(); if (!set.has(k)) { seeds.push(p); set.add(k) } }
     console.info('[discovery] dfs multi-source', { added: added.length })
@@ -83,7 +80,11 @@ export async function processDiscovery(payload: { projectId: string; locale?: st
   await keywordsRepo.upsertMany(projectId, seeds, locale)
   try {
     // if headings write already happened above, we skip duplicate write
-    if (!(hasDatabase()) && (await import('@common/config')).config.debug?.writeBundle) bundle.writeJsonl(projectId, 'keywords/seeds.jsonl', seedsLlm.map((p) => ({ phrase: p, source: 'llm' })))
+    try {
+      if ((await import('@common/config')).config.debug?.writeBundle) {
+        bundle.writeJsonl(projectId, 'keywords/seeds.jsonl', seedsLlm.map((p) => ({ phrase: p, source: 'llm' })))
+      }
+    } catch {}
   } catch {}
   // 4b) Link canons
   try {
@@ -146,17 +147,16 @@ export async function processDiscovery(payload: { projectId: string; locale?: st
   // 6c) Optionally queue SERP for top-M to warm cache
   try {
     const TOP_M = Math.max(1, Number(process.env.SEOA_TOP_M || '50'))
-    const project = await projectsRepo.get(projectId)
     const top = ((await keywordsRepo.list(projectId, { status: 'all', limit: 1000 })) || [])
       .sort((a, b) => (b.opportunity ?? 0) - (a.opportunity ?? 0))
       .slice(0, TOP_M)
     if (queueEnabled()) {
       for (const k of top) {
-        const jid = await publishJob({ type: 'serp', payload: { canonPhrase: k.phrase, language: locale, locationCode: Number(project?.serpLocationCode || project?.metricsLocationCode || 2840), device: (project?.serpDevice as any) || 'desktop', topK: 10, projectId } })
+        const jid = await publishJob({ type: 'serp', payload: { canonPhrase: k.phrase, language: locale, locationCode: defaultLocationCode, device: 'desktop', topK: 10, projectId } })
         try { await recordJobQueued(projectId, 'serp', jid) } catch {}
       }
       for (const k of top.slice(0, 10)) {
-        const jid = await publishJob({ type: 'competitors', payload: { projectId, siteUrl: String(project?.siteUrl || ''), canonPhrase: k.phrase, language: locale, locationCode: Number(project?.serpLocationCode || project?.metricsLocationCode || 2840), device: (project?.serpDevice as any) || 'desktop', topK: 10 } })
+        const jid = await publishJob({ type: 'competitors', payload: { projectId, siteUrl: String(project?.siteUrl || ''), canonPhrase: k.phrase, language: locale, locationCode: defaultLocationCode, device: 'desktop', topK: 10 } })
         try { await recordJobQueued(projectId, 'competitors', jid) } catch {}
       }
     }

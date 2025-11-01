@@ -1,6 +1,6 @@
 import crypto from 'crypto'
 import { hasDatabase, getDb } from '@common/infra/db'
-import { users, accounts } from '@entities/auth/db/schema'
+import { users, userAuthProviders } from '@entities/auth/db/schema'
 import { and, eq } from 'drizzle-orm'
 
 const OAUTH_COOKIE = 'seoa_oauth'
@@ -95,9 +95,9 @@ export async function upsertUserFromGoogle(profile: { sub: string; email: string
   // 1) try account link
   const acc = await db
     .select()
-    .from(accounts)
+    .from(userAuthProviders)
     // @ts-ignore drizzle type narrowing
-    .where(and(eq(accounts.providerId as any, 'google'), eq(accounts.accountId as any, profile.sub)))
+    .where(and(eq(userAuthProviders.providerId as any, 'google'), eq(userAuthProviders.providerAccountId as any, profile.sub)))
     .limit(1)
   let userId: string | null = (acc as any)?.[0]?.userId ?? null
   if (!userId) {
@@ -117,7 +117,18 @@ export async function upsertUserFromGoogle(profile: { sub: string; email: string
   // ensure account link exists
   try {
     // @ts-ignore drizzle types
-    await db.insert(accounts).values({ id: randomId('acc_'), userId, providerId: 'google' as any, accountId: profile.sub, rawJson: null }).onConflictDoNothing?.()
+    await db
+      .insert(userAuthProviders)
+      .values({
+        id: randomId('uap_'),
+        userId,
+        providerId: 'google' as any,
+        providerAccountId: profile.sub,
+        accessToken: null,
+        refreshToken: null,
+        rawJson: null
+      })
+      .onConflictDoNothing?.()
   } catch {}
   return { userId }
 }

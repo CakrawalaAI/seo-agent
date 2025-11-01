@@ -408,9 +408,7 @@ export function ProjectDetailScreen({ projectId, tab }: ProjectDetailScreenProps
   const articlesByPlanId = useMemo(() => {
     const map = new Map<string, Article>()
     for (const article of articles) {
-      if (article.planItemId) {
-        map.set(article.planItemId, article)
-      }
+      map.set(article.id, article)
     }
     return map
   }, [articles])

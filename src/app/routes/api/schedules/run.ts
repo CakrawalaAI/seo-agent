@@ -40,7 +40,7 @@ export const Route = createFileRoute('/api/schedules/run')({
         }
         const plan = await planRepo.list(String(projectId), 365)
         const existingList = await articlesRepo.list(String(projectId), 999)
-        const existing = new Map(existingList.map((a) => [a.planItemId ?? a.id, a]))
+        const existing = new Map(existingList.map((a) => [a.id, a]))
         let generatedDrafts = 0
         let publishedArticles = 0
         for (const item of plan) {
@@ -73,7 +73,7 @@ export const Route = createFileRoute('/api/schedules/run')({
         if (target && queueEnabled()) {
           const drafts = (await articlesRepo.list(String(projectId), 200)).filter((a) => a.status === 'draft')
           for (const d of drafts) {
-            const planItem = plan.find((p) => p.id === (d.planItemId ?? d.id))
+          const planItem = plan.find((p) => p.id === d.id)
             if (!planItem) continue
             const ageOk = policy === 'immediate' ? false : (policy === 'buffered' && planItem.plannedDate ? daysBetween(new Date(planItem.plannedDate), new Date()) >= Math.max(0, bufferDays) : false)
             const hasBody = typeof d.bodyHtml === 'string' && d.bodyHtml.replace(/<[^>]+>/g, ' ').trim().length > 500

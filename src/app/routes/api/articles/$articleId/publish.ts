@@ -54,7 +54,7 @@ export const Route = createFileRoute('/api/articles/$articleId/publish')({
           bodyHtml: article.bodyHtml ?? '',
           cmsExternalId: result.externalId ?? null,
           url: result.url ?? null,
-          publicationDate: new Date().toISOString()
+          publishDate: new Date().toISOString()
         })
 
         console.warn('[API /articles/:id/publish] Published synchronously (queue disabled)', {

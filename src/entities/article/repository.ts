@@ -2,7 +2,6 @@ import type { Article, ArticleOutlineSection } from './domain/article'
 import { hasDatabase, getDb } from '@common/infra/db'
 import { articles } from './db/schema'
 import { desc, eq } from 'drizzle-orm'
-import { projects } from '@entities/project/db/schema'
 
 export const articlesRepo = {
   async list(projectId: string, limit = 90): Promise<Article[]> {
@@ -20,11 +19,12 @@ export const articlesRepo = {
   },
   async createDraft(input: { projectId: string; planItemId: string; title: string; outline?: ArticleOutlineSection[] }): Promise<Article> {
     const now = new Date()
+    const targetId = input.planItemId
     // If a planned article exists with id = planItemId, convert it into a draft in place
     if (hasDatabase()) {
       const db = getDb()
       try {
-        const rows = (await db.select().from(articles).where(eq(articles.id, input.planItemId)).limit(1)) as any[]
+        const rows = (await db.select().from(articles).where(eq(articles.id, targetId)).limit(1)) as any[]
         const found = rows?.[0]
         if (found) {
           await db
@@ -37,8 +37,8 @@ export const articlesRepo = {
               tone: 'neutral',
               updatedAt: now as any
             })
-            .where(eq(articles.id, input.planItemId))
-          const after = await db.select().from(articles).where(eq(articles.id, input.planItemId)).limit(1)
+            .where(eq(articles.id, targetId))
+          const after = await db.select().from(articles).where(eq(articles.id, targetId)).limit(1)
           return (after?.[0] as any) as Article
         }
       } catch {}
@@ -46,10 +46,10 @@ export const articlesRepo = {
 
     // No org_usage gating; entitlements may be shown but not enforced
 
+    const articleId = targetId || genId('article')
     const article: Article = {
-      id: genId('article'),
+      id: articleId,
       projectId: input.projectId,
-      planItemId: input.planItemId,
       title: input.title,
       language: 'en',
       tone: 'neutral',
@@ -67,7 +67,6 @@ export const articlesRepo = {
         .values({
           id: article.id,
           projectId: article.projectId,
-          planItemId: article.planItemId,
           title: article.title,
           language: article.language,
           tone: article.tone,
@@ -84,7 +83,7 @@ export const articlesRepo = {
     if (!hasDatabase()) return null
     const db = getDb()
     const set: any = { updatedAt: new Date() as any }
-    for (const k of ['projectId','planItemId','title','language','tone','status','outlineJson','bodyHtml','generationDate'] as const) {
+    for (const k of ['projectId','keywordId','plannedDate','title','language','tone','status','outlineJson','bodyHtml','generationDate','publishDate','url'] as const) {
       const v = (patch as any)[k]
       if (v !== undefined) set[k] = v as any
     }

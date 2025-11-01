@@ -1,7 +1,5 @@
 import { articlesRepo } from '@entities/article/repository'
-import { hasDatabase, getDb } from '@common/infra/db'
-import { crawlPages, linkGraph } from '@entities/crawl/db/schema'
-import { eq, desc } from 'drizzle-orm'
+import { crawlRepo } from '@entities/crawl/repository'
 import { getResearchProvider, getLlmProvider } from '@common/providers/registry'
 import * as bundle from '@common/bundle/store'
 
@@ -14,18 +12,18 @@ export async function processEnrich(payload: { projectId: string; articleId: str
   let citations: Array<{ title: string; url: string; snippet?: string }> = []
   try { citations = await research.search(q, { topK: 5 }); try { const { appendJsonl } = await import('@common/bundle/store'); appendJsonl('global', 'metrics/costs.jsonl', { node: 'research', provider: process.env.EXA_API_KEY ? 'exa' : 'stub', at: new Date().toISOString(), stage: 'citations' }) } catch {}; try { const { updateCostSummary } = await import('@common/metrics/costs'); updateCostSummary() } catch {} } catch {}
   // Internal links: from recent crawl pages (exclude homepage)
-  let internal: Array<{ anchor: string; url: string }> = []
-  if (hasDatabase()) {
-    try {
-      const db = getDb()
-      // @ts-ignore
-      const rows = await db.select().from(crawlPages).where(eq(crawlPages.projectId, payload.projectId)).orderBy(desc(crawlPages.createdAt as any)).limit(20)
-      internal = (rows as any[])
-        .filter((r) => typeof r?.url === 'string' && !/\/$/.test(new URL(r.url).pathname))
-        .slice(0, 10)
-        .map((r) => ({ anchor: (r?.metaJson as any)?.title || 'Related', url: r.url }))
-    } catch {}
-  }
+  const crawlPages = await crawlRepo.list(payload.projectId, 200)
+  const internal = crawlPages
+    .filter((page) => {
+      try {
+        const loc = new URL(page.url)
+        return loc.pathname !== '/' && !loc.pathname.endsWith('/')
+      } catch {
+        return false
+      }
+    })
+    .slice(0, 10)
+    .map((page) => ({ anchor: ((page.metaJson as any)?.title as string) || 'Related', url: page.url }))
   const enrichment = {
     citations,
     internalLinks: internal,
@@ -53,24 +51,19 @@ export async function processEnrich(payload: { projectId: string; articleId: str
 
   // Internal link suggestions: simple title word overlap
   try {
-      const title = String(article.title || '')
+    const title = String(article.title || '')
     const words = new Set(title.toLowerCase().split(/[^a-z0-9]+/).filter((w) => w.length > 3))
-    let candidates: Array<{ url: string; score: number; title?: string }> = []
-    if (hasDatabase()) {
-      const db = getDb()
-      // @ts-ignore
-      const rows = (await db.select().from(crawlPages).where(eq(crawlPages.projectId, payload.projectId)).limit(200)) as any[]
-      candidates = rows.map((r) => {
-        const t = String((r?.metaJson as any)?.title || '')
-        const ts = new Set(t.toLowerCase().split(/[^a-z0-9]+/).filter((w) => w.length > 3))
+    const candidates = crawlPages
+      .map((page) => {
+        const t = String(((page.metaJson as any)?.title) || '')
+        const tokens = new Set(t.toLowerCase().split(/[^a-z0-9]+/).filter((w) => w.length > 3))
         let overlap = 0
-        for (const w of words) if (ts.has(w)) overlap++
-        return { url: r.url, title: t, score: overlap }
+        for (const w of words) if (tokens.has(w)) overlap++
+        return { url: page.url, title: t, score: overlap }
       })
-        .filter((c) => c.score >= 2)
-        .sort((a, b) => b.score - a.score)
-        .slice(0, 5)
-    }
+      .filter((c) => c.score >= 2)
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 5)
     const seen = new Set<string>()
     enrichment.internalLinks = candidates
       .filter((c) => c.url && !seen.has(c.url) && seen.add(c.url))

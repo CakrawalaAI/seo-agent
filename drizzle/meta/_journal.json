@@ -1,75 +1,12 @@
 {
-  "version": "7",
+  "version": "5",
   "dialect": "postgresql",
   "entries": [
     {
       "idx": 0,
-      "version": "7",
-      "when": 1761647326979,
-      "tag": "0000_nosy_night_thrasher",
-      "breakpoints": true
-    },
-    {
-      "idx": 1,
-      "version": "7",
-      "when": 1761647577506,
-      "tag": "0001_great_chat",
-      "breakpoints": true
-    },
-    {
-      "idx": 2,
-      "version": "7",
-      "when": 1761648620186,
-      "tag": "0002_overconfident_blizzard",
-      "breakpoints": true
-    },
-    {
-      "idx": 3,
-      "version": "7",
-      "when": 1761649153582,
-      "tag": "0003_shiny_bromley",
-      "breakpoints": true
-    },
-    {
-      "idx": 4,
-      "version": "7",
-      "when": 1761649282307,
-      "tag": "0004_long_husk",
-      "breakpoints": true
-    },
-    {
-      "idx": 5,
-      "version": "7",
-      "when": 1761722601853,
-      "tag": "0005_yielding_onslaught",
-      "breakpoints": true
-    },
-    {
-      "idx": 6,
-      "version": "7",
-      "when": 1761768000000,
-      "tag": "0006_global_keywords",
-      "breakpoints": true
-    },
-    {
-      "idx": 7,
-      "version": "7",
-      "when": 1761839831712,
-      "tag": "0007_silky_the_watchers",
-      "breakpoints": true
-    },
-    {
-      "idx": 8,
-      "version": "7",
-      "when": 1761841587150,
-      "tag": "0008_nosy_bushwacker",
-      "breakpoints": true
-    },
-    {
-      "idx": 9,
-      "version": "7",
-      "when": 1761845200437,
-      "tag": "0009_dapper_vampiro",
+      "version": "5",
+      "when": 1761993600000,
+      "tag": "0000_init",
       "breakpoints": true
     }
   ]

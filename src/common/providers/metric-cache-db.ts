@@ -1,24 +1,16 @@
 import { metricCache } from '@entities/metrics/db/schema'
+import { keywordCanon } from '@entities/keyword/db/schema.canon'
 import { getDb, hasDatabase } from '@common/infra/db'
+import { eq } from 'drizzle-orm'
 
-function hashKey(phrase: string, locale?: string, location?: string, projectId?: string) {
-  const key = `${projectId ?? ''}|${phrase.toLowerCase()}|${locale ?? ''}|${location ?? ''}`
-  try {
-    const crypto = require('node:crypto') as typeof import('node:crypto')
-    return crypto.createHash('sha1').update(key).digest('hex')
-  } catch {
-    return key
-  }
-}
-
-export async function getMetricDb(phrase: string, locale?: string, location?: string, projectId?: string) {
+export async function getMetricDb(phrase: string, locale = 'en-US') {
   if (!hasDatabase()) return null
   try {
     const db = getDb()
-    const hash = hashKey(phrase, locale, location, projectId)
-    // @ts-ignore
-    const rows = await (db.select().from(metricCache).where((metricCache as any).hash.eq(hash)).limit(1) as any)
-    const row = Array.isArray(rows) ? rows[0] : null
+    const phraseNorm = normalizePhrase(phrase)
+    const canonId = canonIdFor(phraseNorm, locale)
+    const rows = await db.select().from(metricCache).where(eq(metricCache.canonId, canonId)).limit(1)
+    const row = rows?.[0]
     if (!row) return null
     const ttl = Number(row.ttlSeconds ?? 0)
     const fetchedAt = row.fetchedAt ? new Date(row.fetchedAt) : null
@@ -33,29 +25,41 @@ export async function getMetricDb(phrase: string, locale?: string, location?: st
 
 export async function setMetricDb(
   phrase: string,
-  metrics: { searchVolume?: number; difficulty?: number; cpc?: number },
-  locale?: string,
-  location?: string,
-  projectId?: string,
-  ttlSeconds = 7 * 24 * 60 * 60,
+  metrics: { searchVolume?: number; difficulty?: number; cpc?: number; competition?: number; rankability?: number } | null,
+  locale = 'en-US',
+  ttlSeconds = 30 * 24 * 60 * 60,
   provider = 'dataforseo'
 ) {
   if (!hasDatabase()) return false
   try {
     const db = getDb()
-    const id = `mc_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`
-    const hash = hashKey(phrase, locale, location, projectId)
-    // upsert on (provider, hash)
-    // @ts-ignore
+    const phraseNorm = normalizePhrase(phrase)
+    const canonId = canonIdFor(phraseNorm, locale)
+    await db
+      .insert(keywordCanon)
+      .values({ id: canonId, phraseNorm, languageCode: locale })
+      .onConflictDoNothing?.()
     await db
       .insert(metricCache)
-      .values({ id, provider, hash, projectId: projectId ?? null, metricsJson: metrics, fetchedAt: new Date() as any, ttlSeconds })
+      .values({ id: genId('mcache'), canonId, provider, metricsJson: metrics as any, ttlSeconds, fetchedAt: new Date() as any })
       .onConflictDoUpdate({
-        target: [metricCache.provider, metricCache.hash],
-        set: { metricsJson: metrics, fetchedAt: new Date() as any, ttlSeconds, projectId: projectId ?? null }
+        target: [metricCache.canonId],
+        set: { metricsJson: metrics as any, fetchedAt: new Date() as any, ttlSeconds }
       })
     return true
   } catch {
     return false
   }
+}
+
+function normalizePhrase(raw: string) {
+  return raw.normalize('NFKC').trim().replace(/\s+/g, ' ').toLowerCase()
+}
+
+function canonIdFor(phraseNorm: string, language: string) {
+  return `kcan_${Buffer.from(`${phraseNorm}|${language}`).toString('base64').slice(0, 20)}`
+}
+
+function genId(prefix: string) {
+  return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`
 }

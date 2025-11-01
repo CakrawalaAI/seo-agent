@@ -1,8 +1,7 @@
 import { getSerpProvider } from '@common/providers/registry'
 import { config } from '@common/config'
-import { hasDatabase, getDb } from '@common/infra/db'
-import { serpSnapshot } from '@entities/serp/db/schema'
-import { and, eq, gt } from 'drizzle-orm'
+import { existsSync, readFileSync, mkdirSync, writeFileSync } from 'node:fs'
+import { join } from 'node:path'
 
 function monthOf(date = new Date()) {
   return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}`
@@ -16,42 +15,15 @@ export async function ensureSerp(opts: {
   anchorMonthly?: boolean
   force?: boolean
 }) {
-  // 1) DB cache check (TTL)
+  // 1) File cache
   const ttlDays = Math.max(1, Number(config.serp.ttlDays))
   const defaultTopK = Math.max(1, Number(config.serp.topKDefault))
   const ttlMs = ttlDays * 24 * 60 * 60 * 1000
-  if (hasDatabase() && !opts.force) {
-    try {
-      const db = getDb()
-      // @ts-ignore
-      const rows = await db
-        .select()
-        .from(serpSnapshot)
-        .where(
-          and(
-            eq(serpSnapshot.canonId, opts.canon.id),
-            eq(serpSnapshot.engine, 'google'),
-            eq(serpSnapshot.locationCode, opts.locationCode as any),
-            eq(serpSnapshot.device, (opts.device || 'desktop') as any),
-            eq(serpSnapshot.topK, (opts.topK || defaultTopK) as any)
-          )
-        )
-        .limit(1)
-      const row = (rows as any)?.[0]
-      if (row?.itemsJson && row?.fetchedAt) {
-        const age = Date.now() - new Date(row.fetchedAt as any).getTime()
-        if (age < ttlMs) {
-          return {
-            fetchedAt: new Date(row.fetchedAt as any).toISOString(),
-            engine: 'google',
-            device: (row.device as any) || 'desktop',
-            topK: Number(row.topK || 10),
-            items: row.itemsJson as any,
-            textDump: String(row.textDump || '')
-          }
-        }
-      }
-    } catch {}
+  if (!opts.force) {
+    const cached = readCache(cacheKey(opts, defaultTopK))
+    if (cached && Date.now() - new Date(cached.fetchedAt).getTime() < ttlMs) {
+      return cached
+    }
   }
   // 2) Provider call
   const provider = getSerpProvider()
@@ -62,50 +34,54 @@ export async function ensureSerp(opts: {
     topK: opts.topK ?? defaultTopK,
     force: opts.force
   })
-  // 3) Upsert latest + optional monthly anchor
-  if (hasDatabase()) {
-    const id = `serp_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`
-    try {
-      const db = getDb()
-      // latest upsert key on canon+engine+location+device+topK
-      // @ts-ignore
-      await db
-        .insert(serpSnapshot)
-        .values({
-          id,
-          canonId: opts.canon.id,
-          engine: 'google',
-          locationCode: opts.locationCode,
-          device: snap.device,
-          topK: snap.topK,
-          itemsJson: snap.items as any,
-          textDump: snap.textDump
-        })
-        .onConflictDoUpdate?.({
-          target: [serpSnapshot.canonId, serpSnapshot.engine, serpSnapshot.locationCode, serpSnapshot.device, serpSnapshot.topK],
-          set: { itemsJson: snap.items as any, textDump: snap.textDump, fetchedAt: new Date() as any }
-        })
-      if (opts.anchorMonthly) {
-        const month = monthOf()
-        const anchorId = `${id}_m` 
-        // attempt insert if missing
-        // @ts-ignore
-        await db
-          .insert(serpSnapshot)
-          .values({
-            id: anchorId,
-            canonId: opts.canon.id,
-            engine: 'google',
-            locationCode: opts.locationCode,
-            device: snap.device,
-            topK: snap.topK,
-            itemsJson: snap.items as any,
-            textDump: snap.textDump,
-            anchorMonth: month
-          })
-          .onConflictDoNothing?.()
-      }
-    } catch {}
+  writeCache(cacheKey(opts, defaultTopK), snap)
+  if (opts.anchorMonthly) {
+    writeAnchorCache(cacheKey(opts, defaultTopK), snap)
   }
   return snap
+}
+
+const CACHE_ROOT = join(process.cwd(), '.data', 'serp-cache')
+
+function ensureDir(dir: string) {
+  try { mkdirSync(dir, { recursive: true }) } catch {}
+}
+
+function cacheKey(opts: { canon: { id: string }; locationCode: number; device?: string; topK?: number }, defaultTopK: number) {
+  return `${opts.canon.id}_${opts.locationCode}_${opts.device || 'desktop'}_${opts.topK ?? defaultTopK}`
+}
+
+function cachePath(key: string) {
+  return join(CACHE_ROOT, `${key}.json`)
+}
+
+function readCache(key: string) {
+  const file = cachePath(key)
+  try {
+    if (!existsSync(file)) return null
+    const parsed = JSON.parse(readFileSync(file, 'utf-8'))
+    if (!parsed?.fetchedAt) parsed.fetchedAt = new Date().toISOString()
+    return parsed
+  } catch {
+    return null
+  }
+}
+
+function writeCache(key: string, snap: any) {
+  ensureDir(CACHE_ROOT)
+  const file = cachePath(key)
+  try {
+    writeFileSync(file, JSON.stringify({ ...snap, fetchedAt: new Date().toISOString() }, null, 2), 'utf-8')
+  } catch {}
+}
+
+function writeAnchorCache(key: string, snap: any) {
+  const month = monthOf()
+  const dir = join(CACHE_ROOT, 'anchors')
+  ensureDir(dir)
+  const file = join(dir, `${key}_${month}.json`)
+  if (existsSync(file)) return
+  try {
+    writeFileSync(file, JSON.stringify({ ...snap, fetchedAt: new Date().toISOString(), anchorMonth: month }, null, 2), 'utf-8')
+  } catch {}
 }

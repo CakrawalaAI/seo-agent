@@ -1,18 +1,20 @@
-import { jsonb, pgTable, text, timestamp, integer, uniqueIndex, index } from 'drizzle-orm/pg-core'
+import { jsonb, pgTable, text, timestamp, integer, uniqueIndex } from 'drizzle-orm/pg-core'
+
+import { keywordCanon } from '../../keyword/db/schema.canon'
 
 export const metricCache = pgTable(
   'metric_cache',
   {
     id: text('id').primaryKey(),
+    canonId: text('canon_id')
+      .notNull()
+      .references(() => keywordCanon.id, { onDelete: 'cascade' }),
     provider: text('provider').notNull(),
-    hash: text('hash').notNull(),
-    projectId: text('project_id'),
     metricsJson: jsonb('metrics_json').$type<Record<string, unknown> | null>().default(null),
     fetchedAt: timestamp('fetched_at', { withTimezone: true }).notNull().defaultNow(),
-    ttlSeconds: integer('ttl_seconds').notNull().default(7 * 24 * 60 * 60)
+    ttlSeconds: integer('ttl_seconds').notNull().default(30 * 24 * 60 * 60)
   },
   (t) => ({
-    uniq: uniqueIndex('metric_cache_provider_hash_unique').on(t.provider, t.hash),
-    byProject: index('idx_metric_cache_project').on(t.projectId)
+    uniqCanon: uniqueIndex('metric_cache_canon_unique').on(t.canonId)
   })
 )

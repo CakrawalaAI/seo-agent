@@ -5,6 +5,7 @@ import { Route as BlobRoute } from '../src/app/routes/api/blobs/$blobId'
 describe('blob route', () => {
   beforeEach(() => {
     delete process.env.SEOA_BLOBS_PUBLIC
+    delete process.env.E2E_NO_AUTH
   })
 
   it('requires auth when not public', async () => {
@@ -21,4 +22,3 @@ describe('blob route', () => {
     expect(await res.text()).toContain('hello')
   })
 })
-

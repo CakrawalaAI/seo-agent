@@ -69,11 +69,26 @@ export function resolvePlanStatus(planItem: PlanItem, articlesByPlanId: Map<stri
   if (article?.status === 'published') {
     return { label: 'PUBLISHED', tone: 'emerald' as const }
   }
+  if (article?.status === 'ready') {
+    return { label: 'READY', tone: 'emerald' as const }
+  }
+  if (article?.status === 'generating') {
+    return { label: 'GENERATING', tone: 'amber' as const }
+  }
   if (article?.status === 'draft') {
-    return { label: 'DRAFT GENERATED', tone: 'amber' as const }
+    return { label: 'OUTLINE', tone: 'blue' as const }
+  }
+  if (article?.status === 'failed' || planItem.status === 'failed') {
+    return { label: 'FAILED', tone: 'rose' as const }
   }
   if (planItem.status === 'skipped') {
     return { label: 'SKIPPED', tone: 'rose' as const }
+  }
+  if (planItem.status === 'ready') {
+    return { label: 'READY', tone: 'emerald' as const }
+  }
+  if (planItem.status === 'generating') {
+    return { label: 'GENERATING', tone: 'amber' as const }
   }
   return { label: 'PLANNED', tone: 'blue' as const }
 }

@@ -1,6 +1,7 @@
 import type { Project } from './domain/project'
 import { hasDatabase, getDb } from '@common/infra/db'
 import { projects } from './db/schema'
+import { orgs } from '@entities/org/db/schema'
 import { eq, desc } from 'drizzle-orm'
 
 export type CreateProjectInput = {
@@ -11,7 +12,7 @@ export type CreateProjectInput = {
 }
 
 export type PatchProjectInput = Partial<
-  Pick<Project, 'name' | 'defaultLocale' | 'siteUrl' | 'autoPublishPolicy' | 'status' | 'crawlMaxDepth' | 'crawlBudgetPages' | 'bufferDays' | 'serpDevice' | 'serpLocationCode' | 'metricsLocationCode'>
+  Pick<Project, 'name' | 'defaultLocale' | 'siteUrl' | 'autoPublishPolicy' | 'status' | 'bufferDays' | 'serpDevice' | 'serpLocationCode' | 'metricsLocationCode'>
 >
 
 export const projectsRepo = {
@@ -26,6 +27,7 @@ export const projectsRepo = {
       defaultLocale: input.defaultLocale,
       autoPublishPolicy: 'buffered',
       status: 'draft',
+      bufferDays: 3,
       serpDevice: 'desktop',
       serpLocationCode: 2840,
       metricsLocationCode: 2840,
@@ -34,14 +36,23 @@ export const projectsRepo = {
     }
     if (hasDatabase()) {
       const db = getDb()
+      if (project.orgId) {
+        try {
+          await db
+            .insert(orgs)
+            .values({ id: project.orgId, name: project.orgId, plan: 'starter' })
+            .onConflictDoNothing?.()
+        } catch {}
+      }
       await db.insert(projects).values({
         id: project.id,
         name: project.name,
         defaultLocale: project.defaultLocale,
-        orgId: project.orgId ?? null,
+        orgId: project.orgId,
         siteUrl: project.siteUrl ?? null,
         autoPublishPolicy: project.autoPublishPolicy ?? null,
         status: project.status ?? 'draft',
+        bufferDays: project.bufferDays ?? 3,
         serpDevice: project.serpDevice ?? 'desktop',
         serpLocationCode: project.serpLocationCode ?? 2840,
         metricsLocationCode: project.metricsLocationCode ?? 2840,
@@ -62,15 +73,16 @@ export const projectsRepo = {
       : db.select().from(projects).orderBy(desc(projects.createdAt)).limit(limit))
     return rows.map((r: any) => ({
       id: r.id,
-      orgId: r.orgId ?? undefined,
+      orgId: r.orgId,
       name: r.name,
       siteUrl: r.siteUrl ?? undefined,
       defaultLocale: r.defaultLocale,
       autoPublishPolicy: r.autoPublishPolicy ?? undefined,
       status: r.status ?? 'draft',
-      serpDevice: r.serpDevice ?? undefined,
-      serpLocationCode: r.serpLocationCode ?? undefined,
-      metricsLocationCode: r.metricsLocationCode ?? undefined,
+      bufferDays: typeof r.bufferDays === 'number' ? r.bufferDays : null,
+      serpDevice: r.serpDevice ?? null,
+      serpLocationCode: r.serpLocationCode ?? null,
+      metricsLocationCode: r.metricsLocationCode ?? null,
       createdAt: r.createdAt?.toISOString?.() || r.createdAt,
       updatedAt: r.updatedAt?.toISOString?.() || r.updatedAt
     }))
@@ -84,15 +96,16 @@ export const projectsRepo = {
     if (!r) return null
     return {
       id: r.id,
-      orgId: r.orgId ?? undefined,
+      orgId: r.orgId,
       name: r.name,
       siteUrl: r.siteUrl ?? undefined,
       defaultLocale: r.defaultLocale,
       autoPublishPolicy: r.autoPublishPolicy ?? undefined,
       status: r.status ?? 'draft',
-      serpDevice: r.serpDevice ?? undefined,
-      serpLocationCode: r.serpLocationCode ?? undefined,
-      metricsLocationCode: r.metricsLocationCode ?? undefined,
+      bufferDays: typeof r.bufferDays === 'number' ? r.bufferDays : null,
+      serpDevice: r.serpDevice ?? null,
+      serpLocationCode: r.serpLocationCode ?? null,
+      metricsLocationCode: r.metricsLocationCode ?? null,
       createdAt: r.createdAt?.toISOString?.() || r.createdAt,
       updatedAt: r.updatedAt?.toISOString?.() || r.updatedAt
     }
@@ -102,7 +115,7 @@ export const projectsRepo = {
     if (!hasDatabase()) return null
     const db = getDb()
     const set: any = { updatedAt: new Date() as any }
-    for (const k of ['name', 'defaultLocale', 'siteUrl', 'autoPublishPolicy', 'status', 'crawlMaxDepth', 'crawlBudgetPages', 'bufferDays', 'serpDevice', 'serpLocationCode', 'metricsLocationCode'] as const) {
+    for (const k of ['name', 'defaultLocale', 'siteUrl', 'autoPublishPolicy', 'status', 'bufferDays', 'serpDevice', 'serpLocationCode', 'metricsLocationCode'] as const) {
       const v = (input as any)[k]
       if (v !== undefined) set[k] = v as any
     }

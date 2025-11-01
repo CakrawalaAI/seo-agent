@@ -13,7 +13,7 @@ export async function enrichMetrics(inputs: MetricInput[], locale: string, locat
       cached.push({ phrase: i.phrase, metrics: { ...mem, asOf: new Date().toISOString() } })
       continue
     }
-    const dbm = await getMetricDb(i.phrase, locale, location, projectId)
+    const dbm = await getMetricDb(i.phrase, locale)
     if (dbm) {
       cached.push({ phrase: i.phrase, metrics: { ...(dbm as any), asOf: new Date().toISOString() } })
       continue
@@ -33,7 +33,7 @@ export async function enrichMetrics(inputs: MetricInput[], locale: string, locat
             cpc: r.metrics.cpc ?? undefined
           }
           setMetric(r.phrase, locale, location, data, projectId)
-          await setMetricDb(r.phrase, data, locale, location, projectId)
+          await setMetricDb(r.phrase, data, locale)
         }
         const liveResults = live.map((r) => ({ phrase: r.phrase, metrics: { searchVolume: r.metrics.searchVolume, cpc: r.metrics.cpc, asOf: r.metrics.asOf ?? new Date().toISOString() } }))
         return [...cached, ...liveResults]
@@ -52,7 +52,7 @@ export async function enrichMetrics(inputs: MetricInput[], locale: string, locat
   const { setMetric: setCached } = await import('./metric-cache')
   for (const p of pseudo) {
     setCached(p.phrase, locale, location, p.metrics, projectId)
-    await setMetricDb(p.phrase, p.metrics, locale, location, projectId)
+    await setMetricDb(p.phrase, p.metrics, locale)
   }
   return [...cached, ...pseudo]
 }

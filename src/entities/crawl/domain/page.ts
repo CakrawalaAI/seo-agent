@@ -18,6 +18,7 @@ export type CrawlPage = {
   headingsJson?: unknown | null
   linksJson?: unknown | null
   contentBlobUrl?: string | null
+  contentText?: string | null
   createdAt?: string | null
   updatedAt?: string | null
 }

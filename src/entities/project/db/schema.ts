@@ -1,21 +1,23 @@
-import { pgTable, text, timestamp, index, integer, jsonb } from 'drizzle-orm/pg-core'
+import { integer, pgTable, text, timestamp, index } from 'drizzle-orm/pg-core'
+
+import { orgs } from '../../org/db/schema'
 
 export const projects = pgTable(
   'projects',
   {
     id: text('id').primaryKey(),
     name: text('name').notNull(),
-    defaultLocale: text('default_locale').notNull().default('en-US'),
-    orgId: text('org_id'),
+    orgId: text('org_id')
+      .notNull()
+      .references(() => orgs.id, { onDelete: 'cascade' }),
     siteUrl: text('site_url'),
-    autoPublishPolicy: text('auto_publish_policy'),
+    defaultLocale: text('default_locale').notNull().default('en-US'),
     status: text('status').notNull().default('draft'),
-    crawlMaxDepth: integer('crawl_max_depth'),
-    crawlBudgetPages: integer('crawl_budget_pages'),
-    bufferDays: integer('buffer_days'),
-    serpDevice: text('serp_device'),
-    serpLocationCode: integer('serp_location_code'),
-    metricsLocationCode: integer('metrics_location_code'),
+    autoPublishPolicy: text('auto_publish_policy').default('buffered'),
+    bufferDays: integer('buffer_days').default(3),
+    serpDevice: text('serp_device').default('desktop'),
+    serpLocationCode: integer('serp_location_code').default(2840),
+    metricsLocationCode: integer('metrics_location_code').default(2840),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow()
   },

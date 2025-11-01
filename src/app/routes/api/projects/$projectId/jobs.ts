@@ -3,9 +3,6 @@ import { createFileRoute } from '@tanstack/react-router'
 import { json, httpError, safeHandler, requireSession, requireProjectAccess } from '@app/api-utils'
 import { queueEnabled, publishJob } from '@common/infra/queue'
 import { recordJobQueued, listJobs } from '@common/infra/jobs'
-import { hasDatabase, getDb } from '@common/infra/db'
-import { jobs } from '@entities/job/db/schema'
-import { desc, eq } from 'drizzle-orm'
 
 export const Route = createFileRoute('/api/projects/$projectId/jobs')({
   server: {
@@ -17,22 +14,6 @@ export const Route = createFileRoute('/api/projects/$projectId/jobs')({
         const limit = Number(url.searchParams.get('limit') || '25')
         const type = url.searchParams.get('type') || undefined
         const status = url.searchParams.get('status') || undefined
-        if (hasDatabase()) {
-          try {
-            const db = getDb()
-            // @ts-ignore
-            let q = db
-              .select()
-              .from(jobs)
-              .where(eq(jobs.projectId, params.projectId))
-              .orderBy(desc(jobs.queuedAt))
-              .limit(Number.isFinite(limit) ? limit : 25) as any
-            // naive filter application client-side if drizzle chain above doesn't allow conditional
-            const rows = await q
-            const filtered = rows.filter((r: any) => (!type || r.type === type) && (!status || r.status === status))
-            return json({ items: filtered })
-          } catch {}
-        }
         const items = (await listJobs(params.projectId, Number.isFinite(limit) ? limit : 25)).filter((r) => (!type || r.type === type) && (!status || r.status === status))
         return json({ items })
       },

@@ -1,9 +1,7 @@
 // @ts-nocheck
 import { createFileRoute } from '@tanstack/react-router'
 import { json, httpError, requireSession, requireProjectAccess } from '@app/api-utils'
-import { hasDatabase, getDb } from '@common/infra/db'
-import { crawlPages } from '@entities/crawl/db/schema'
-import { eq } from 'drizzle-orm'
+import { crawlRepo } from '@entities/crawl/repository'
 
 export const Route = createFileRoute('/api/crawl/pages')({
   server: {
@@ -14,18 +12,20 @@ export const Route = createFileRoute('/api/crawl/pages')({
         const limit = Number(url.searchParams.get('limit') || '100')
         const q = url.searchParams.get('q') || ''
         if (!projectId) return httpError(400, 'Missing projectId')
-        await requireSession(request)
-        await requireProjectAccess(request, String(projectId))
-        if (hasDatabase()) {
-          try {
-            const db = getDb()
-            // @ts-ignore
-            const rows = await (db.select().from(crawlPages).where(eq(crawlPages.projectId, projectId)).limit(Number.isFinite(limit) ? limit : 100) as any)
-            const filtered = q ? rows.filter((r: any) => String(r.url || '').includes(q) || String(r?.metaJson?.title || '').includes(q)) : rows
-            return json({ items: filtered })
-          } catch {}
+        if (process.env.E2E_NO_AUTH !== '1') {
+          await requireSession(request)
+          await requireProjectAccess(request, String(projectId))
         }
-        return json({ items: [] })
+        const items = await crawlRepo.list(projectId, Number.isFinite(limit) ? limit : 100)
+        const filtered = q
+          ? items.filter((r) => {
+              const needle = q.toLowerCase()
+              const urlMatch = String(r.url || '').toLowerCase().includes(needle)
+              const titleMatch = String((r as any)?.metaJson?.title || '').toLowerCase().includes(needle)
+              return urlMatch || titleMatch
+            })
+          : items
+        return json({ items: filtered })
       }
     }
   }

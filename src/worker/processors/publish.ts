@@ -34,7 +34,7 @@ export async function processPublish(payload: { articleId: string; integrationId
     status: 'published',
     cmsExternalId: result.externalId ?? null,
     url: result.url ?? null,
-    publicationDate: new Date().toISOString()
+    publishDate: new Date().toISOString()
   })
 
   // Record in bundle

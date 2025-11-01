@@ -1,4 +1,4 @@
-export type PlanItemStatus = 'planned' | 'draft' | 'published' | 'skipped' | string
+export type PlanItemStatus = 'draft' | 'generating' | 'ready' | 'published' | 'skipped' | 'failed' | string
 
 export type PlanItem = {
   id: string
@@ -6,6 +6,8 @@ export type PlanItem = {
   keywordId?: string | null
   title: string
   plannedDate: string
+  language?: string | null
+  tone?: string | null
   status?: PlanItemStatus | null
   outlineJson?: Array<{ heading: string; subpoints?: string[] }> | null
   createdAt?: string | null

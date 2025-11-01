@@ -37,7 +37,7 @@ export function useCalendarEntries(projectId: string | null, monthCursor: Date) 
     const articles = arts.data?.items ?? []
     const byPlan = new Map<string, Article>()
     for (const a of articles) {
-      if (a.planItemId) byPlan.set(a.planItemId, a)
+      byPlan.set(a.id, a)
     }
     const within = items.filter((i) => {
       const d = new Date(i.plannedDate)
@@ -52,4 +52,3 @@ export function useCalendarEntries(projectId: string | null, monthCursor: Date) 
 
   return { entries, isLoading: plan.isLoading || arts.isLoading }
 }
-

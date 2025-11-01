@@ -49,7 +49,7 @@ export function Page() {
 
 function buildList(articles: Article[], plan: PlanItem[]) {
   const byPlan = new Map<string, Article>()
-  for (const a of articles) if (a.planItemId) byPlan.set(a.planItemId, a)
+  for (const a of articles) byPlan.set(a.id, a)
   const items = plan.map((p) => {
     const a = byPlan.get(p.id)
     const status = a?.status === 'published' ? 'published' : a ? 'scheduled' : 'queued'
@@ -63,4 +63,3 @@ function badge(status: string) {
   if (status === 'scheduled') return 'bg-blue-600 text-white'
   return 'bg-amber-600 text-white'
 }
-

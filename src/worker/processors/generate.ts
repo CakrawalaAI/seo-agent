@@ -39,8 +39,8 @@ export async function processGenerate(payload: { projectId: string; planItemId: 
     try {
       const project = await projectsRepo.get(payload.projectId)
       const locale = project?.defaultLocale || 'en-US'
-      const loc = Number(project?.serpLocationCode || project?.metricsLocationCode || 2840)
-      const device = (project?.serpDevice as any) === 'mobile' ? 'mobile' : 'desktop'
+      const loc = Number(process.env.SEOA_DEFAULT_LOCATION_CODE || '2840')
+      const device: 'desktop' | 'mobile' = 'desktop'
       const canon = await ensureCanon(draft.title ?? item.title, locale)
       const snap = await ensureSerp({ canon: { id: canon.id, phrase: draft.title ?? item.title, language: locale }, locationCode: loc, device, topK: 10 })
       serpDump = snap.textDump
