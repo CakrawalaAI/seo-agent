@@ -73,7 +73,10 @@ function getCookie(request: Request, name: string): string | null {
   if (!header) return null
   const parts = header.split(/;\s*/)
   for (const part of parts) {
-    const [k, v] = part.split('=')
+    const idx = part.indexOf('=')
+    if (idx === -1) continue
+    const k = part.slice(0, idx)
+    const v = part.slice(idx + 1)
     if (k === name) return decodeURIComponent(v ?? '')
   }
   return null

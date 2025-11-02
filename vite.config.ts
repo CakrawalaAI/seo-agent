@@ -20,6 +20,21 @@ export default defineConfig({
     react(),
     tailwindcss()
   ],
+  optimizeDeps: {
+    exclude: [
+      '@tanstack/react-start',
+      '@tanstack/start-client-core',
+      '@tanstack/start-server-core',
+      '@tanstack/router-core'
+    ]
+  },
+  ssr: {
+    noExternal: [
+      '@tanstack/react-start',
+      '@tanstack/start-client-core',
+      '@tanstack/start-server-core'
+    ]
+  },
   server: {
     port: 3000,
     host: true
