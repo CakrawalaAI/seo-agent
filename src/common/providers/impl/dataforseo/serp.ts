@@ -1,28 +1,6 @@
 import type { SerpProvider, SerpSnapshot, SerpItem } from '../../interfaces/serp'
-import { config } from '@common/config'
 import { dfsClient } from './client'
-
-// Map language like 'en-US' -> 'English' for DFS language_name
-function languageName(lang: string) {
-  if (!lang) return 'English'
-  const code = lang.toLowerCase()
-  if (code.startsWith('en')) return 'English'
-  if (code.startsWith('ja')) return 'Japanese'
-  if (code.startsWith('es')) return 'Spanish'
-  if (code.startsWith('fr')) return 'French'
-  if (code.startsWith('de')) return 'German'
-  if (code.startsWith('pt')) return 'Portuguese'
-  if (code.startsWith('it')) return 'Italian'
-  if (code.startsWith('nl')) return 'Dutch'
-  if (code.startsWith('sv')) return 'Swedish'
-  if (code.startsWith('no') || code.startsWith('nb') || code.startsWith('nn')) return 'Norwegian'
-  if (code.startsWith('da')) return 'Danish'
-  if (code.startsWith('fi')) return 'Finnish'
-  if (code.startsWith('ko')) return 'Korean'
-  if (code.startsWith('zh')) return 'Chinese (Simplified)'
-  if (code.startsWith('ru')) return 'Russian'
-  return 'English'
-}
+import { DATAFORSEO_DEFAULT_LOCATION_CODE } from './geo'
 
 function toTextDump(items: SerpItem[]) {
   return items
@@ -33,9 +11,13 @@ function toTextDump(items: SerpItem[]) {
 
 export const dataForSeoSerp: SerpProvider = {
   async ensure({ canon, locationCode, device = 'desktop', topK = 10 }) {
-    const allowStubs = Boolean(config.providers.allowStubs)
     const fetchedAt = new Date().toISOString()
-    const raw = await dfsClient.serpOrganicLive(canon.phrase, canon.language, Number(locationCode) || 2840, device)
+    const raw = await dfsClient.serpOrganic({
+      keyword: canon.phrase,
+      languageCode: canon.language,
+      locationCode: Number(locationCode) || DATAFORSEO_DEFAULT_LOCATION_CODE,
+      device
+    })
     const items: SerpItem[] = raw
       .filter((r: any) => typeof r?.rank_group === 'number' && r?.type)
       .slice(0, topK)

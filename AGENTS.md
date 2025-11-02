@@ -63,3 +63,10 @@ PostgreSQL
 - Outbound DNS is configured to prefer IPv4 by default to avoid IPv6 egress/DNS instability with external APIs (OpenAI, DataForSEO, etc.).
 - This is enforced at runtime via `dns.setDefaultResultOrder('ipv4first')` in `src/common/infra/network.ts` and loaded by workers and providers automatically.
 - Do not require users to export extra env for this. Only set `SEOA_IPV4_FIRST=0` if you explicitly need to disable IPv4-first (rare).
+- Schema changes must be generated: run `bunx drizzle-kit generate` (or project alias) instead of hand-writing SQL migrations to keep metadata in sync.
+
+## Operational Conventions
+- Always run `bun run db:migrate` after pulling schema changes; migrations are idempotent via `DO $$` guards — do **not** rely on runtime ALTER fallbacks.
+- `bun run db:reset` drops `public`/`drizzle` schemas and replays migrations; only use `bun run db:generate` when you intentionally add a schema change.
+- Worker/CLI bootstraps no longer patch columns; if you see missing columns, fix via migrations instead of runtime ALTERs.
+- When executing project scripts from automations, pass an explicit timeout (`timeout_ms`) so hung processes can be surfaced quickly.

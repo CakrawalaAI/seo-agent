@@ -61,6 +61,24 @@
 - **Webflow** – API call with article content (status tracked in `project_integrations`).
 - Additional connectors (WordPress, Framer) use same interface but are currently stubs until credentials provided.
 
+### DataForSEO touchpoints
+- `POST https://api.dataforseo.com/v3/dataforseo_labs/google/keyword_overview/live` (single + batch)
+- `POST https://api.dataforseo.com/v3/dataforseo_labs/google/keywords_for_site/live`
+- `POST https://api.dataforseo.com/v3/dataforseo_labs/google/related_keywords/live`
+- `POST https://api.dataforseo.com/v3/dataforseo_labs/google/bulk_keyword_difficulty/live`
+- `POST https://api.dataforseo.com/v3/dataforseo_labs/google/keyword_suggestions/live`
+- `POST https://api.dataforseo.com/v3/keywords_data/google_ads/keywords_for_keywords/live`
+- `POST https://api.dataforseo.com/v3/keywords_data/google_ads/keyword_ideas/live`
+- `POST https://api.dataforseo.com/v3/serp/google/organic/live/regular`
+
+Auth: export `DATAFORSEO_AUTH=$(printf '%s:%s' "$LOGIN" "$PASSWORD" | base64)`.
+
+Reference data lives in `src/common/providers/impl/dataforseo/geo.ts` (auto-generated from the official CSV) and powers the project creation/settings selectors.
+
+Smoke checks:
+- `bun test tests/common/dataforseo-client.spec.ts`
+- `curl -H "Authorization: Basic $DATAFORSEO_AUTH" -H 'content-type: application/json' -d '{"data":[{"keyword":"demo","location_code":2840,"language_name":"English"}]}' https://api.dataforseo.com/v3/dataforseo_labs/google/keyword_overview/live`
+
 5. Testing & Validation
 ------------------------
 - `bun test` – runs unit/integration suite (ensures APIs import, bundle helpers, worker processors, CLI commands).

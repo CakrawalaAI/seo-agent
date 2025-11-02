@@ -54,7 +54,7 @@ export function PlanTab({
     <section className="space-y-4">
       <div className="rounded-md border border-dashed bg-muted/30 p-3 text-xs text-muted-foreground">
         <p>
-          Buffer policy: drafts auto-publish after the buffer window unless edited or skipped. Default buffer is 3 days.
+          Planner policy: keeps 3 days of fully generated drafts and a 30 day outline runway. Drafts auto-publish after the buffer window unless edited or skipped.
         </p>
       </div>
       <div className="flex flex-wrap items-center gap-3">

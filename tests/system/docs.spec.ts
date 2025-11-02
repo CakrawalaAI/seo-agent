@@ -5,6 +5,7 @@ import { join } from 'node:path'
 const root = process.cwd()
 const erd = readFileSync(join(root, 'docs/erd.md'), 'utf-8')
 const seq = readFileSync(join(root, 'docs/sequence-diagram.md'), 'utf-8')
+const spec = readFileSync(join(root, 'docs/spec.md'), 'utf-8')
 
 const expectedTables = [
   'users',
@@ -53,5 +54,23 @@ describe('docs consistency', () => {
     expect(seq).toContain('bundle')
     expect(seq).toContain('logs/jobs.jsonl')
     expect(seq).not.toContain('jobs table')
+  })
+
+  it('Spec lists all DataForSEO endpoints we rely on', () => {
+    const endpoints = [
+      '/v3/dataforseo_labs/google/keyword_overview/live',
+      '/v3/dataforseo_labs/google/keywords_for_site/live',
+      '/v3/dataforseo_labs/google/related_keywords/live',
+      '/v3/dataforseo_labs/google/bulk_keyword_difficulty/live',
+      '/v3/dataforseo_labs/google/keyword_suggestions/live',
+      '/v3/keywords_data/google_ads/keywords_for_keywords/live',
+      '/v3/keywords_data/google_ads/keyword_ideas/live',
+      '/v3/serp/google/organic/live/regular'
+    ]
+    for (const endpoint of endpoints) {
+      if (!spec.includes(endpoint)) {
+        throw new Error(`docs/spec.md missing DataForSEO endpoint ${endpoint}`)
+      }
+    }
   })
 })

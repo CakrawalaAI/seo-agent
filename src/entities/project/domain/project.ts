@@ -12,6 +12,7 @@ export type Project = {
   serpDevice?: 'desktop' | 'mobile' | null
   serpLocationCode?: number | null
   metricsLocationCode?: number | null
+  dfsLanguageCode?: string | null
   createdAt?: string | null
   updatedAt?: string | null
 }

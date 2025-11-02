@@ -8,6 +8,27 @@
       "when": 1761993600000,
       "tag": "0000_init",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "5",
+      "when": 1762014262867,
+      "tag": "0001_add_dfs_language_code",
+      "breakpoints": false
+    },
+    {
+      "idx": 2,
+      "version": "5",
+      "when": 1762051857158,
+      "tag": "0002_add_keyword_scope",
+      "breakpoints": false
+    },
+    {
+      "idx": 3,
+      "version": "5",
+      "when": 1762053166715,
+      "tag": "0003_add_project_discoveries",
+      "breakpoints": false
     }
   ]
 }

@@ -12,6 +12,12 @@ import {
   listProjects
 } from '@entities/project/service'
 import { fetchSession } from '@entities/org/service'
+import {
+  DATAFORSEO_DEFAULT_LANGUAGE_CODE,
+  DATAFORSEO_DEFAULT_LOCATION_CODE,
+  DATAFORSEO_LANGUAGES,
+  DATAFORSEO_LOCATIONS
+} from '@common/providers/impl/dataforseo/geo'
 
 type CreateProjectResponse = {
   project: Project
@@ -29,6 +35,8 @@ export function ProjectsScreen(): JSX.Element {
   const [name, setName] = useState('')
   const [siteUrl, setSiteUrl] = useState('')
   const [locale, setLocale] = useState('en-US')
+  const [locationCode, setLocationCode] = useState<string>(String(DATAFORSEO_DEFAULT_LOCATION_CODE))
+  const [languageCode, setLanguageCode] = useState<string>(DATAFORSEO_DEFAULT_LANGUAGE_CODE)
   const [creationResult, setCreationResult] = useState<CreateProjectResponse | null>(null)
   const [selectedOrgId, setSelectedOrgId] = useState<string | null>(null)
   const navigate = useNavigate()
@@ -71,7 +79,10 @@ export function ProjectsScreen(): JSX.Element {
         orgId: selectedOrgId,
         name,
         siteUrl,
-        defaultLocale: locale
+        defaultLocale: locale,
+        serpLocationCode: Number(locationCode),
+        metricsLocationCode: Number(locationCode),
+        dfsLanguageCode: languageCode
       }
       return createProjectApi(payload)
     },
@@ -80,6 +91,8 @@ export function ProjectsScreen(): JSX.Element {
       setName('')
       setSiteUrl('')
       setLocale('en-US')
+      setLocationCode(String(DATAFORSEO_DEFAULT_LOCATION_CODE))
+      setLanguageCode(DATAFORSEO_DEFAULT_LANGUAGE_CODE)
       projectsQuery.refetch()
       try {
         setActiveProjectId(result.project.id)
@@ -197,6 +210,44 @@ export function ProjectsScreen(): JSX.Element {
                   disabled={createMutation.isPending || !selectedOrgId}
                 />
               </Label>
+              <Label className="flex flex-col gap-1 text-sm font-medium text-muted-foreground">
+                Search location
+                <Select
+                  value={locationCode}
+                  onValueChange={setLocationCode}
+                  disabled={createMutation.isPending || !selectedOrgId}
+                >
+                  <SelectTrigger className="rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-primary">
+                    <SelectValue placeholder="Select location" />
+                  </SelectTrigger>
+                  <SelectContent className="max-h-64">
+                    {DATAFORSEO_LOCATIONS.map((loc) => (
+                      <SelectItem key={loc.code} value={String(loc.code)}>
+                        {loc.name}{loc.countryIsoCode ? ` (${loc.countryIsoCode})` : ''}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </Label>
+              <Label className="flex flex-col gap-1 text-sm font-medium text-muted-foreground">
+                Keyword language
+                <Select
+                  value={languageCode}
+                  onValueChange={setLanguageCode}
+                  disabled={createMutation.isPending || !selectedOrgId}
+                >
+                  <SelectTrigger className="rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-primary">
+                    <SelectValue placeholder="Select language" />
+                  </SelectTrigger>
+                  <SelectContent className="max-h-64">
+                    {DATAFORSEO_LANGUAGES.map((lang) => (
+                      <SelectItem key={lang.code} value={lang.code}>
+                        {lang.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </Label>
               <div className="flex items-end">
                 <Button
                   type="submit"
@@ -236,6 +287,14 @@ export function ProjectsScreen(): JSX.Element {
                     <div className="flex justify-between gap-4">
                       <dt>Locale</dt>
                       <dd className="font-medium text-foreground">{project.defaultLocale}</dd>
+                    </div>
+                    <div className="flex justify-between gap-4">
+                      <dt>Keyword language</dt>
+                      <dd className="font-medium text-foreground">{project.dfsLanguageCode ?? DATAFORSEO_DEFAULT_LANGUAGE_CODE}</dd>
+                    </div>
+                    <div className="flex justify-between gap-4">
+                      <dt>Location code</dt>
+                      <dd className="font-medium text-foreground">{project.metricsLocationCode ?? DATAFORSEO_DEFAULT_LOCATION_CODE}</dd>
                     </div>
                     <div className="flex justify-between gap-4">
                       <dt>Created</dt>

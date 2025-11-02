@@ -55,6 +55,7 @@ CREATE TABLE IF NOT EXISTS projects (
   serp_device text DEFAULT 'desktop',
   serp_location_code integer DEFAULT 2840,
   metrics_location_code integer DEFAULT 2840,
+  dfs_language_code text NOT NULL DEFAULT 'en',
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now()
 );
@@ -115,6 +116,7 @@ CREATE TABLE IF NOT EXISTS articles (
   language text,
   tone text,
   status text NOT NULL DEFAULT 'draft',
+  buffer_stage text NOT NULL DEFAULT 'seed',
   generation_date timestamptz,
   publish_date timestamptz,
   url text,

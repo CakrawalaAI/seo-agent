@@ -37,6 +37,7 @@ import {
   formatDateTime,
   noticeKindClass
 } from '@features/projects/shared/helpers'
+import { DATAFORSEO_DEFAULT_LANGUAGE_CODE, DATAFORSEO_DEFAULT_LOCATION_CODE } from '@common/providers/impl/dataforseo/geo'
 import {
   createPlan,
   createWebhook,
@@ -59,6 +60,7 @@ import {
   testIntegration
 } from '@entities/project/service'
 import { patchKeyword } from '@entities/keyword/service'
+import type { KeywordScope } from '@entities/keyword/domain/keyword'
 import { listJobs } from '@entities/job/service'
 import type {
   Article,
@@ -385,6 +387,16 @@ export function ProjectDetailScreen({ projectId, tab }: ProjectDetailScreenProps
     onError: (error) => pushNotice('error', extractErrorMessage(error))
   })
 
+  const updateKeywordScopeMutation = useMutation({
+    mutationFn: (input: { keywordId: string; scope: KeywordScope }) =>
+      patchKeyword(input.keywordId, { scope: input.scope }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['keywords', projectId] })
+      queryClient.invalidateQueries({ queryKey: ['projectSnapshot', projectId] })
+    },
+    onError: (error) => pushNotice('error', extractErrorMessage(error))
+  })
+
   const crawlPages = crawlPagesQuery.data?.items ?? []
   const keywords = keywordsQuery.data?.items ?? []
   const mergedPlanItems = useMemo(() => {
@@ -470,38 +482,48 @@ export function ProjectDetailScreen({ projectId, tab }: ProjectDetailScreenProps
                 {(project.autoPublishPolicy ?? 'buffered').toUpperCase()}
               </dd>
             </div>
+            <div>
+              <dt>Keyword language</dt>
+              <dd className="font-medium text-foreground">{project.dfsLanguageCode ?? DATAFORSEO_DEFAULT_LANGUAGE_CODE}</dd>
+            </div>
+            <div>
+              <dt>Location code</dt>
+              <dd className="font-medium text-foreground">{project.metricsLocationCode ?? DATAFORSEO_DEFAULT_LOCATION_CODE}</dd>
+            </div>
           </dl>
         </div>
-        <div className="grid gap-3 md:grid-cols-4">
-          <StatCard
-            label="Queue depth"
-            value={snapshot?.queueDepth ?? 0}
-            helper="Jobs queued or running for this project"
-          />
-          <StatCard
-            label="Plan items"
-            value={mergedPlanItems.length}
-            helper="Titles + outlines scheduled over the next 30 days"
-          />
-          <StatCard
-            label="Connected integrations"
-            value={connectedIntegrations.length}
-            helper="Ready for publishing"
-          />
-          <StatCard
-            label="Last discovery"
-            value={
-              snapshot?.latestDiscovery?.startedAt
-                ? formatDateTime(snapshot.latestDiscovery.startedAt)
-                : '—'
-            }
-            helper={
-              snapshot?.latestDiscovery
-                ? snapshot.latestDiscovery.providersUsed.join(', ')
-                : 'Pending'
-            }
-          />
-        </div>
+        {activeTab !== 'keywords' ? (
+          <div className="grid gap-3 md:grid-cols-4">
+            <StatCard
+              label="Queue depth"
+              value={snapshot?.queueDepth ?? 0}
+              helper="Jobs queued or running for this project"
+            />
+            <StatCard
+              label="Plan items"
+              value={mergedPlanItems.length}
+              helper="Titles + outlines scheduled over the next 30 days"
+            />
+            <StatCard
+              label="Connected integrations"
+              value={connectedIntegrations.length}
+              helper="Ready for publishing"
+            />
+            <StatCard
+              label="Last discovery"
+              value={
+                snapshot?.latestDiscovery?.startedAt
+                  ? formatDateTime(snapshot.latestDiscovery.startedAt)
+                  : '—'
+              }
+              helper={
+                snapshot?.latestDiscovery
+                  ? snapshot.latestDiscovery.providersUsed.join(', ')
+                  : 'Pending'
+              }
+            />
+          </div>
+        ) : null}
       </header>
 
       {notices.length > 0 ? (
@@ -593,6 +615,9 @@ export function ProjectDetailScreen({ projectId, tab }: ProjectDetailScreenProps
             onPlan={(keywordId) => planKeywordMutation.mutate(keywordId)}
             onToggleStar={(keywordId, starred) =>
               toggleStarKeywordMutation.mutate({ keywordId, starred })
+            }
+            onSetScope={(keywordId, scope) =>
+              updateKeywordScopeMutation.mutate({ keywordId, scope })
             }
           />
           <IntegrationsSidebar

@@ -14,6 +14,7 @@ export const keywords = pgTable(
       .notNull()
       .references(() => keywordCanon.id, { onDelete: 'cascade' }),
     status: text('status').notNull().default('recommended'),
+    scope: text('scope').notNull().default('auto'),
     starred: boolean('starred').notNull().default(false),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow()

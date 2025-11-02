@@ -1,6 +1,6 @@
 {
-  "id": "c42e44f1-528c-45ff-939e-eb86137d1d10",
-  "prevId": "00000000-0000-0000-0000-000000000000",
+  "id": "757b08f4-ab7b-4ed3-9399-331600e5877e",
+  "prevId": "b024aae1-105a-47f1-b956-bc9defc0bc24",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -69,6 +69,13 @@
           "primaryKey": false,
           "notNull": true,
           "default": "'draft'"
+        },
+        "buffer_stage": {
+          "name": "buffer_stage",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'seed'"
         },
         "generation_date": {
           "name": "generation_date",
@@ -459,6 +466,13 @@
           "primaryKey": false,
           "notNull": true,
           "default": "'recommended'"
+        },
+        "scope": {
+          "name": "scope",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'auto'"
         },
         "starred": {
           "name": "starred",

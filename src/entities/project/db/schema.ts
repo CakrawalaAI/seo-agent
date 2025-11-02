@@ -18,6 +18,7 @@ export const projects = pgTable(
     serpDevice: text('serp_device').default('desktop'),
     serpLocationCode: integer('serp_location_code').default(2840),
     metricsLocationCode: integer('metrics_location_code').default(2840),
+    dfsLanguageCode: text('dfs_language_code').notNull().default('en'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow()
   },

@@ -8,7 +8,7 @@ describe('plan PATCH', () => {
     const project = await (await import('../src/entities/project/repository')).projectsRepo.create({ orgId: 'org-dev', name: 'PlanPatch', siteUrl: 'https://example.com', defaultLocale: 'en-US' })
     const projectId = project.id
     await keywordsRepo.generate(projectId, 'en-US')
-    const { created } = await planRepo.createPlan(projectId, 1)
+    await planRepo.createPlan(projectId, 1)
     const item = (await planRepo.list(projectId, 1))[0]!
     const req = new Request('http://x/api/plan/1', {
       method: 'PATCH',

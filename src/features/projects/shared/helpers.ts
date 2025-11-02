@@ -75,9 +75,6 @@ export function resolvePlanStatus(planItem: PlanItem, articlesByPlanId: Map<stri
   if (article?.status === 'generating') {
     return { label: 'GENERATING', tone: 'amber' as const }
   }
-  if (article?.status === 'draft') {
-    return { label: 'OUTLINE', tone: 'blue' as const }
-  }
   if (article?.status === 'failed' || planItem.status === 'failed') {
     return { label: 'FAILED', tone: 'rose' as const }
   }
@@ -89,6 +86,14 @@ export function resolvePlanStatus(planItem: PlanItem, articlesByPlanId: Map<stri
   }
   if (planItem.status === 'generating') {
     return { label: 'GENERATING', tone: 'amber' as const }
+  }
+  const stage = planItem.bufferStage ?? article?.bufferStage ?? (Array.isArray(planItem.outlineJson) && planItem.outlineJson.length ? 'outline' : 'seed')
+  if (stage === 'draft') {
+    const label = article?.status === 'draft' ? 'DRAFT' : 'DRAFT READY'
+    return { label, tone: 'emerald' as const }
+  }
+  if (stage === 'outline') {
+    return { label: 'OUTLINE', tone: 'blue' as const }
   }
   return { label: 'PLANNED', tone: 'blue' as const }
 }

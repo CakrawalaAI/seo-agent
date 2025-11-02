@@ -2,8 +2,7 @@ import { getLlmProvider, getExpandProvider, getMetricsProvider, getSerpProvider 
 
 async function main() {
   console.log('OPENAI_API_KEY', process.env.OPENAI_API_KEY ? 'set' : 'missing')
-  console.log('DATAFORSEO_LOGIN', process.env.DATAFORSEO_LOGIN ? 'set' : 'missing')
-  console.log('DATAFORSEO_PASSWORD', process.env.DATAFORSEO_PASSWORD ? 'set' : 'missing')
+  console.log('DATAFORSEO_AUTH', process.env.DATAFORSEO_AUTH ? 'set' : 'missing')
 
   // LLM
   try {
@@ -45,4 +44,3 @@ async function main() {
 }
 
 main().catch((e) => { console.error(e); process.exit(1) })
-

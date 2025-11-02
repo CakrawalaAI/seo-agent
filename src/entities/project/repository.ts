@@ -2,17 +2,20 @@ import type { Project } from './domain/project'
 import { hasDatabase, getDb } from '@common/infra/db'
 import { projects } from './db/schema'
 import { orgs } from '@entities/org/db/schema'
-import { eq, desc } from 'drizzle-orm'
+import { eq, desc, sql } from 'drizzle-orm'
 
 export type CreateProjectInput = {
   orgId: string
   name: string
   siteUrl: string
   defaultLocale: string
+  serpLocationCode?: number
+  metricsLocationCode?: number
+  dfsLanguageCode?: string
 }
 
 export type PatchProjectInput = Partial<
-  Pick<Project, 'name' | 'defaultLocale' | 'siteUrl' | 'autoPublishPolicy' | 'status' | 'bufferDays' | 'serpDevice' | 'serpLocationCode' | 'metricsLocationCode'>
+  Pick<Project, 'name' | 'defaultLocale' | 'siteUrl' | 'autoPublishPolicy' | 'status' | 'bufferDays' | 'serpDevice' | 'serpLocationCode' | 'metricsLocationCode' | 'dfsLanguageCode'>
 >
 
 export const projectsRepo = {
@@ -29,8 +32,9 @@ export const projectsRepo = {
       status: 'draft',
       bufferDays: 3,
       serpDevice: 'desktop',
-      serpLocationCode: 2840,
-      metricsLocationCode: 2840,
+      serpLocationCode: input.serpLocationCode ?? 2840,
+      metricsLocationCode: input.metricsLocationCode ?? 2840,
+      dfsLanguageCode: input.dfsLanguageCode ?? 'en',
       createdAt: now.toISOString(),
       updatedAt: now.toISOString()
     }
@@ -44,21 +48,34 @@ export const projectsRepo = {
             .onConflictDoNothing?.()
         } catch {}
       }
-      await db.insert(projects).values({
-        id: project.id,
-        name: project.name,
-        defaultLocale: project.defaultLocale,
-        orgId: project.orgId,
-        siteUrl: project.siteUrl ?? null,
-        autoPublishPolicy: project.autoPublishPolicy ?? null,
-        status: project.status ?? 'draft',
-        bufferDays: project.bufferDays ?? 3,
-        serpDevice: project.serpDevice ?? 'desktop',
-        serpLocationCode: project.serpLocationCode ?? 2840,
-        metricsLocationCode: project.metricsLocationCode ?? 2840,
-        createdAt: now as any,
-        updatedAt: now as any
-      } as any).onConflictDoNothing?.()
+      const insertProject = async () => {
+        await db.insert(projects).values({
+          id: project.id,
+          name: project.name,
+          defaultLocale: project.defaultLocale,
+          orgId: project.orgId,
+          siteUrl: project.siteUrl ?? null,
+          autoPublishPolicy: project.autoPublishPolicy ?? null,
+          status: project.status ?? 'draft',
+          bufferDays: project.bufferDays ?? 3,
+          serpDevice: project.serpDevice ?? 'desktop',
+          serpLocationCode: project.serpLocationCode ?? 2840,
+          metricsLocationCode: project.metricsLocationCode ?? 2840,
+          dfsLanguageCode: project.dfsLanguageCode ?? 'en',
+          createdAt: now as any,
+          updatedAt: now as any
+        } as any).onConflictDoNothing?.()
+      }
+      try {
+        await insertProject()
+      } catch (error: any) {
+        if (String(error?.message || '').includes('dfs_language_code')) {
+          await db.execute(sql`ALTER TABLE "projects" ADD COLUMN IF NOT EXISTS "dfs_language_code" text NOT NULL DEFAULT 'en'`)
+          await insertProject()
+        } else {
+          throw error
+        }
+      }
     }
     return project
   },
@@ -83,6 +100,7 @@ export const projectsRepo = {
       serpDevice: r.serpDevice ?? null,
       serpLocationCode: r.serpLocationCode ?? null,
       metricsLocationCode: r.metricsLocationCode ?? null,
+      dfsLanguageCode: r.dfsLanguageCode ?? null,
       createdAt: r.createdAt?.toISOString?.() || r.createdAt,
       updatedAt: r.updatedAt?.toISOString?.() || r.updatedAt
     }))
@@ -106,6 +124,7 @@ export const projectsRepo = {
       serpDevice: r.serpDevice ?? null,
       serpLocationCode: r.serpLocationCode ?? null,
       metricsLocationCode: r.metricsLocationCode ?? null,
+      dfsLanguageCode: r.dfsLanguageCode ?? null,
       createdAt: r.createdAt?.toISOString?.() || r.createdAt,
       updatedAt: r.updatedAt?.toISOString?.() || r.updatedAt
     }
@@ -115,7 +134,7 @@ export const projectsRepo = {
     if (!hasDatabase()) return null
     const db = getDb()
     const set: any = { updatedAt: new Date() as any }
-    for (const k of ['name', 'defaultLocale', 'siteUrl', 'autoPublishPolicy', 'status', 'bufferDays', 'serpDevice', 'serpLocationCode', 'metricsLocationCode'] as const) {
+    for (const k of ['name', 'defaultLocale', 'siteUrl', 'autoPublishPolicy', 'status', 'bufferDays', 'serpDevice', 'serpLocationCode', 'metricsLocationCode', 'dfsLanguageCode'] as const) {
       const v = (input as any)[k]
       if (v !== undefined) set[k] = v as any
     }

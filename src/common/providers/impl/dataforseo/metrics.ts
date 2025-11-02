@@ -1,23 +1,15 @@
 import type { KeywordMetricsProvider, MonthlyMetric } from '../../interfaces/keyword-metrics'
-import { config } from '@common/config'
 import { dfsClient } from './client'
-
-// Map language like 'en-US' -> 'English' when DFS needs a language_name.
-function languageName(lang: string) {
-  if (!lang) return 'English'
-  const code = lang.toLowerCase()
-  if (code.startsWith('en')) return 'English'
-  if (code.startsWith('ja')) return 'Japanese'
-  if (code.startsWith('es')) return 'Spanish'
-  if (code.startsWith('fr')) return 'French'
-  if (code.startsWith('de')) return 'German'
-  return 'English'
-}
+import { DATAFORSEO_DEFAULT_LOCATION_CODE } from './geo'
 
 export const dataForSeoMetrics: KeywordMetricsProvider = {
   async ensureMonthly(canon, locationCode, month, opts) {
-    const allowStubs = Boolean(config.providers.allowStubs)
-    const item = (await dfsClient.keywordOverviewLive(canon.phrase, canon.language, Number(locationCode) || 2840)) as any
+    const map = await dfsClient.keywordOverview({
+      keywords: [canon.phrase],
+      languageCode: canon.language,
+      locationCode: Number(locationCode) || DATAFORSEO_DEFAULT_LOCATION_CODE
+    })
+    const item = map.get(canon.phrase.toLowerCase()) as any
     const monthly = Array.isArray(item?.monthly_searches) ? item.monthly_searches : []
     const history: MonthlyMetric['history'] = monthly
       .map((m: any) => ({ month: `${m?.year ?? ''}-${String(m?.month ?? 1).padStart(2, '0')}`, searchVolume: Number(m?.search_volume ?? 0) }))
@@ -34,15 +26,23 @@ export const dataForSeoMetrics: KeywordMetricsProvider = {
   },
   async bulkDifficulty(phrases, language, locationCode) {
     try {
-      const items = await dfsClient.bulkKeywordDifficultyLive(phrases, language, Number(locationCode) || 2840)
-      return items
+      const map = await dfsClient.bulkKeywordDifficulty({
+        keywords: phrases,
+        languageCode: language,
+        locationCode: Number(locationCode) || DATAFORSEO_DEFAULT_LOCATION_CODE
+      })
+      return phrases.map((phrase) => ({ phrase, difficulty: map.get(phrase.toLowerCase()) }))
     } catch {
       return phrases.map((p) => ({ phrase: p, difficulty: undefined }))
     }
   },
   async overviewBatch(phrases, language, locationCode) {
     try {
-      const map = await dfsClient.keywordOverviewBatchLive(phrases, language, Number(locationCode) || 2840)
+      const map = await dfsClient.keywordOverview({
+        keywords: phrases,
+        languageCode: language,
+        locationCode: Number(locationCode) || DATAFORSEO_DEFAULT_LOCATION_CODE
+      })
       const out = new Map<string, MonthlyMetric & { competition?: number }>()
       for (const [k, v] of map.entries()) {
         const history: MonthlyMetric['history'] = Array.isArray(v?.monthly_searches)

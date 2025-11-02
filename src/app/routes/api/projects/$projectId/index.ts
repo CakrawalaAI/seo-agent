@@ -26,8 +26,17 @@ export const Route = createFileRoute('/api/projects/$projectId/')({
         if (typeof body?.siteUrl === 'string') patch.siteUrl = body.siteUrl
         if (typeof body?.autoPublishPolicy === 'string') patch.autoPublishPolicy = body.autoPublishPolicy
         if (typeof body?.serpDevice === 'string') patch.serpDevice = body.serpDevice
-        if (typeof body?.serpLocationCode === 'number') patch.serpLocationCode = body.serpLocationCode
-        if (typeof body?.metricsLocationCode === 'number') patch.metricsLocationCode = body.metricsLocationCode
+        if (body?.serpLocationCode !== undefined) {
+          const value = Number(body.serpLocationCode)
+          if (Number.isFinite(value)) patch.serpLocationCode = value
+        }
+        if (body?.metricsLocationCode !== undefined) {
+          const value = Number(body.metricsLocationCode)
+          if (Number.isFinite(value)) patch.metricsLocationCode = value
+        }
+        if (typeof body?.dfsLanguageCode === 'string' && body.dfsLanguageCode.trim()) {
+          patch.dfsLanguageCode = body.dfsLanguageCode.trim()
+        }
         const updated = await projectsRepo.patch(params.projectId, patch)
         return json(updated)
       })

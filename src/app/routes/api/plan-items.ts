@@ -4,7 +4,7 @@ import { json, httpError, safeHandler, requireSession, requireProjectAccess } fr
 import { planRepo } from '@entities/plan/repository'
 import { hasDatabase, getDb } from '@common/infra/db'
 import { articles } from '@entities/article/db/schema'
-import { eq, and, asc } from 'drizzle-orm'
+import { eq, and, asc, inArray, isNotNull } from 'drizzle-orm'
 
 export const Route = createFileRoute('/api/plan-items')({
   server: {
@@ -22,10 +22,27 @@ export const Route = createFileRoute('/api/plan-items')({
             const rows = await db
               .select()
               .from(articles)
-              .where(and(eq(articles.projectId, projectId), eq(articles.status as any, 'planned' as any)))
+              .where(
+                and(
+                  eq(articles.projectId, projectId),
+                  isNotNull(articles.plannedDate),
+                  inArray(articles.status as any, ['planned', 'draft', 'generating', 'ready'] as any)
+                )
+              )
               .orderBy(asc(articles.plannedDate as any))
               .limit(Number.isFinite(limit) ? limit : 90)
-            return json({ items: rows.map((r: any) => ({ id: r.id, projectId: r.projectId, keywordId: r.keywordId ?? null, title: r.title, plannedDate: r.plannedDate, status: r.status, outlineJson: r.outlineJson })) })
+            return json({
+              items: rows.map((r: any) => ({
+                id: r.id,
+                projectId: r.projectId,
+                keywordId: r.keywordId ?? null,
+                title: r.title,
+                plannedDate: r.plannedDate,
+                status: r.status,
+                bufferStage: r.bufferStage ?? null,
+                outlineJson: r.outlineJson
+              }))
+            })
           } catch {}
         }
         const items = await planRepo.list(projectId, Number.isFinite(limit) ? limit : 90)
@@ -38,7 +55,7 @@ export const Route = createFileRoute('/api/plan-items')({
         const days = Number(body?.days ?? 30)
         if (!projectId || !Number.isFinite(days) || days <= 0) return httpError(400, 'Invalid input')
         await requireProjectAccess(request, String(projectId))
-        const { jobId } = planRepo.createPlan(String(projectId), days)
+        const { jobId } = await planRepo.createPlan(String(projectId), days)
         return json({ jobId }, { status: 202 })
       })
     }

@@ -1,5 +1,7 @@
 import { formatCurrency, formatDateTime, formatNumber } from '@features/projects/shared/helpers'
 import type { Keyword } from '@entities'
+import type { KeywordScope } from '@entities/keyword/domain/keyword'
+import { deriveScope } from '@entities/keyword/domain/keyword'
 import { ArrowUpDown, Star } from 'lucide-react'
 import { Button } from '@src/common/ui/button'
 import { Input } from '@src/common/ui/input'
@@ -14,6 +16,7 @@ type KeywordsTabProps = {
   isGenerating: boolean
   onPlan: (keywordId: string) => void
   onToggleStar: (keywordId: string, starred: boolean) => void
+  onSetScope: (keywordId: string, scope: KeywordScope) => void
 }
 
 export function KeywordsTab({
@@ -23,28 +26,32 @@ export function KeywordsTab({
   onGenerate,
   isGenerating,
   onPlan,
-  onToggleStar
+  onToggleStar,
+  onSetScope
 }: KeywordsTabProps) {
   const [query, setQuery] = useState('')
-  const [statusFilter, setStatusFilter] = useState<'all' | 'recommended' | 'planned' | 'generated'>('all')
+  const [scopeFilter, setScopeFilter] = useState<'all' | KeywordScope>('all')
 
   const counts = useMemo(() => {
-    const base = { all: keywords.length, recommended: 0, planned: 0, generated: 0 }
-    for (const k of keywords) {
-      const s = (k.status || 'recommended') as 'recommended' | 'planned' | 'generated'
-      if (s in base) (base as any)[s]++
+    const tally: Record<'all' | KeywordScope, number> = { all: keywords.length, include: 0, exclude: 0, auto: 0 }
+    for (const keyword of keywords) {
+      const scope = (keyword.scope || 'auto') as KeywordScope
+      tally[scope] += 1
     }
-    return base
+    return tally
   }, [keywords])
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase()
     return keywords.filter((k) => {
-      if (statusFilter !== 'all' && (k.status || 'recommended') !== statusFilter) return false
+      if (scopeFilter !== 'all') {
+        const currentScope = (k.scope || 'auto') as KeywordScope
+        if (currentScope !== scopeFilter) return false
+      }
       if (q && !k.phrase.toLowerCase().includes(q)) return false
       return true
     })
-  }, [keywords, query, statusFilter])
+  }, [keywords, query, scopeFilter])
 
   type SortKey = 'phrase' | 'difficulty' | 'searchVolume' | 'cpc' | 'competition' | 'asOf'
   const [sortBy, setSortBy] = useState<SortKey>('phrase')
@@ -91,6 +98,63 @@ export function KeywordsTab({
         sortingFn: 'alphanumeric'
       },
       {
+        id: 'scope',
+        accessorFn: (k) => k.scope || 'auto',
+        header: () => 'Scope',
+        cell: ({ row }) => {
+          const keyword = row.original
+          const currentScope = (keyword.scope || 'auto') as KeywordScope
+          const recommended = deriveScope(keyword.metricsJson)
+          const displayScope = currentScope === 'auto' ? recommended : currentScope
+          const label =
+            currentScope === 'auto'
+              ? `Auto · ${displayScope === 'exclude' ? 'Exclude' : 'Include'}`
+              : displayScope === 'exclude'
+              ? 'Exclude'
+              : 'Include'
+          const pillClass =
+            displayScope === 'include'
+              ? 'bg-emerald-500/15 text-emerald-600'
+              : displayScope === 'exclude'
+              ? 'bg-rose-500/15 text-rose-600'
+              : 'bg-muted text-muted-foreground'
+          return (
+            <div className="flex items-center gap-2">
+              <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${pillClass}`}>
+                {label}
+              </span>
+              <div className="flex gap-1">
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={currentScope === 'include' ? 'default' : 'outline'}
+                  onClick={() => onSetScope(keyword.id, 'include')}
+                >
+                  Include
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={currentScope === 'exclude' ? 'default' : 'outline'}
+                  onClick={() => onSetScope(keyword.id, 'exclude')}
+                >
+                  Exclude
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={currentScope === 'auto' ? 'default' : 'outline'}
+                  onClick={() => onSetScope(keyword.id, 'auto')}
+                >
+                  Auto
+                </Button>
+              </div>
+            </div>
+          )
+        },
+        enableSorting: false
+      },
+      {
         id: 'difficulty',
         accessorFn: (k) => (Number.isFinite(k.metricsJson?.difficulty as any) ? Number(k.metricsJson?.difficulty as any) : null),
         header: ({ column }) => <SortHeader column={column} label="Difficulty" />,
@@ -135,43 +199,38 @@ export function KeywordsTab({
         enableSorting: false
       }
     ] satisfies ColumnDef<Keyword>[]
-  }, [onPlan, onToggleStar])
+  }, [onPlan, onToggleStar, onSetScope])
 
   return (
     <section className="space-y-4">
       <div className="flex flex-wrap items-center gap-3">
-        <div className="flex items-center gap-2">
-          <Button
-            type="button"
-            className="rounded-md bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground shadow-sm transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
-            onClick={onGenerate}
-            disabled={isGenerating}
-          >
-            {isGenerating ? 'Generating…' : 'Generate keywords'}
-          </Button>
-          <Button
-            type="button"
-            className="rounded-md border border-input px-4 py-2 text-sm font-medium hover:bg-muted disabled:cursor-not-allowed disabled:opacity-60"
-            onClick={onRefresh}
-            disabled={isLoading}
-          >
-            {isLoading ? 'Refreshing…' : 'Refresh'}
-          </Button>
-        </div>
-        <div className="flex items-center gap-1 rounded-lg border bg-card p-1 text-xs">
+        <Button type="button" size="sm" onClick={onGenerate} disabled={isGenerating}>
+          {isGenerating ? 'Generating…' : 'Generate against crawl result'}
+        </Button>
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          onClick={onRefresh}
+          disabled={isLoading}
+        >
+          {isLoading ? 'Refreshing…' : 'Refresh metrics'}
+        </Button>
+        <span className="hidden h-6 w-px bg-border md:block" aria-hidden="true" />
+        <div className="flex items-center gap-1 rounded-md border px-1 py-1">
           {([
             ['all', `All (${counts.all})`],
-            ['recommended', `Recommended (${counts.recommended})`],
-            ['planned', `Planned (${counts.planned})`],
-            ['generated', `Generated (${counts.generated})`]
+            ['include', `Include (${counts.include ?? 0})`],
+            ['exclude', `Exclude (${counts.exclude ?? 0})`],
+            ['auto', `Auto (${counts.auto ?? 0})`]
           ] as const).map(([key, label]) => (
             <Button
               key={key}
               type="button"
-              className={`rounded-md px-2.5 py-1 font-semibold ${
-                statusFilter === key ? 'bg-muted text-foreground' : 'text-muted-foreground hover:bg-muted/60'
-              }`}
-              onClick={() => setStatusFilter(key as any)}
+              size="sm"
+              variant={scopeFilter === key ? 'secondary' : 'ghost'}
+              className="px-2.5 text-xs font-semibold"
+              onClick={() => setScopeFilter(key as any)}
             >
               {label}
             </Button>
@@ -183,7 +242,7 @@ export function KeywordsTab({
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Search keywords…"
-            className="rounded-md border border-input bg-background px-3 py-1.5 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2"
+            className="h-8 rounded-md border border-input bg-background px-3 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2"
           />
         </div>
       </div>

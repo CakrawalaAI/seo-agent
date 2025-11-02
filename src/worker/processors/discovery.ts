@@ -1,23 +1,24 @@
 import { keywordsRepo } from '@entities/keyword/repository'
 import { crawlRepo } from '@entities/crawl/repository'
 import { summarizeSite, expandSeeds } from '@common/providers/llm'
-import { getDiscoveryProvider, getMetricsProvider } from '@common/providers/registry'
-import { enrichMetrics } from '@common/providers/metrics'
 import { ensureCanon } from '@features/keyword/server/ensureCanon'
-import { ensureMetrics } from '@features/keyword/server/ensureMetrics'
 import { projectsRepo } from '@entities/project/repository'
+import { projectDiscoveryRepo } from '@entities/project/discovery/repository'
 import * as bundle from '@common/bundle/store'
 import { computeOpportunity } from '@features/keyword/server/computeOpportunity'
 import { filterSeeds } from '@features/keyword/server/seedFilter'
-import { ensureSerpLite, computeRankability } from '@features/serp/server/serp-lite'
-import { queueEnabled, publishJob } from '@common/infra/queue'
-import { recordJobQueued } from '@common/infra/jobs'
+import { dfsClient } from '@common/providers/impl/dataforseo/client'
+import {
+  DATAFORSEO_DEFAULT_LANGUAGE_CODE,
+  DATAFORSEO_DEFAULT_LOCATION_CODE
+} from '@common/providers/impl/dataforseo/geo'
 
 export async function processDiscovery(payload: { projectId: string; locale?: string }) {
+  const jobStartedAt = new Date()
   const projectId = String(payload.projectId)
   const locale = payload.locale || 'en-US'
   const project = await projectsRepo.get(projectId)
-  const defaultLocationCode = Number(process.env.SEOA_DEFAULT_LOCATION_CODE || '2840')
+  const defaultLocationCode = Number(process.env.SEOA_DEFAULT_LOCATION_CODE || String(DATAFORSEO_DEFAULT_LOCATION_CODE))
   // 1) Gather recent crawl pages from bundle
   const crawlPages = await crawlRepo.list(projectId, 200)
   const pages = crawlPages.slice(0, 50).map((p) => ({
@@ -31,11 +32,17 @@ export async function processDiscovery(payload: { projectId: string; locale?: st
   try { if ((await import('@common/config')).config.debug?.writeBundle) { const { appendJsonl } = await import('@common/bundle/store'); appendJsonl('global', 'metrics/costs.jsonl', { node: 'llm', provider: process.env.OPENAI_API_KEY ? 'openai' : 'stub', at: new Date().toISOString(), stage: 'summarize' }) } } catch {}
   try { if ((await import('@common/config')).config.debug?.writeBundle) { bundle.writeJson(projectId, 'summary/site_summary.json', summary); bundle.appendLineage(projectId, { node: 'discovery' }) } } catch {}
   // No DB persistence of site summary (project summary field removed)
+  const crawlDigest = {
+    pageCount: crawlPages.length,
+    sampledPages: pages.slice(0, 20).map((p) => ({ url: p.url, title: p.title ?? null }))
+  }
+  const providersUsed = ['llm']
   // 3) Expand seeds (LLM), derive from headings, and provider expansion (DataForSEO) → merge
-  const seedsLlm = await expandSeeds(summary.topicClusters || [], locale)
+  const maxLlmSeeds = Math.max(1, Number(process.env.SEOA_DISCOVERY_LLM_SEEDS_MAX || '10'))
+  const seedsLlm = (await expandSeeds(summary.topicClusters || [], locale)).slice(0, maxLlmSeeds)
   console.info('[discovery] seeds from LLM', { count: seedsLlm.length })
   try { if ((await import('@common/config')).config.debug?.writeBundle) { const { appendJsonl } = await import('@common/bundle/store'); appendJsonl('global', 'metrics/costs.jsonl', { node: 'llm', provider: process.env.OPENAI_API_KEY ? 'openai' : 'stub', at: new Date().toISOString(), stage: 'expandSeeds' }) } } catch {}
-  let seeds: string[] = [...seedsLlm]
+  const seedInputs = new Set<string>(seedsLlm.map((s) => s.toLowerCase()))
   // derive phrases from headings in crawl dump
   try {
     const { phrasesFromHeadings } = await import('@features/keyword/server/fromHeadings')
@@ -49,12 +56,10 @@ export async function processDiscovery(payload: { projectId: string; locale?: st
       if (headingsSource.length >= 500) break
     }
     const fromHeads = phrasesFromHeadings(headingsSource, 50)
-    const set = new Set(seeds.map((s) => s.toLowerCase()))
     for (const phrase of fromHeads) {
       const key = phrase.toLowerCase()
-      if (set.has(key)) continue
-      seeds.push(phrase)
-      set.add(key)
+      if (seedInputs.has(key)) continue
+      seedInputs.add(key)
     }
     try {
       if ((await import('@common/config')).config.debug?.writeBundle) {
@@ -65,101 +70,113 @@ export async function processDiscovery(payload: { projectId: string; locale?: st
       }
     } catch {}
   } catch {}
-  try {
-    const loc = defaultLocationCode
-    const { discoverKeywords } = await import('@features/keyword/server/discoverKeywords')
-    const added = await discoverKeywords({ siteUrl: project?.siteUrl || null, seeds: seedsLlm, language: locale, locationCode: loc })
-    const set = new Set(seeds.map((s) => s.toLowerCase()))
-    for (const p of added) { const k = p.toLowerCase(); if (!set.has(k)) { seeds.push(p); set.add(k) } }
-    console.info('[discovery] dfs multi-source', { added: added.length })
-    try { if ((await import('@common/config')).config.debug?.writeBundle) { bundle.writeJsonl(projectId, 'keywords/candidates.raw.jsonl', added.map((x) => ({ phrase: x, source: 'mixed' }))) } } catch {}
-  } catch {}
-  // Filter off-topic before persisting
-  seeds = filterSeeds(seeds, summary)
-  // 4) Upsert keywords
-  await keywordsRepo.upsertMany(projectId, seeds, locale)
-  try {
-    // if headings write already happened above, we skip duplicate write
-    try {
-      if ((await import('@common/config')).config.debug?.writeBundle) {
-        bundle.writeJsonl(projectId, 'keywords/seeds.jsonl', seedsLlm.map((p) => ({ phrase: p, source: 'llm' })))
-      }
-    } catch {}
-  } catch {}
-  // 4b) Link canons
+  const dfsLanguage = project?.dfsLanguageCode || DATAFORSEO_DEFAULT_LANGUAGE_CODE
+  const dfsLocation = Number(project?.metricsLocationCode || defaultLocationCode)
+  const seedSnapshot = Array.from(seedInputs)
+  const seedLimit = Math.max(1, Number(process.env.SEOA_DISCOVERY_SEED_LIMIT || '20'))
+  const seedBatch = seedSnapshot.slice(0, seedLimit)
+  if (!seedBatch.length) {
+    throw new Error('No discovery seeds available after preprocessing')
+  }
+
+  const keywordRows = await dfsClient.keywordsForKeywordsDetailed({
+    keywords: seedBatch,
+    languageCode: dfsLanguage,
+    locationCode: dfsLocation
+  })
+  providersUsed.push('dataforseo_keywords_for_keywords')
+  if (!keywordRows.length) {
+    throw new Error('DataForSEO returned no keyword suggestions')
+  }
+
+  const candidateMap = new Map<string, {
+    phrase: string
+    searchVolume: number
+    cpc: number | null
+    competition: number | null
+    asOf: string | null
+  }>()
+  for (const row of keywordRows) {
+    const phrase = String(row.keyword || '').trim()
+    if (!phrase) continue
+    const info = row.keyword_info || {}
+    const searchVolume = Number(info?.search_volume ?? 0) || 0
+    const cpcValue = typeof info?.cpc === 'number' ? Number(info.cpc) : null
+    const competitionValue = typeof info?.competition === 'number' ? Number(info.competition) : null
+    const asOf = typeof info?.last_updated_time === 'string' ? new Date(info.last_updated_time).toISOString() : null
+    const key = phrase.toLowerCase()
+    const prev = candidateMap.get(key)
+    if (!prev || searchVolume > prev.searchVolume) {
+      candidateMap.set(key, { phrase, searchVolume, cpc: cpcValue, competition: competitionValue, asOf })
+    }
+  }
+
+  const filteredPhrases = filterSeeds(Array.from(candidateMap.keys()), summary)
+  const filteredSet = new Set(filteredPhrases.map((p) => p.toLowerCase()))
+  const candidates = Array.from(candidateMap.values())
+    .filter((entry) => filteredSet.has(entry.phrase.toLowerCase()))
+    .sort((a, b) => (b.searchVolume ?? 0) - (a.searchVolume ?? 0))
+
+  const topLimit = Math.max(1, Number(process.env.SEOA_DISCOVERY_KEYWORD_LIMIT || '100'))
+  const topCandidates = candidates.slice(0, topLimit)
+  if (!topCandidates.length) {
+    throw new Error('No keyword candidates remained after filtering')
+  }
+
+  const difficultyMap = await dfsClient.bulkKeywordDifficulty({
+    keywords: topCandidates.map((c) => c.phrase),
+    languageCode: dfsLanguage,
+    locationCode: dfsLocation
+  })
+  providersUsed.push('dataforseo_bulk_keyword_difficulty')
+
+  const updates: Array<{ phrase: string; metrics: { searchVolume?: number | null; difficulty?: number | null; cpc?: number | null; competition?: number | null; rankability?: number | null; asOf?: string | null } }> = []
+  const finalKeywords: string[] = []
+  for (const candidate of topCandidates) {
+    const diff = difficultyMap.get(candidate.phrase.toLowerCase())
+    const difficulty = typeof diff === 'number' && Number.isFinite(diff) ? diff : null
+    const metrics = {
+      searchVolume: candidate.searchVolume ?? null,
+      difficulty,
+      cpc: candidate.cpc,
+      competition: candidate.competition,
+      rankability: null,
+      asOf: candidate.asOf
+    }
+    updates.push({ phrase: candidate.phrase, metrics })
+    finalKeywords.push(candidate.phrase)
+  }
+  const keywordCount = finalKeywords.length
+
   try {
     const mappings: Array<{ phrase: string; canonId: string }> = []
-    for (const phrase of seeds.slice(0, 200)) {
-      const canon = await ensureCanon(phrase, locale)
+    const canonLanguage = project?.dfsLanguageCode || dfsLanguage
+    for (const phrase of finalKeywords) {
+      const canon = await ensureCanon(phrase, canonLanguage)
       mappings.push({ phrase, canonId: canon.id })
     }
     await keywordsRepo.linkCanon(projectId, mappings)
   } catch {}
-  // 5) Scoring: bulk difficulty across candidates (cheap), then overview for top-N (rich)
-  let updates: Array<{ phrase: string; metrics: any }> = []
-  try {
-    const month = new Date(); const asOf = `${month.getUTCFullYear()}-${String(month.getUTCMonth() + 1).padStart(2, '0')}`
-    const project = await projectsRepo.get(projectId)
-    const loc = Number(project?.metricsLocationCode || 2840)
-    // Bulk difficulty for up to 1000
-    const metricsProv = getMetricsProvider()
-    const candidates = Array.from(new Set(seeds.map((s) => s.toLowerCase()))).slice(0, 1000)
-    const bulk = await metricsProv.bulkDifficulty(candidates, locale, loc)
-    // initial opportunity with difficulty only (volume unknown yet)
-    for (const b of bulk) {
-      const opp = computeOpportunity({ difficulty: b.difficulty })
-      updates.push({ phrase: b.phrase, metrics: { difficulty: b.difficulty, opportunity: opp, asOf: `${asOf}-01` } })
-    }
-    // Rich overview for top-N easiest
-    const TOP_N = Math.max(1, Number(process.env.SEOA_OVERVIEW_TOP_N || '200'))
-    const easiest = [...bulk].sort((a, b) => (a.difficulty ?? 999) - (b.difficulty ?? 999)).slice(0, TOP_N)
-    const over = await metricsProv.overviewBatch(easiest.map((e) => e.phrase), locale, loc)
-    for (const e of easiest) {
-      const info = over.get(e.phrase.toLowerCase())
-      if (!info) continue
-      // ensure monthly snapshot for canon
-      try { const canon = await ensureCanon(e.phrase, locale); await ensureMetrics({ canon: { id: canon.id, phrase: e.phrase, language: locale }, locationCode: loc, month: asOf }) } catch {}
-      // serp-lite rankability for a subset (optional)
-      let rankability: number | undefined
-      try { const lite = await ensureSerpLite(e.phrase, locale, loc, { cacheProjectId: projectId }); rankability = computeRankability(lite) } catch {}
-      const opp = computeOpportunity({ searchVolume: info.searchVolume, difficulty: info.difficulty, competition: (info as any).competition, cpc: info.cpc, rankability })
-      updates.push({ phrase: e.phrase, metrics: { searchVolume: info.searchVolume, difficulty: info.difficulty, cpc: info.cpc, competition: (info as any).competition, rankability, asOf: `${asOf}-01`, opportunity: opp } })
-    }
-  } catch {}
-  // 6) Apply snapshot metrics if available; else provider fallback
+
+  await keywordsRepo.upsertMany(projectId, finalKeywords, dfsLanguage)
+
   if (updates.length) {
-    await keywordsRepo.upsertMetrics(projectId, updates.map((u) => ({ phrase: u.phrase, metrics: u.metrics as any })))
-    // Write enriched candidates join (raw + metrics)
-    try { if ((await import('@common/config')).config.debug?.writeBundle) { const enrichedRows = updates.map((u) => ({ phrase: u.phrase, provider: 'dataforseo', metrics: u.metrics })); bundle.writeJsonl(projectId, 'keywords/candidates.enriched.jsonl', enrichedRows) } } catch {}
-  } else {
-    const after = await keywordsRepo.list(projectId, { status: 'all', limit: 200 })
-    const enriched = await enrichMetrics(after.map((k: any) => ({ phrase: k.phrase })), locale, undefined, projectId)
-    await keywordsRepo.upsertMetrics(projectId, enriched)
+    await keywordsRepo.upsertMetrics(projectId, updates.map((u) => ({ phrase: u.phrase, metrics: u.metrics })))
+    try { if ((await import('@common/config')).config.debug?.writeBundle) { const enrichedRows = updates.map((u) => ({ phrase: u.phrase, provider: 'dataforseo', metrics: u.metrics, opportunity: computeOpportunity({ searchVolume: u.metrics.searchVolume ?? undefined, difficulty: u.metrics.difficulty ?? undefined, competition: u.metrics.competition ?? undefined, cpc: u.metrics.cpc ?? undefined }) })); bundle.writeJsonl(projectId, 'keywords/candidates.enriched.jsonl', enrichedRows) } } catch {}
   }
-  // 6b) Queue prioritization via 'score' job
   try {
-    if (queueEnabled()) {
-      const jobId = await publishJob({ type: 'score', payload: { projectId } })
-      try { await recordJobQueued(projectId, 'score', jobId) } catch {}
-      console.info('[discovery] queued score', { projectId, jobId })
-    }
-  } catch {}
-  // 6c) Optionally queue SERP for top-M to warm cache
-  try {
-    const TOP_M = Math.max(1, Number(process.env.SEOA_TOP_M || '50'))
-    const top = ((await keywordsRepo.list(projectId, { status: 'all', limit: 1000 })) || [])
-      .sort((a, b) => (b.opportunity ?? 0) - (a.opportunity ?? 0))
-      .slice(0, TOP_M)
-    if (queueEnabled()) {
-      for (const k of top) {
-        const jid = await publishJob({ type: 'serp', payload: { canonPhrase: k.phrase, language: locale, locationCode: defaultLocationCode, device: 'desktop', topK: 10, projectId } })
-        try { await recordJobQueued(projectId, 'serp', jid) } catch {}
-      }
-      for (const k of top.slice(0, 10)) {
-        const jid = await publishJob({ type: 'competitors', payload: { projectId, siteUrl: String(project?.siteUrl || ''), canonPhrase: k.phrase, language: locale, locationCode: defaultLocationCode, device: 'desktop', topK: 10 } })
-        try { await recordJobQueued(projectId, 'competitors', jid) } catch {}
-      }
-    }
+    const completedAt = new Date()
+    await projectDiscoveryRepo.recordRun({
+      projectId,
+      summary,
+      seedPhrases: seedSnapshot.slice(0, 500),
+      crawlDigest,
+      providersUsed,
+      seedCount: seedInputs.size,
+      keywordCount,
+      startedAt: jobStartedAt.toISOString(),
+      completedAt: completedAt.toISOString()
+    })
   } catch {}
   // 7) No project.summary persistence; keep bundle artifacts only
   // lineage already appended above; avoid overwriting the lineage file

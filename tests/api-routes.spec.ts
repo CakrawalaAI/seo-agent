@@ -13,7 +13,7 @@ beforeEach(() => {
 
 describe('project REST endpoints', () => {
   it('requests keywords from project-scoped route', async () => {
-    await fetchKeywords('proj-1', 'all')
+    await fetchKeywords('proj-1', { status: 'all' })
     expect(global.fetch).toHaveBeenCalledWith(
       '/api/projects/proj-1/keywords?limit=100',
       expect.objectContaining({ credentials: 'include' })

@@ -1,9 +1,20 @@
 export type KeywordStatus = 'recommended' | 'planned' | 'generated' | 'all'
 
-export async function fetchKeywords(projectId: string, status: KeywordStatus = 'all') {
-  const params = new URLSearchParams({ limit: '100' })
-  if (status && status !== 'all') {
-    params.set('status', status)
+type FetchKeywordOptions = {
+  status?: KeywordStatus
+  scope?: 'auto' | 'include' | 'exclude' | 'all'
+  limit?: number
+}
+
+export async function fetchKeywords(projectId: string, options: FetchKeywordOptions = {}) {
+  const params = new URLSearchParams()
+  const limit = options.limit && options.limit > 0 ? options.limit : 100
+  params.set('limit', String(limit))
+  if (options.status && options.status !== 'all') {
+    params.set('status', options.status)
+  }
+  if (options.scope && options.scope !== 'all') {
+    params.set('scope', options.scope)
   }
   const response = await fetch(`/api/projects/${projectId}/keywords?${params.toString()}`, {
     credentials: 'include'

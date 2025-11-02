@@ -5,6 +5,8 @@ export type ArticleOutlineSection = {
   subpoints?: string[]
 }
 
+export type ArticleBufferStage = 'seed' | 'outline' | 'draft'
+
 export type Article = {
   id: string
   projectId: string
@@ -14,6 +16,7 @@ export type Article = {
   language?: string | null
   tone?: string | null
   status?: ArticleStatus | null
+  bufferStage?: ArticleBufferStage | null
   outlineJson?: ArticleOutlineSection[] | null
   bodyHtml?: string | null
   generationDate?: string | null

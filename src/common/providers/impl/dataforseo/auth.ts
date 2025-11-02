@@ -1,27 +1,22 @@
 export function getAuthHeader(): string | null {
-  let login = process.env.DATAFORSEO_LOGIN || process.env.DATAFORSEO_EMAIL || ''
-  let password = process.env.DATAFORSEO_PASSWORD || ''
-  // If password looks like base64 and decodes to 'user:pass', prefer decoded pair
-  if (password && isMaybeB64(password)) {
-    const decoded = tryB64(password)
-    if (decoded && decoded.includes(':')) {
-      const [u, p] = decoded.split(':')
-      login = u || login
-      password = p
-    }
+  const token = normalizeAuth(process.env.DATAFORSEO_AUTH)
+  return token ? `Basic ${token}` : null
+}
+
+function normalizeAuth(raw: string | undefined | null): string | null {
+  if (!raw) return null
+  const trimmed = raw.trim()
+  if (!trimmed) return null
+  if (trimmed.startsWith('Basic ')) {
+    return trimmed.slice(6).trim() || null
   }
-  if (!login || !password) return null
-  return 'Basic ' + Buffer.from(`${login}:${password}`).toString('base64')
+  if (isMaybeB64(trimmed)) return trimmed
+  if (trimmed.includes(':')) {
+    return Buffer.from(trimmed, 'utf-8').toString('base64')
+  }
+  return null
 }
 
 function isMaybeB64(s: string) {
   return /^[A-Za-z0-9+/=]+$/.test(s) && s.length % 4 === 0
-}
-
-function tryB64(s: string): string | null {
-  try {
-    return Buffer.from(s, 'base64').toString('utf-8')
-  } catch {
-    return null
-  }
 }

@@ -33,6 +33,7 @@ export const articlesRepo = {
               title: input.title,
               outlineJson: (input.outline ?? []) as any,
               status: 'draft' as any,
+              bufferStage: 'draft' as any,
               language: 'en',
               tone: 'neutral',
               updatedAt: now as any
@@ -56,6 +57,7 @@ export const articlesRepo = {
       status: 'draft',
       outlineJson: input.outline ?? [],
       bodyHtml: `<article><h1>${escapeHtml(input.title)}</h1><p>Generated draft body...</p></article>`,
+      bufferStage: 'draft',
       generationDate: undefined as any,
       createdAt: undefined as any,
       updatedAt: undefined as any
@@ -71,6 +73,7 @@ export const articlesRepo = {
           language: article.language,
           tone: article.tone,
           status: article.status as any,
+          bufferStage: article.bufferStage as any,
           outlineJson: article.outlineJson as any,
           bodyHtml: article.bodyHtml
         } as any)
@@ -83,7 +86,7 @@ export const articlesRepo = {
     if (!hasDatabase()) return null
     const db = getDb()
     const set: any = { updatedAt: new Date() as any }
-    for (const k of ['projectId','keywordId','plannedDate','title','language','tone','status','outlineJson','bodyHtml','generationDate','publishDate','url'] as const) {
+    for (const k of ['projectId','keywordId','plannedDate','title','language','tone','status','bufferStage','outlineJson','bodyHtml','generationDate','publishDate','url'] as const) {
       const v = (patch as any)[k]
       if (v !== undefined) set[k] = v as any
     }

@@ -22,7 +22,7 @@
     "test:watch": "vitest watch",
     "db:generate": "bunx drizzle-kit generate",
     "db:migrate": "bunx drizzle-kit migrate",
-    "db:reset": "bunx tsx scripts/db-reset.ts && bun run db:generate && bun run db:migrate",
+    "db:reset": "bunx tsx scripts/db-reset.ts && bun run db:migrate",
     "shadcn": "bunx shadcn-ui@latest",
     "cli:dev": "bunx tsx src/cli/index.ts",
     "cli:build": "bun build src/cli/index.ts --outdir dist/cli --target node --format esm --entry-naming [name].mjs --external ora --external commander",

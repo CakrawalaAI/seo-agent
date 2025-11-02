@@ -18,6 +18,7 @@ export const articles = pgTable(
     language: text('language'),
     tone: text('tone'),
     status: text('status').notNull().default('draft'),
+    bufferStage: text('buffer_stage').notNull().default('seed'),
     generationDate: timestamp('generation_date', { withTimezone: true }),
     publishDate: timestamp('publish_date', { withTimezone: true }),
     url: text('url'),

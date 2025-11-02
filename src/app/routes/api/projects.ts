@@ -55,11 +55,17 @@ export const Route = createFileRoute('/api/projects')({
           } catch {}
         }
         // No project quota — unlimited projects per new seat model
+        const serpLocationCode = body.serpLocationCode !== undefined ? Number(body.serpLocationCode) : undefined
+        const metricsLocationCode = body.metricsLocationCode !== undefined ? Number(body.metricsLocationCode) : undefined
+        const dfsLanguageCode = typeof body.dfsLanguageCode === 'string' && body.dfsLanguageCode.trim() ? body.dfsLanguageCode.trim() : undefined
         const project = await projectsRepo.create({
           orgId: String(body.orgId),
           name: String(body.name),
           siteUrl: String(body.siteUrl),
-          defaultLocale: String(body.defaultLocale)
+          defaultLocale: String(body.defaultLocale),
+          serpLocationCode: Number.isFinite(serpLocationCode) ? serpLocationCode : undefined,
+          metricsLocationCode: Number.isFinite(metricsLocationCode) ? metricsLocationCode : undefined,
+          dfsLanguageCode
         })
         // auto-start crawl job per spec
         let crawlJobId: string | null = null

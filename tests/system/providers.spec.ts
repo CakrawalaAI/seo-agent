@@ -4,9 +4,7 @@ import { config } from '../../src/common/config'
 function resetEnv() {
   delete process.env.SEOA_ALLOW_PROVIDER_STUBS
   delete process.env.OPENAI_API_KEY
-  delete process.env.DATAFORSEO_LOGIN
-  delete process.env.DATAFORSEO_EMAIL
-  delete process.env.DATAFORSEO_PASSWORD
+  delete process.env.DATAFORSEO_AUTH
 }
 
 describe('provider integration handling', () => {

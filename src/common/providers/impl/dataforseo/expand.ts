@@ -1,5 +1,6 @@
 import type { KeywordExpandProvider, ExpandedKeyword } from '../../interfaces/keyword-expand'
 import { dfsClient } from './client'
+import { DATAFORSEO_DEFAULT_LOCATION_CODE } from './geo'
 
 export const dataForSeoExpand: KeywordExpandProvider = {
   async expand({ phrases, language, locationCode, limit }) {
@@ -11,14 +12,22 @@ export const dataForSeoExpand: KeywordExpandProvider = {
       try {
         const first = batch[0]
         if (first) {
-          const items = await dfsClient.keywordSuggestionsLive(first, language || 'en', Number(locationCode) || 2840)
-          for (const r of items) out.push({ phrase: r.phrase, source: 'dataforseo' })
+          const items = await dfsClient.keywordSuggestions({
+            keyword: first,
+            languageCode: language || undefined,
+            locationCode: Number(locationCode) || DATAFORSEO_DEFAULT_LOCATION_CODE
+          })
+          for (const phrase of items) out.push({ phrase, source: 'dataforseo' })
         }
       } catch {}
     }
     try {
-      const items2 = await dfsClient.keywordsForKeywordsLive(batch, language || 'en', Number(locationCode) || 2840)
-      for (const r of items2) out.push({ phrase: r.phrase, source: 'dataforseo' })
+      const items2 = await dfsClient.keywordsForKeywords({
+        keywords: batch,
+        languageCode: language || undefined,
+        locationCode: Number(locationCode) || DATAFORSEO_DEFAULT_LOCATION_CODE
+      })
+      for (const phrase of items2) out.push({ phrase, source: 'dataforseo' })
     } catch {}
     const unique: ExpandedKeyword[] = []
     const seen = new Set<string>()

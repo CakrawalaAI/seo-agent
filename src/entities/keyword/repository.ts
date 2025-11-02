@@ -1,9 +1,10 @@
-import type { Keyword, KeywordMetrics } from './domain/keyword'
+import type { Keyword, KeywordMetrics, KeywordScope } from './domain/keyword'
 import { hasDatabase, getDb } from '@common/infra/db'
 import { keywords } from './db/schema'
 import { keywordCanon } from './db/schema.canon'
 import { metricCache } from '@entities/metrics/db/schema'
-import { and, asc, eq } from 'drizzle-orm'
+import { and, asc, desc, eq, sql } from 'drizzle-orm'
+import { deriveScope } from './domain/keyword'
 
 export const keywordsRepo = {
   async generate(projectId: string, locale = 'en-US'): Promise<{ jobId: string; added: number }> {
@@ -25,7 +26,7 @@ export const keywordsRepo = {
       try {
         await db
           .insert(keywords)
-          .values({ id: genId('kw'), projectId, canonId, status: 'recommended', starred: false })
+          .values({ id: genId('kw'), projectId, canonId, status: 'recommended', scope: 'auto', starred: false })
           .onConflictDoNothing?.()
         added++
       } catch {}
@@ -33,16 +34,21 @@ export const keywordsRepo = {
     return { jobId: genId('job'), added }
   },
 
-  async list(projectId: string, opts: { status?: string; limit?: number } = {}): Promise<Keyword[]> {
+  async list(
+    projectId: string,
+    opts: { status?: string; scope?: KeywordScope | 'all'; limit?: number } = {}
+  ): Promise<Keyword[]> {
     if (!hasDatabase()) return []
     const db = getDb()
     const limit = opts.limit && opts.limit > 0 ? opts.limit : 100
+    const volumeExpr = sql<number>`COALESCE(((${metricCache.metricsJson} ->> 'searchVolume')::numeric), 0)`
     const base = db
       .select({
         id: keywords.id,
         projectId: keywords.projectId,
         canonId: keywords.canonId,
         status: keywords.status,
+        scope: keywords.scope,
         starred: keywords.starred,
         createdAt: keywords.createdAt,
         updatedAt: keywords.updatedAt,
@@ -53,11 +59,14 @@ export const keywordsRepo = {
       .innerJoin(keywordCanon, eq(keywords.canonId, keywordCanon.id))
       .leftJoin(metricCache, eq(metricCache.canonId, keywordCanon.id))
       .where(eq(keywords.projectId, projectId))
-      .orderBy(asc(keywordCanon.phraseNorm))
+      .orderBy(desc(volumeExpr), asc(keywordCanon.phraseNorm))
       .limit(limit)
     let rows = await base
     if (opts.status && opts.status !== 'all') {
       rows = rows.filter((r) => String(r.status) === opts.status)
+    }
+    if (opts.scope && opts.scope !== 'all') {
+      rows = rows.filter((r) => String(r.scope || 'auto') === opts.scope)
     }
     return rows.map((row) => composeKeyword(row))
   },
@@ -85,6 +94,19 @@ export const keywordsRepo = {
             set: { metricsJson: u.metrics as any, fetchedAt: new Date() as any }
           })
         updated++
+        const inferredScope = deriveScope(u.metrics)
+        if (inferredScope !== 'auto') {
+          await db
+            .update(keywords)
+            .set({ scope: inferredScope as any, updatedAt: new Date() as any })
+            .where(
+              and(
+                eq(keywords.canonId, canonRow.id),
+                eq(keywords.projectId, projectId),
+                eq(keywords.scope, 'auto' as any)
+              )
+            )
+        }
       } catch {}
     }
     return updated
@@ -109,7 +131,7 @@ export const keywordsRepo = {
       try {
         await db
           .insert(keywords)
-          .values({ id: genId('kw'), projectId, canonId, status: 'recommended', starred: false })
+          .values({ id: genId('kw'), projectId, canonId, status: 'recommended', scope: 'auto', starred: false })
           .onConflictDoNothing?.()
         inserted++
       } catch {}
@@ -127,6 +149,7 @@ export const keywordsRepo = {
     const db = getDb()
     const set: any = { updatedAt: new Date() as any }
     if (patch.status !== undefined) set.status = patch.status
+    if (patch.scope !== undefined) set.scope = patch.scope as any
     if (patch.starred !== undefined) set.starred = Boolean(patch.starred)
     await db.update(keywords).set(set).where(eq(keywords.id, id))
     const rows = await db
@@ -135,6 +158,7 @@ export const keywordsRepo = {
         projectId: keywords.projectId,
         canonId: keywords.canonId,
         status: keywords.status,
+        scope: keywords.scope,
         starred: keywords.starred,
         createdAt: keywords.createdAt,
         updatedAt: keywords.updatedAt,
@@ -169,6 +193,7 @@ function composeKeyword(row: {
   projectId: string
   canonId: string
   status: string | null
+  scope: string | null
   starred: boolean | null
   createdAt: Date | string | null
   updatedAt: Date | string | null
@@ -181,12 +206,14 @@ function composeKeyword(row: {
     Number((metrics as any)?.difficulty ?? null),
     Number((metrics as any)?.rankability ?? null)
   )
+  const scopeValue = (row.scope as KeywordScope | null) ?? 'auto'
   return {
     id: row.id,
     projectId: row.projectId,
     canonId: row.canonId,
     phrase: row.phraseNorm,
     status: row.status || 'recommended',
+    scope: scopeValue,
     starred: Boolean(row.starred),
     metricsJson: metrics,
     opportunity,

@@ -11,6 +11,7 @@ import { readFileSync, existsSync } from 'node:fs'
 import { crawlRepo } from '@entities/crawl/repository'
 import { keywordsRepo } from '@entities/keyword/repository'
 import { articlesRepo } from '@entities/article/repository'
+import { projectDiscoveryRepo } from '@entities/project/discovery/repository'
 
 export const Route = createFileRoute('/api/projects/$projectId/snapshot')({
   server: {
@@ -23,9 +24,10 @@ export const Route = createFileRoute('/api/projects/$projectId/snapshot')({
         if (hasDatabase()) {
           try {
             const db = getDb()
-            const [draftArticles, ints] = await Promise.all([
+            const [draftArticles, ints, latestDiscovery] = await Promise.all([
               articlesRepo.list(params.projectId, 120),
-              db.select().from(projectIntegrations).where(eq(projectIntegrations.projectId, params.projectId))
+              db.select().from(projectIntegrations).where(eq(projectIntegrations.projectId, params.projectId)),
+              projectDiscoveryRepo.latest(params.projectId)
             ])
             const crawlPages = await crawlRepo.list(params.projectId, 50)
             const keywords = await keywordsRepo.list(params.projectId, { status: 'all', limit: 50 })
@@ -44,13 +46,28 @@ export const Route = createFileRoute('/api/projects/$projectId/snapshot')({
                 if (Array.isArray(r?.urls)) reps = r.urls
               }
             } catch {}
+            const latestDiscoveryPayload = latestDiscovery
+              ? {
+                  startedAt: latestDiscovery.startedAt ?? null,
+                  completedAt: latestDiscovery.completedAt ?? null,
+                  providersUsed: latestDiscovery.providersUsed ?? [],
+                  summaryJson: latestDiscovery.summaryJson ?? null,
+                  seedCount: latestDiscovery.seedCount ?? null,
+                  keywordCount: latestDiscovery.keywordCount ?? null,
+                  seeds: latestDiscovery.seedJson ?? null,
+                  crawlDigest: latestDiscovery.crawlJson ?? null,
+                  status: 'completed'
+                }
+              : siteSummary
+              ? { providersUsed: ['llm'], status: 'completed', summaryJson: siteSummary }
+              : null
             return json({
               queueDepth: 0,
               planItems: draftArticles.filter((a) => (a.status ?? 'draft') === 'draft'),
               integrations: ints,
               crawlPages,
               keywords,
-              latestDiscovery: siteSummary ? { providersUsed: ['llm'], status: 'completed', summaryJson: siteSummary } : null,
+              latestDiscovery: latestDiscoveryPayload,
               representatives: reps
             })
           } catch {}

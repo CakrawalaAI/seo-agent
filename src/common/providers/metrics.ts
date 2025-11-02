@@ -22,7 +22,7 @@ export async function enrichMetrics(inputs: MetricInput[], locale: string, locat
   }
 
   // If DataForSEO creds available, try live enrichment for missing
-  if (missing.length && process.env.DATAFORSEO_LOGIN && process.env.DATAFORSEO_PASSWORD) {
+  if (missing.length && process.env.DATAFORSEO_AUTH) {
     try {
       const { searchVolume } = await import('./dataforseo')
       const live = await searchVolume(missing.map((p) => ({ phrase: p.phrase, locale, location })))

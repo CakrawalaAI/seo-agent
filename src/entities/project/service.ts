@@ -30,6 +30,9 @@ export function createProject(input: {
   name: string
   siteUrl: string
   defaultLocale: string
+  serpLocationCode?: number
+  metricsLocationCode?: number
+  dfsLanguageCode?: string
 }) {
   return postJson<{ project: Project; crawlJobId?: string | null }>(`/api/projects`, input)
 }
