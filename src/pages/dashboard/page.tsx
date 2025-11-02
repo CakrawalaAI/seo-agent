@@ -1,11 +1,12 @@
-import { useMemo } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useEffect, useMemo, useState } from 'react'
+import { useMutation, useQuery } from '@tanstack/react-query'
 import { useActiveProject } from '@common/state/active-project'
 import { useMockData } from '@common/dev/mock-data-context'
-import { getProject, getProjectSnapshot } from '@entities/project/service'
+import { getProject, getProjectSnapshot, patchProject, generateKeywords, getPlanItems, createPlan } from '@entities/project/service'
 import type { Keyword, PlanItem, Project, ProjectSnapshot } from '@entities'
 import { Button } from '@src/common/ui/button'
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from '@src/common/ui/empty'
+import { Textarea } from '@src/common/ui/textarea'
 
 type DashboardData = {
   project: Project | null
@@ -95,6 +96,37 @@ export function Page(): JSX.Element {
 
   const insight = useMemo(() => buildInsights(project, snapshot), [project, snapshot])
 
+  const [isEditingSummary, setIsEditingSummary] = useState(false)
+  const [draftSummary, setDraftSummary] = useState(() => project?.businessSummary ?? insight.summaryText)
+
+  useEffect(() => {
+    if (mockEnabled) return
+    if (isEditingSummary) return
+    setDraftSummary((project?.businessSummary ?? insight.summaryText).trim())
+  }, [isEditingSummary, project?.businessSummary, insight.summaryText, mockEnabled])
+
+  const saveSummaryMutation = useMutation({
+    mutationFn: async (summary: string) => patchProject(projectId!, { businessSummary: summary }),
+    onSuccess: () => {
+      projectQuery.refetch()
+      setIsEditingSummary(false)
+    }
+  })
+
+  const mergeActionMutation = useMutation({
+    mutationFn: async (step: ProjectStatusStep['action']) => {
+      if (!step || mockEnabled) return
+      if (step.type === 'crawl') return projectId ? getProjectSnapshot(projectId) : null
+      if (step.type === 'generateKeywords') return generateKeywords(projectId!, project?.defaultLocale ?? 'en-US')
+      if (step.type === 'schedulePlan') return createPlan(projectId!, 30)
+      return null
+    },
+    onSuccess: () => {
+      snapshotQuery.refetch()
+      if (projectId) getPlanItems(projectId)
+    }
+  })
+
   if (!projectId) {
     return (
       <div className="mx-auto flex w-full max-w-5xl flex-col gap-6">
@@ -114,76 +146,76 @@ export function Page(): JSX.Element {
 
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-col gap-6">
-      <header className="space-y-1">
+      <header>
         <h1 className="text-2xl font-semibold">Dashboard</h1>
-        <p className="text-sm text-muted-foreground">Website context, prep interview notes, and workflow at a glance.</p>
       </header>
 
-      <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        {insight.statusCards.map((card) => (
-          <article key={card.label} className="rounded-lg border bg-card p-4 shadow-sm">
-            <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{card.label}</div>
-            <div className="mt-2 text-xl font-semibold text-foreground">{card.value}</div>
-            {card.detail ? <p className="mt-1 text-xs text-muted-foreground">{card.detail}</p> : null}
-          </article>
-        ))}
-      </section>
-
-      <section className="grid gap-4 lg:grid-cols-[2fr,1fr]">
-        <article className="rounded-lg border bg-card p-5 shadow-sm">
+      <section className="rounded-lg border bg-card p-5 shadow-sm">
+        <div className="flex items-start justify-between gap-3">
           <div>
-            <h2 className="text-lg font-semibold text-foreground">Business Summary</h2>
-            <p className="text-sm text-muted-foreground">Keep the team anchored on the business narrative.</p>
+            <h2 className="text-lg font-semibold text-foreground">Website Summary</h2>
+            <p className="text-sm text-muted-foreground">Business context of the website: products, services, audience, positioning.</p>
           </div>
-          <div className="mt-4 whitespace-pre-wrap rounded-md border border-dashed border-border/70 bg-background/70 p-4 text-sm leading-relaxed text-muted-foreground">
-            {(project?.businessSummary?.trim() || insight.fallbackSummary).trim()}
-          </div>
-        </article>
-
-        <article className="rounded-lg border bg-card p-5 shadow-sm">
-          <h2 className="text-lg font-semibold text-foreground">Prep Interview Notes</h2>
-          <p className="mt-1 text-sm text-muted-foreground">Align messaging before talking to stakeholders.</p>
-          <ul className="mt-4 space-y-3 text-sm text-muted-foreground">
-            {insight.prepPoints.map((item) => (
-              <li key={item.title} className="rounded-md border border-dashed border-border/60 px-3 py-2">
-                <p className="text-sm font-medium text-foreground">{item.title}</p>
-                <p className="text-xs text-muted-foreground">{item.detail}</p>
-              </li>
-            ))}
-          </ul>
-        </article>
+          <Button
+            type="button"
+            variant={isEditingSummary ? 'default' : 'outline'}
+            size="sm"
+            onClick={() => {
+              if (mockEnabled) return
+              if (isEditingSummary) {
+                saveSummaryMutation.mutate(draftSummary.trim())
+              } else {
+                setDraftSummary((project?.businessSummary ?? insight.summaryText).trim())
+                setIsEditingSummary(true)
+              }
+            }}
+            disabled={mockEnabled || (isEditingSummary && draftSummary.trim().length === 0) || saveSummaryMutation.isPending}
+          >
+            {mockEnabled ? 'Mock data' : isEditingSummary ? (saveSummaryMutation.isPending ? 'Saving…' : 'Save summary') : 'Edit summary'}
+          </Button>
+        </div>
+        <Textarea
+          readOnly={!isEditingSummary || mockEnabled}
+          value={isEditingSummary ? draftSummary : insight.summaryText}
+          onChange={(event) => setDraftSummary(event.target.value)}
+          className="mt-4 min-h-[220px] resize-none bg-background/90 text-sm leading-relaxed"
+        />
+        {isEditingSummary && !mockEnabled ? (
+          <div className="mt-2 flex justify-end text-xs text-muted-foreground">Press save to persist changes.</div>
+        ) : null}
       </section>
 
       <section className="rounded-lg border bg-card p-5 shadow-sm">
         <div className="flex items-start justify-between gap-3">
           <div>
-            <h2 className="text-lg font-semibold text-foreground">Workflow</h2>
-            <p className="text-sm text-muted-foreground">Move from discovery to published articles with clear checkpoints.</p>
+            <h2 className="text-lg font-semibold text-foreground">Project status</h2>
+            <p className="text-sm text-muted-foreground">Key automation steps from ingestion to scheduling.</p>
           </div>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={() => {
-              if (mockEnabled) return
-              snapshotQuery.refetch()
-            }}
-            disabled={mockEnabled || snapshotQuery.isRefetching}
-          >
-            {snapshotQuery.isRefetching ? 'Refreshing…' : mockEnabled ? 'Mock data' : 'Refresh data'}
-          </Button>
         </div>
-        <ol className="mt-4 space-y-4">
-          {insight.workflow.map((step) => (
-            <li key={step.label} className="flex items-start gap-3 rounded-md border border-border/70 px-3 py-2">
-              <div className={`mt-1 h-2.5 w-2.5 shrink-0 rounded-full ${step.state === 'done' ? 'bg-emerald-500' : step.state === 'active' ? 'bg-blue-500' : 'bg-muted-foreground/50'}`} />
-              <div className="space-y-1 text-sm">
+        <ol className="mt-4 space-y-3">
+          {insight.projectStatus.map((step) => (
+            <li key={step.label} className="flex flex-wrap items-start gap-3 rounded-md border border-border/70 px-3 py-3">
+              <div className={`mt-1.5 h-2.5 w-2.5 shrink-0 rounded-full ${step.state === 'done' ? 'bg-emerald-500' : step.state === 'active' ? 'bg-blue-500' : 'bg-muted-foreground/40'}`} />
+              <div className="min-w-0 flex-1 space-y-1 text-sm">
                 <p className="font-medium text-foreground">{step.label}</p>
                 <p className="text-xs text-muted-foreground">{step.description}</p>
               </div>
-              <span className={`ml-auto text-xs font-semibold uppercase tracking-wide ${step.state === 'done' ? 'text-emerald-500' : step.state === 'active' ? 'text-blue-500' : 'text-muted-foreground'}`}>
-                {step.badge}
-              </span>
+              <div className="flex items-center gap-2">
+                <span className={`text-xs font-semibold uppercase tracking-wide ${step.state === 'done' ? 'text-emerald-500' : step.state === 'active' ? 'text-blue-500' : 'text-muted-foreground'}`}>
+                  {step.badge}
+                </span>
+                {step.action && step.state !== 'done' ? (
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    onClick={() => mergeActionMutation.mutate(step.action)}
+                    disabled={mockEnabled || mergeActionMutation.isPending}
+                  >
+                    {mergeActionMutation.isPending ? 'Running…' : step.action.label}
+                  </Button>
+                ) : null}
+              </div>
             </li>
           ))}
         </ol>
@@ -196,81 +228,88 @@ function buildInsights(project: Project | null | undefined, snapshot: ProjectSna
   const keywords = snapshot?.keywords ?? []
   const planItems = snapshot?.planItems ?? []
   const queueDepth = snapshot?.queueDepth ?? 0
-  const totalPublished = planItems.filter((p) => p.status === 'published').length
-  const scheduled = planItems.filter((p) => p.status === 'scheduled').length
+  const scheduledCount = planItems.filter((p) => p.status === 'scheduled').length
+  const hasSummary = Boolean(project?.businessSummary?.trim())
 
-  const statusCards = [
-    {
-      label: 'Workflow state',
-      value: project?.workflowState ? titleCase(project.workflowState) : 'In discovery',
-      detail: project?.status ? titleCase(project.status) : 'Status pending'
-    },
-    {
-      label: 'Keywords reviewed',
-      value: keywords.length > 0 ? `${keywords.length}` : '0',
-      detail: keywords.length > 0 ? 'Ready to prioritize' : 'Generate the first batch'
-    },
-    {
-      label: 'Publishing queue',
-      value: queueDepth.toString(),
-      detail: queueDepth > 0 ? 'Jobs in progress' : 'Queue is clear'
-    },
-    {
-      label: 'Calendar',
-      value: scheduled > 0 ? `${scheduled} scheduled` : 'No items',
-      detail: totalPublished > 0 ? `${totalPublished} published` : 'Publish your first draft'
-    }
-  ]
+  const summaryText = hasSummary ? String(project?.businessSummary).trim() : DEFAULT_CONTEXT
 
-  const workflow = [
-    {
-      label: 'Discovery',
-      description: project?.discoveryApproved ? 'Discovery approved. Seeds captured.' : 'Review discovery summary before moving on.',
-      state: project?.discoveryApproved ? 'done' : 'active',
-      badge: project?.discoveryApproved ? 'Approved' : 'Needs review'
-    },
-    {
-      label: 'Keyword prioritization',
-      description: keywords.length > 0 ? 'Prioritize the keywords that match the business goals.' : 'Generate and triage your keyword list.',
-      state: keywords.length > 0 ? 'done' : 'pending',
-      badge: keywords.length > 0 ? 'Ready' : 'Pending'
-    },
-    {
-      label: 'Scheduling',
-      description: scheduled > 0 ? 'Calendar populated. Keep the queue full.' : 'Schedule plan items to build a runway.',
-      state: scheduled > 0 ? 'active' : 'pending',
-      badge: scheduled > 0 ? 'In progress' : 'To do'
-    }
-  ] as Array<{ label: string; description: string; badge: string; state: 'pending' | 'active' | 'done' }>
-
-  const prepPoints = [
-    {
-      title: 'Audience',
-      detail:
-        'Primary buyer: HR and hiring managers prioritizing fast interview prep. Secondary: individual candidates in tech roles.'
-    },
-    {
-      title: 'Jobs-to-be-done',
-      detail: 'Help candidates feel confident for behavioral interviews with feedback loops in under 30 minutes a day.'
-    },
-    {
-      title: 'Differentiation',
-      detail: 'AI scoring trained on FAANG interview rubrics; targeted rehearse flows instead of generic flashcards.'
-    }
-  ]
+  const projectStatus = buildProjectStatus({
+    project,
+    hasSummary,
+    keywordsCount: keywords.length,
+    queueDepth,
+    scheduledCount
+  })
 
   return {
-    statusCards,
-    workflow,
-    prepPoints,
-    fallbackSummary:
-      'Describe the business model, target personas, and success metrics here so copy, keywords, and publishing decisions stay aligned.'
+    projectStatus,
+    summaryText
   }
 }
 
-function titleCase(input: string) {
-  return input
-    .split(/[_\s]+/)
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(' ')
+const DEFAULT_CONTEXT = `Interview prep platform helping candidates practice behavioral questions with AI-guided drills.
+
+Audience:
+Primary buyer: HR and hiring managers prioritizing fast interview prep. Secondary: individual candidates in tech roles.
+
+Jobs-to-be-done:
+Help candidates feel confident for behavioral interviews with feedback loops in under 30 minutes a day.
+
+Differentiation:
+AI scoring trained on FAANG interview rubrics; targeted rehearse flows instead of generic flashcards.`
+
+type ProjectStatusStep = ReturnType<typeof buildProjectStatus>[number]
+
+function buildProjectStatus({
+  project,
+  hasSummary,
+  keywordsCount,
+  queueDepth,
+  scheduledCount
+}: {
+  project: Project | null | undefined
+  hasSummary: boolean
+  keywordsCount: number
+  queueDepth: number
+  scheduledCount: number
+}) {
+  const steps = [
+    {
+      label: 'Input website',
+      description: project?.siteUrl ? `Tracking ${project.siteUrl}` : 'Connect a site to begin discovery.',
+      completed: Boolean(project?.siteUrl),
+      action: null
+    },
+    {
+      label: 'Crawl website & summarize context',
+      description: hasSummary ? 'Summary captured for alignment.' : 'Kick off a crawl to collect context.',
+      completed: hasSummary,
+      action: { type: 'crawl', label: 'Run crawl' } as const
+    },
+    {
+      label: 'Generate website keywords',
+      description: keywordsCount > 0 ? `${keywordsCount} keywords generated.` : 'Kick off keyword generation.',
+      completed: keywordsCount > 0,
+      action: { type: 'generateKeywords', label: 'Generate keywords' } as const
+    },
+    {
+      label: 'Start daily scheduling of articles',
+      description: scheduledCount > 0 ? `${scheduledCount} articles scheduled.` : 'Schedule plan items to feed the calendar.',
+      completed: scheduledCount > 0,
+      action: { type: 'schedulePlan', label: 'Schedule articles' } as const
+    }
+  ] as const
+
+  return steps.map((step, index) => {
+    const allPrevComplete = steps.slice(0, index).every((prev) => prev.completed)
+    const state: 'done' | 'active' | 'pending' = step.completed ? 'done' : allPrevComplete ? 'active' : 'pending'
+    const badge = step.completed ? 'Done' : state === 'active' ? 'In progress' : 'To do'
+    return {
+      label: step.label,
+      description: step.description,
+      state,
+      badge,
+      action: step.action
+    }
+  })
 }
