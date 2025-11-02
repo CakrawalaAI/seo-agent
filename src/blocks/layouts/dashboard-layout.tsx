@@ -1,19 +1,22 @@
-import { useMemo } from 'react'
+import { useCallback, useEffect, useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { Link, useRouterState } from '@tanstack/react-router'
-import { LayoutDashboard, FileText, CalendarRange } from 'lucide-react'
+import { Link, useNavigate, useRouterState } from '@tanstack/react-router'
+import { Home, ListChecks, CalendarDays, FileText, Plug, UserCircle2 } from 'lucide-react'
 
 import { DashboardShell, type DashboardNavGroup, type DashboardUserSummary } from '@blocks/dashboard/dashboard-shell'
+import { MockDataProvider } from '@common/dev/mock-data-context'
 import { ActiveProjectProvider } from '@common/state/active-project'
 import { useActiveProject } from '@common/state/active-project'
 import type { MeSession } from '@entities'
 import { fetchSession } from '@entities/org/service'
-import { listProjects, getProjectKeywords, getProjectArticles, getProjectSnapshot } from '@entities/project/service'
+import { listProjects } from '@entities/project/service'
 
 export function DashboardLayout({ children }: { children: React.ReactNode }) {
   const location = useRouterState({ select: (s) => s.location })
   const pathname = location.pathname
   const search = (location as any).search as Record<string, any>
+  const requestedProjectParam = typeof search?.project === 'string' ? (search.project as string) : null
+  const navigate = useNavigate()
 
   const meQuery = useQuery<MeSession>({ queryKey: ['me'], queryFn: fetchSession, staleTime: 60_000 })
   const user = meQuery.data?.user ?? null
@@ -25,70 +28,94 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
     enabled: Boolean(activeOrg?.id)
   })
   const projects = projectsQuery.data?.items ?? []
-  const firstProjectId = projects[0]?.id as string | undefined
+
+  const searchValueById = useMemo(() => {
+    const map = new Map<string, string>()
+    for (const project of projects) {
+      const searchValue = projectToSearchValue(project)
+      if (searchValue) map.set(project.id, searchValue)
+    }
+    return map
+  }, [projects])
+
+  const getSearchValue = useCallback(
+    (id: string) => searchValueById.get(id) ?? id,
+    [searchValueById]
+  )
+
+  const resolvedProjectId = useMemo<string | null>(() => {
+    if (projects.length === 0) return null
+    if (!requestedProjectParam) return projects[0]?.id ?? null
+    const byId = projects.find((project: any) => project.id === requestedProjectParam)
+    if (byId) return byId.id
+    const bySearch = projects.find((project: any) => projectToSearchValue(project) === requestedProjectParam)
+    if (bySearch) return bySearch.id
+    return projects[0]?.id ?? null
+  }, [projects, requestedProjectParam])
+
+  useEffect(() => {
+    if (projectsQuery.isLoading) return
+    if (!projects.length) {
+      if (requestedProjectParam) {
+        navigate({
+          search: ((prev: Record<string, unknown>) => {
+            const next = { ...prev }
+            delete next.project
+            return next
+          }) as never,
+          replace: true
+        })
+      }
+      return
+    }
+    if (resolvedProjectId) {
+      const desired = searchValueById.get(resolvedProjectId) ?? resolvedProjectId
+      if (requestedProjectParam !== desired) {
+        navigate({
+          search: ((prev: Record<string, unknown>) => ({ ...prev, project: desired })) as never,
+          replace: true
+        })
+      }
+    }
+  }, [navigate, projects, projectsQuery.isLoading, requestedProjectParam, resolvedProjectId, searchValueById])
   const userSummary: DashboardUserSummary | null = user ? { name: user.name, email: user.email } : null
 
   return (
-    <ActiveProjectProvider initialId={(meQuery.data as any)?.activeProjectId ?? null}>
-      <DashboardLayoutInner
-        pathname={pathname}
-        search={search}
-        userSummary={userSummary}
-        usage={meQuery.data?.usage ?? null}
-        hasOrgNoProjects={Boolean(activeOrg?.id && projects.length === 0)}
+    <MockDataProvider>
+      <ActiveProjectProvider
+        initialId={resolvedProjectId}
+        buildSearchValue={(id) => (id ? getSearchValue(id) : null)}
       >
-        {children}
-      </DashboardLayoutInner>
-    </ActiveProjectProvider>
+        <DashboardLayoutInner
+          pathname={pathname}
+          userSummary={userSummary}
+          usage={meQuery.data?.usage ?? null}
+          hasOrgNoProjects={Boolean(activeOrg?.id && projects.length === 0)}
+          getSearchValue={getSearchValue}
+        >
+          {children}
+        </DashboardLayoutInner>
+      </ActiveProjectProvider>
+    </MockDataProvider>
   )
 }
 
 function DashboardLayoutInner({
   pathname,
-  search,
   userSummary,
   usage,
   hasOrgNoProjects,
+  getSearchValue,
   children
 }: {
   pathname: string
-  search: Record<string, any>
   userSummary: DashboardUserSummary | null
   usage: any
   hasOrgNoProjects: boolean
+  getSearchValue: (id: string) => string
   children: React.ReactNode
 }) {
   const { id: activeProjectId } = useActiveProject()
-  const keywordsCountQuery = useQuery({
-    queryKey: ['sidebar.keywords.count', activeProjectId ?? 'none'],
-    queryFn: async () => {
-      if (!activeProjectId) return 0
-      const res = await getProjectKeywords(activeProjectId, 200)
-      return (res?.items ?? []).length
-    },
-    enabled: Boolean(activeProjectId),
-    refetchInterval: 5000
-  })
-  const articlesCountQuery = useQuery({
-    queryKey: ['sidebar.articles.count', activeProjectId ?? 'none'],
-    queryFn: async () => {
-      if (!activeProjectId) return 0
-      const res = await getProjectArticles(activeProjectId, 200)
-      return (res?.items ?? []).filter((a: any) => a.status === 'draft').length
-    },
-    enabled: Boolean(activeProjectId),
-    refetchInterval: 5000
-  })
-  const queueDepthQuery = useQuery({
-    queryKey: ['sidebar.queue.depth', activeProjectId ?? 'none'],
-    queryFn: async () => {
-      if (!activeProjectId) return 0
-      const snap = await getProjectSnapshot(activeProjectId)
-      return Number(snap?.queueDepth || 0)
-    },
-    enabled: Boolean(activeProjectId),
-    refetchInterval: 5000
-  })
 
   const nav = useMemo<DashboardNavGroup[]>(() => {
     const is = (p: string) => pathname === p || pathname.startsWith(`${p}/`)
@@ -96,15 +123,53 @@ function DashboardLayoutInner({
       {
         key: 'main',
         items: [
-          { key: 'home', label: 'Home', icon: LayoutDashboard, active: is('/dashboard') || pathname === '/', element: <Link to="/dashboard" /> },
-          { key: 'calendar', label: 'Calendar', icon: CalendarRange, active: is('/calendar') || (is('/projects') && search?.tab === 'plan'), element: <Link to="/calendar" />, badge: queueDepthQuery.data && queueDepthQuery.data > 0 ? String(queueDepthQuery.data) : undefined },
-          { key: 'keywords', label: 'Keywords', icon: FileText, active: is('/keywords') || (is('/projects') && search?.tab === 'keywords'), element: <Link to="/keywords" />, badge: keywordsCountQuery.data && keywordsCountQuery.data > 0 ? String(keywordsCountQuery.data) : undefined },
-          { key: 'articles', label: 'Articles', icon: FileText, active: is('/articles'), element: <Link to="/articles" />, badge: articlesCountQuery.data && articlesCountQuery.data > 0 ? String(articlesCountQuery.data) : undefined }
+          {
+            key: 'dashboard',
+            label: 'Dashboard',
+            icon: Home,
+            active: is('/dashboard') || pathname === '/',
+            element: <Link to="/dashboard" search={() => (activeProjectId ? { project: getSearchValue(activeProjectId) } : {})} />
+          },
+          {
+            key: 'keywords',
+            label: 'Keywords',
+            icon: ListChecks,
+            active: is('/keywords'),
+            element: <Link to="/keywords" search={() => (activeProjectId ? { project: getSearchValue(activeProjectId) } : {})} />
+          },
+          {
+            key: 'calendar',
+            label: 'Calendar',
+            icon: CalendarDays,
+            active: is('/calendar'),
+            element: <Link to="/calendar" search={() => (activeProjectId ? { project: getSearchValue(activeProjectId) } : {})} />
+          },
+          {
+            key: 'articles',
+            label: 'Articles',
+            icon: FileText,
+            active: is('/articles'),
+            element: <Link to="/articles" search={() => (activeProjectId ? { project: getSearchValue(activeProjectId) } : {})} />
+          },
+          {
+            key: 'integrations',
+            label: 'Integrations',
+            icon: Plug,
+            active: is('/integrations'),
+            element: <Link to="/integrations" search={() => (activeProjectId ? { project: getSearchValue(activeProjectId) } : {})} />
+          },
+          {
+            key: 'account',
+            label: 'Account',
+            icon: UserCircle2,
+            active: is('/account'),
+            element: <Link to="/account" search={() => (activeProjectId ? { project: getSearchValue(activeProjectId) } : {})} />
+          }
         ]
       }
     ]
     return groups
-  }, [pathname, search, keywordsCountQuery.data, articlesCountQuery.data, queueDepthQuery.data])
+  }, [pathname, activeProjectId, getSearchValue])
 
   return (
     <DashboardShell nav={nav} user={userSummary} usage={usage}>
@@ -127,4 +192,15 @@ function DashboardLayoutInner({
       {children}
     </DashboardShell>
   )
+}
+
+function projectToSearchValue(project: any): string | null {
+  const raw = typeof project?.siteUrl === 'string' ? project.siteUrl : typeof project?.site_url === 'string' ? project.site_url : null
+  if (raw) {
+    const trimmed = raw.trim()
+    if (trimmed.length > 0) {
+      return trimmed.endsWith('/') ? trimmed.slice(0, -1) : trimmed
+    }
+  }
+  return typeof project?.id === 'string' ? project.id : null
 }

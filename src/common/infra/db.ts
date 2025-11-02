@@ -3,7 +3,13 @@ import { sql } from 'drizzle-orm'
 import postgres from 'postgres'
 import { schema } from './schema'
 
-let dbSingleton: ReturnType<typeof drizzle> | null = null
+type GlobalDbCache = typeof globalThis & {
+  __seoAgentDb?: ReturnType<typeof drizzle>
+  __seoAgentPg?: ReturnType<typeof postgres>
+  __seoAgentPgCleanup?: boolean
+}
+
+const globalDb = globalThis as GlobalDbCache
 
 export function hasDatabase() {
   return Boolean(process.env.DATABASE_URL)
@@ -13,7 +19,7 @@ export function getDb() {
   if (!process.env.DATABASE_URL) {
     throw new Error('DATABASE_URL not set')
   }
-  if (dbSingleton) return dbSingleton
+  if (globalDb.__seoAgentDb) return globalDb.__seoAgentDb
   try {
     const masked = (() => {
       try {
@@ -25,10 +31,22 @@ export function getDb() {
     })()
     console.info('[db] connecting', { url: masked })
   } catch {}
-  const client = postgres(process.env.DATABASE_URL, { prepare: true, max: 1 })
-  dbSingleton = drizzle(client, { schema })
+  const client = globalDb.__seoAgentPg ?? postgres(process.env.DATABASE_URL, { prepare: true, max: 1 })
+  globalDb.__seoAgentPg = client
+  if (!globalDb.__seoAgentPgCleanup) {
+    globalDb.__seoAgentPgCleanup = true
+    process.once('exit', () => {
+      try {
+        globalDb.__seoAgentPg?.end?.()
+      } catch (error) {
+        console.warn('[db] failed to close postgres client', error)
+      }
+    })
+  }
+  const db = drizzle(client, { schema })
+  globalDb.__seoAgentDb = db
   console.info('[db] drizzle ready')
-  return dbSingleton
+  return db
 }
 
 // Named export expected by callers

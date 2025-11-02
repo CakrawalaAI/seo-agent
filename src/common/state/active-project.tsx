@@ -1,15 +1,24 @@
-import { createContext, useContext, useEffect, useMemo, useState } from 'react'
+import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { useNavigate } from '@tanstack/react-router'
 
 type Ctx = { id: string | null; setId: (id: string | null) => void }
 
 const ActiveProjectContext = createContext<Ctx | null>(null)
 
-export function ActiveProjectProvider({ initialId, children }: { initialId: string | null; children: React.ReactNode }) {
-  const [id, setLocal] = useState<string | null>(initialId)
-  // keep id in sync if server reports later
+export function ActiveProjectProvider({
+  initialId,
+  buildSearchValue,
+  children
+}: {
+  initialId: string | null
+  buildSearchValue?: (id: string | null) => string | null
+  children: React.ReactNode
+}) {
+  const navigate = useNavigate()
+  const [id, setLocal] = useState<string | null>(initialId ?? null)
   useEffect(() => {
-    if (initialId && initialId !== id) setLocal(initialId)
+    setLocal(initialId ?? null)
   }, [initialId])
   const qc = useQueryClient()
   const mutate = useMutation({
@@ -26,7 +35,37 @@ export function ActiveProjectProvider({ initialId, children }: { initialId: stri
       qc.setQueryData(['me'], (prev: any) => ({ ...(prev || {}), activeProjectId: next }))
     }
   })
-  const value = useMemo<Ctx>(() => ({ id, setId: (v) => mutate.mutate(v) }), [id, mutate])
+  const updateSearch = useCallback(
+    (next: string | null) => {
+      const value = buildSearchValue?.(next) ?? next
+      navigate({
+        search: ((prev: Record<string, unknown>) => {
+          const nextSearch = { ...prev }
+          if (value) {
+            nextSearch.project = value
+          } else {
+            delete nextSearch.project
+          }
+          return nextSearch
+        }) as never,
+        replace: true
+      })
+    },
+    [buildSearchValue, navigate]
+  )
+  const setId = useCallback(
+    (next: string | null) => {
+      if (next === id) {
+        updateSearch(next)
+        return
+      }
+      setLocal(next)
+      updateSearch(next)
+      mutate.mutate(next)
+    },
+    [id, mutate, updateSearch]
+  )
+  const value = useMemo<Ctx>(() => ({ id, setId }), [id, setId])
   return <ActiveProjectContext.Provider value={value}>{children}</ActiveProjectContext.Provider>
 }
 
