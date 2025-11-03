@@ -12,7 +12,7 @@ export type AppConfig = {
     research: 'exa'
     llm: 'openai'
     expand: 'dataforseo'
-    // Discovery provider (multi-source). Env: SEOA_PROVIDER_KEYWORD_DISCOVERY
+    // Discovery provider (multi-source)
     // default: 'dataforseo'
     discovery?: 'dataforseo'
   }
@@ -46,16 +46,15 @@ export type AppConfig = {
 export const config: AppConfig = {
   appUrl: process.env.APP_URL || 'http://localhost:5173',
   providers: {
-    // Explicit: disable stubs by default; enable only when SEOA_ALLOW_PROVIDER_STUBS=1
-    allowStubs: String(process.env.SEOA_ALLOW_PROVIDER_STUBS || '0') === '1',
+    // Allow provider stubs by default (no flags)
+    allowStubs: true,
     metrics: 'dataforseo',
     serp: 'dataforseo',
     research: 'exa',
     llm: 'openai',
     expand: 'dataforseo',
-    // Allow override via env without changing file
-    // @ts-ignore
-    discovery: (process.env.SEOA_PROVIDER_KEYWORD_DISCOVERY as any) || 'dataforseo'
+    // Discovery provider
+    discovery: 'dataforseo'
   },
   serp: {
     ttlDays: 14,

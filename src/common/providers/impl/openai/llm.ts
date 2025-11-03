@@ -1,5 +1,6 @@
 import type { LlmProvider } from '../../interfaces/llm'
 import { config } from '@common/config'
+import { log } from '@src/common/logger'
 import type { ArticleOutlineSection } from '@entities/article/domain/article'
 import { buildPickTopFromSitemapPrompt, buildWebsiteSummaryPrompt } from '@common/prompts/summarize-website'
 
@@ -10,12 +11,12 @@ export const openAiLlm: LlmProvider = {
     if (!key) {
       const allowStubs = Boolean(config.providers.allowStubs)
       if (!allowStubs) throw new Error('OPENAI_API_KEY missing and stubs disabled')
-      try { console.warn('[OpenAI] Missing API key; using stub summary once') } catch {}
+      try { log.warn('[OpenAI] Missing API key; using stub summary once') } catch {}
       const clusters = sample.map((p) => p.url.split('/')[3] || 'topic').slice(0, 5)
       return { businessSummary: 'Auto summary (stub)', topicClusters: Array.from(new Set(clusters)) }
     }
     const { OpenAI } = await import('openai')
-    const client = new OpenAI({ apiKey: key })
+    const client = new OpenAI({ apiKey: key, timeout: 20000 })
     const prompt = `Summarize the business and propose 5 topic clusters. Return JSON {businessSummary,topicClusters}.\n` +
       sample.map((p, i) => `${i + 1}. ${p.url}\n${p.text.slice(0, 400)}`).join('\n\n')
     const resp = await client.chat.completions.create({ model: 'gpt-4o-mini', messages: [{ role: 'user', content: prompt }], temperature: 0.3 })
@@ -39,7 +40,7 @@ export const openAiLlm: LlmProvider = {
       return Array.from(set).slice(0, n)
     }
     const { OpenAI } = await import('openai')
-    const client = new OpenAI({ apiKey: key })
+    const client = new OpenAI({ apiKey: key, timeout: 30000 })
     const list = candidates.slice(0, 200).map((u, i) => `${i + 1}. ${u}`).join('\n')
     const prompt = `You are selecting the most representative pages to understand a business website before generating SEO keywords. Given the site root ${siteUrl} and a sitemap URL list, pick the top ${n} URLs that best describe the business (home, about, pricing, product/services, key category pages; avoid paginated lists and legal pages). Return JSON: { urls: ["..."] } only.`
     const resp = await client.chat.completions.create({ model: 'gpt-4o-mini', messages: [{ role: 'user', content: `${prompt}\n\nSitemap URLs (sample):\n${list}` }], temperature: 0 })
@@ -57,7 +58,7 @@ export const openAiLlm: LlmProvider = {
     if (!key) {
       const allowStubs = Boolean(config.providers.allowStubs)
       if (!allowStubs) throw new Error('OPENAI_API_KEY missing and stubs disabled')
-      try { console.warn('[OpenAI] Missing API key; using stub outline once') } catch {}
+      try { log.warn('[OpenAI] Missing API key; using stub outline once') } catch {}
       return { title: keyword[0]?.toUpperCase() + keyword.slice(1), outline: [{ heading: `Intro to ${keyword}` }] as any }
     }
     const { OpenAI } = await import('openai')
@@ -73,7 +74,7 @@ export const openAiLlm: LlmProvider = {
     if (!key) {
       const allowStubs = Boolean(config.providers.allowStubs)
       if (!allowStubs) throw new Error('OPENAI_API_KEY missing and stubs disabled')
-      try { console.warn('[OpenAI] Missing API key; using stub body once') } catch {}
+      try { log.warn('[OpenAI] Missing API key; using stub body once') } catch {}
       return { bodyHtml: `<article><h1>${args.title}</h1><p>Draft body (stub).</p></article>` }
     }
     const { OpenAI } = await import('openai')
@@ -89,7 +90,7 @@ export const openAiLlm: LlmProvider = {
     if (!key) {
       const allowStubs = Boolean(config.providers.allowStubs)
       if (!allowStubs) throw new Error('OPENAI_API_KEY missing and stubs disabled')
-      try { console.warn('[OpenAI] Missing API key; fact-check stub once') } catch {}
+      try { log.warn('[OpenAI] Missing API key; fact-check stub once') } catch {}
       return { score: 0, notes: 'no-api-key' }
     }
     try {
@@ -118,7 +119,7 @@ export const openAiLlm: LlmProvider = {
     if (!key) return fallback()
     const { OpenAI } = await import('openai')
     const client = new OpenAI({ apiKey: key })
-    const model = process.env.SEOA_LLM_MODEL || 'gpt-5-2025-08-07'
+    const model = 'gpt-5-2025-08-07'
     const prompt = buildPickTopFromSitemapPrompt(siteUrl, n)
     try {
       const resp = await client.chat.completions.create({
@@ -154,7 +155,7 @@ export const openAiLlm: LlmProvider = {
     if (!key) throw new Error('OPENAI_API_KEY missing')
     const { OpenAI } = await import('openai')
     const client = new OpenAI({ apiKey: key })
-    const model = process.env.SEOA_LLM_MODEL || 'gpt-5-2025-08-07'
+    const model = 'gpt-5-2025-08-07'
     const prompt = buildWebsiteSummaryPrompt(siteUrl)
     try {
       const resp = await client.chat.completions.create({

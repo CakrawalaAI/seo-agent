@@ -4,7 +4,7 @@ type ReachabilityResult = {
   error?: string
 }
 
-const SKIP_REACHABILITY = process.env.SEOA_SKIP_REACHABILITY_CHECK === '1'
+const SKIP_REACHABILITY = false
 
 export async function verifySiteReachable(siteUrl: string, timeoutMs = 5000): Promise<ReachabilityResult> {
   if (SKIP_REACHABILITY) return { ok: true }

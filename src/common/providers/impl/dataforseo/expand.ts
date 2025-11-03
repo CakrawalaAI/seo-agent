@@ -5,7 +5,7 @@ import { DATAFORSEO_DEFAULT_LOCATION_CODE } from './geo'
 export const dataForSeoExpand: KeywordExpandProvider = {
   async expand({ phrases, language, locationCode, limit }) {
     const batch = phrases.slice(0, 10)
-    const useSuggestions = String(process.env.SEOA_DFS_SUGGESTIONS_FIRST || '1') !== '0'
+    const useSuggestions = true
     const out: ExpandedKeyword[] = []
     if (useSuggestions) {
       // call suggestions for the first seed only (cheaper), then fall back to keywords_for_keywords for more breadth

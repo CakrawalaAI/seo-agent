@@ -13,6 +13,7 @@ import {
   DATAFORSEO_DEFAULT_LANGUAGE_CODE,
   DATAFORSEO_DEFAULT_LOCATION_CODE
 } from '@common/providers/impl/dataforseo/geo'
+import { log } from '@src/common/logger'
 
 export async function processDiscovery(payload: { projectId: string; locale?: string }) {
   const jobStartedAt = new Date()
@@ -20,17 +21,17 @@ export async function processDiscovery(payload: { projectId: string; locale?: st
   const locale = payload.locale || 'en-US'
   const project = await projectsRepo.get(projectId)
   if (!project) {
-    console.warn('[discovery] project not found', { projectId })
+    log.warn('[discovery] project not found', { projectId })
     return
   }
   if (!project.discoveryApproved) {
-    console.info('[discovery] skipped because discovery not approved', { projectId })
+    log.info('[discovery] skipped because discovery not approved', { projectId })
     return
   }
   if (project.workflowState !== 'discovering_keywords') {
     await projectsRepo.patch(projectId, { workflowState: 'discovering_keywords' })
   }
-  const defaultLocationCode = Number(process.env.SEOA_DEFAULT_LOCATION_CODE || String(DATAFORSEO_DEFAULT_LOCATION_CODE))
+  const defaultLocationCode = DATAFORSEO_DEFAULT_LOCATION_CODE
   // 1) Gather recent crawl pages from bundle
   const crawlPages = await crawlRepo.list(projectId, 200)
   const pages = crawlPages.slice(0, 50).map((p) => ({
@@ -40,7 +41,7 @@ export async function processDiscovery(payload: { projectId: string; locale?: st
   }))
   // 2) LLM summary + topic clusters
   const summary = await summarizeSite(pages)
-  console.info('[discovery] summary generated', { projectId, hasSummary: Boolean(summary?.businessSummary), clusters: (summary?.topicClusters || []).length })
+  log.info('[discovery] summary generated', { projectId, hasSummary: Boolean(summary?.businessSummary), clusters: (summary?.topicClusters || []).length })
   try { if ((await import('@common/config')).config.debug?.writeBundle) { const { appendJsonl } = await import('@common/bundle/store'); appendJsonl('global', 'metrics/costs.jsonl', { node: 'llm', provider: process.env.OPENAI_API_KEY ? 'openai' : 'stub', at: new Date().toISOString(), stage: 'summarize' }) } } catch {}
   try { if ((await import('@common/config')).config.debug?.writeBundle) { bundle.writeJson(projectId, 'summary/site_summary.json', summary); bundle.appendLineage(projectId, { node: 'discovery' }) } } catch {}
   // No DB persistence of site summary (project summary field removed)
@@ -53,7 +54,7 @@ export async function processDiscovery(payload: { projectId: string; locale?: st
   const devFlags = getDevFlags()
   const maxLlmSeeds = Math.max(1, devFlags.discovery.llmSeedsMax)
   const seedsLlm = (await expandSeeds(summary.topicClusters || [], locale)).slice(0, maxLlmSeeds)
-  console.info('[discovery] seeds from LLM', { count: seedsLlm.length })
+  log.info('[discovery] seeds from LLM', { count: seedsLlm.length })
   try { if ((await import('@common/config')).config.debug?.writeBundle) { const { appendJsonl } = await import('@common/bundle/store'); appendJsonl('global', 'metrics/costs.jsonl', { node: 'llm', provider: process.env.OPENAI_API_KEY ? 'openai' : 'stub', at: new Date().toISOString(), stage: 'expandSeeds' }) } } catch {}
   const seedInputs = new Set<string>(seedsLlm.map((s) => s.toLowerCase()))
   // derive phrases from headings in crawl dump
@@ -100,7 +101,9 @@ export async function processDiscovery(payload: { projectId: string; locale?: st
   let keywordRows: Array<any> = []
   if (useMock) {
     mockMetricsModule = await import('@common/providers/impl/mock/discovery') as any
-    keywordRows = seedBatch.map((_, idx) => {
+    // Produce hardcoded top 50 keywords with metrics (DFS-like shape)
+    const N = 50
+    keywordRows = Array.from({ length: N }).map((_, idx) => {
       const metrics = mockMetricsModule!.mockKeywordMetrics(idx)
       return {
         keyword: `mock keyword ${idx + 1}`,

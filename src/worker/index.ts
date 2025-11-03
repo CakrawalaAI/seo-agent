@@ -15,6 +15,10 @@ import { processSerp } from './processors/serp'
 import { processCompetitors } from './processors/competitors'
 import { processEnrich } from './processors/enrich'
 import { processFeedback } from './processors/feedback'
+import { log } from '@src/common/logger'
+import { getDevFlags } from '@common/dev/flags'
+import { getDb, hasDatabase } from '@common/infra/db'
+import { sql } from 'drizzle-orm'
 
 type WorkerOptions = {
   intervalMs?: number
@@ -23,48 +27,68 @@ type WorkerOptions = {
 export async function runWorker(options: WorkerOptions = {}) {
   // Initialize CMS connectors
   initConnectors()
-  console.info('[Worker] CMS connectors initialized')
+  log.info('[Worker] CMS connectors initialized')
+  try {
+    const flags = getDevFlags()
+    log.info('[discovery] keyword generator mode', { mode: flags.mocks.keywordExpansion ? 'mock' : 'real' })
+  } catch {}
   if (queueEnabled()) {
     const masked = (process.env.RABBITMQ_URL ? (() => { try { const u = new URL(process.env.RABBITMQ_URL); return `amqp://${u.username || 'user'}:****@${u.hostname}${u.port ? ':'+u.port : ''}${u.pathname || '/'}` } catch { return 'amqp://<invalid>' } })() : 'amqp://<missing>')
-    console.info('[seo-agent] worker consuming RabbitMQ jobs', { url: masked })
+    log.info('[seo-agent] worker consuming RabbitMQ jobs', { url: masked })
     // housekeeping even in queue mode
     const cleanupInterval = setInterval(() => {
       cleanupMetricCache().catch(() => {})
       try { cleanupOldBlobs(env.blobTtlDays) } catch {}
     }, 15 * 60 * 1000)
 
-    // Simple daily scheduler (enabled by default; disable with SEOA_ENABLE_SCHEDULER=0)
-    if ((process.env.SEOA_ENABLE_SCHEDULER || '1') !== '0') {
-      const SCHEDULE_EVERY_MS = Math.max(5 * 60 * 1000, Number(process.env.SEOA_SCHEDULER_INTERVAL_MS || '600000'))
-      setInterval(async () => {
-        try {
-          const { runDailySchedules } = await import('@common/scheduler/daily')
-          await runDailySchedules()
-        } catch (err) {
-          console.error('[scheduler] run failed', { error: (err as Error)?.message || String(err) })
-        }
-      }, SCHEDULE_EVERY_MS)
-      console.info('[worker] scheduler enabled', { intervalMs: Number(process.env.SEOA_SCHEDULER_INTERVAL_MS || '600000') })
+    // Daily scheduler guarded by Postgres advisory lock
+    const DEFAULT_DAILY_MS = 24 * 60 * 60 * 1000
+    const SCHEDULE_EVERY_MS = Number(process.env.SEOA_SCHEDULER_INTERVAL_MS || String(DEFAULT_DAILY_MS))
+    let isLeader = false
+    const tryAcquire = async () => {
+      if (!hasDatabase()) return false
+      try {
+        const db = getDb()
+        // @ts-ignore drizzle execute returns driver-specific shape
+        const rows = await db.execute(sql`select pg_try_advisory_lock(101, 1) as ok`)
+        const ok = Array.isArray(rows) ? Boolean((rows as any)[0]?.ok) : Boolean((rows as any)?.rows?.[0]?.ok)
+        if (ok) log.info('[scheduler] acquired advisory lock; acting as leader')
+        return ok
+      } catch (e) {
+        log.warn('[scheduler] advisory lock failed', { error: (e as Error)?.message || String(e) })
+        return false
+      }
     }
-    console.info('[worker] DB available?', { hasDb: Boolean(process.env.DATABASE_URL) })
+    setInterval(async () => {
+      try {
+        if (!isLeader) isLeader = await tryAcquire()
+        if (!isLeader) return
+        const { runDailySchedules } = await import('@common/scheduler/daily')
+        await runDailySchedules()
+      } catch (err) {
+        log.error('[scheduler] run failed', { error: (err as Error)?.message || String(err) })
+      }
+    }, SCHEDULE_EVERY_MS)
+    log.info('[worker] scheduler enabled', { intervalMs: SCHEDULE_EVERY_MS })
+    log.info('[worker] DB available?', { hasDb: hasDatabase() })
     const perProjectRunning = new Map<string, number>()
-    const projectConcurrency = Math.max(1, Number(process.env.SEOA_PROJECT_CONCURRENCY || '1'))
-    const maxRetries = Math.max(0, Number(process.env.SEOA_JOB_MAX_RETRIES || '2'))
-    const baseDelayMs = Math.max(500, Number(process.env.SEOA_JOB_RETRY_DELAY_MS || '1000'))
+    const projectConcurrency = 1
+    const maxRetries = 2
+    const baseDelayMs = 1000
     await consumeJobs(async (msg) => {
       const projectId = String((msg.payload as any).projectId ?? '')
       // simple per-project concurrency: if saturated, requeue with small delay
       if (projectId) {
         const cur = perProjectRunning.get(projectId) ?? 0
         if (cur >= projectConcurrency) {
-          console.warn('[worker] project concurrency saturated; requeueing', { projectId, type: msg.type, current: cur, limit: projectConcurrency })
+          log.warn('[worker] project concurrency saturated; requeueing', { projectId, type: msg.type, current: cur, limit: projectConcurrency })
           setTimeout(() => publishJob({ type: msg.type, payload: msg.payload, retries: msg.retries ?? 0 }).catch(() => {}), 300)
           return
         }
         perProjectRunning.set(projectId, cur + 1)
       }
       if (projectId) recordJobRunning(projectId, msg.id)
-      console.info('[worker] processing', { id: msg.id, type: msg.type, projectId, retries: msg.retries ?? 0 })
+      log.info('[worker] processing', { id: msg.id, type: msg.type, projectId, retries: msg.retries ?? 0 })
       try {
         try {
           const row = { id: msg.id, type: msg.type, status: 'running', at: new Date().toISOString() }
@@ -120,7 +144,7 @@ export async function runWorker(options: WorkerOptions = {}) {
           const { appendJsonl } = await import('@common/bundle/store')
           appendJsonl(target, 'logs/jobs.jsonl', row)
         } catch {}
-        console.info('[worker] completed', { id: msg.id, type: msg.type, projectId })
+        log.info('[worker] completed', { id: msg.id, type: msg.type, projectId })
       } catch (error) {
         const isCredit = error instanceof Error && error.message === 'credit_exceeded'
         const err = error instanceof Error ? { message: error.message } : { message: String(error) }
@@ -131,12 +155,12 @@ export async function runWorker(options: WorkerOptions = {}) {
           const { appendJsonl } = await import('@common/bundle/store')
           appendJsonl(target, 'logs/jobs.jsonl', row)
         } catch {}
-        console.error('[worker] failed', { id: msg.id, type: msg.type, projectId, error: err })
+        log.error('[worker] failed', { id: msg.id, type: msg.type, projectId, error: err })
         // retry/backoff limited
         const attempt = Number(msg.retries ?? 0)
         if (!isCredit && attempt < maxRetries) {
           const delay = baseDelayMs * Math.pow(2, attempt)
-          console.warn('[worker] retrying', { id: msg.id, attempt: attempt + 1, delayMs: delay })
+          log.warn('[worker] retrying', { id: msg.id, attempt: attempt + 1, delayMs: delay })
           setTimeout(() => publishJob({ type: msg.type, payload: msg.payload, retries: attempt + 1 }).catch(() => {}), delay)
         }
       }
@@ -151,10 +175,10 @@ export async function runWorker(options: WorkerOptions = {}) {
   }
 
   const interval = Math.max(1000, options.intervalMs ?? 60_000)
-  console.info(`[seo-agent] worker started without queue; heartbeat every ${interval}ms`)
+  log.info(`[seo-agent] worker started without queue; heartbeat every ${interval}ms`)
   // Heartbeat only (no-op)
   setInterval(() => {
-    console.info('[seo-agent] worker heartbeat')
+    log.info('[seo-agent] worker heartbeat')
     cleanupMetricCache().catch(() => {})
     try { cleanupOldBlobs(env.blobTtlDays) } catch {}
   }, interval)
@@ -164,7 +188,7 @@ const workerImportMeta = import.meta as ImportMeta & { main?: boolean }
 
 if (workerImportMeta.main) {
   runWorker().catch((error) => {
-    console.error('[seo-agent] worker crashed', error)
+    log.error('[seo-agent] worker crashed', error)
     process.exit(1)
   })
 }

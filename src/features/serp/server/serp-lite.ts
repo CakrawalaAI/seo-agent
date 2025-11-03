@@ -52,7 +52,7 @@ export async function ensureSerpLite(phrase: string, language: string, locationC
     if (existsSync(file)) {
       const json = JSON.parse(readFileSync(file, 'utf-8'))
       const age = Date.now() - new Date(json?.fetchedAt || 0).getTime()
-      const ttlMs = Math.max(1, Number(process.env.SEOA_SERP_LITE_TTL_DAYS || '14')) * 86400000
+      const ttlMs = 14 * 86400000
       if (age < ttlMs) {
         return json as SerpLite
       }

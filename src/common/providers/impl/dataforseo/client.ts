@@ -1,4 +1,5 @@
 import { getAuthHeader } from './auth'
+import { log } from '@src/common/logger'
 import {
   DATAFORSEO_DEFAULT_LANGUAGE_CODE,
   DATAFORSEO_DEFAULT_LOCATION_CODE,
@@ -94,10 +95,10 @@ class DataForSeoClient {
     }
     const auth = getAuthHeader()
     if (!auth) throw new Error('DataForSEO credentials missing')
-    const timeoutMs = Math.max(5000, Number(process.env.SEOA_DFS_TIMEOUT_MS || '20000'))
+    const timeoutMs = 20000
     const controller = new AbortController()
     const timer = setTimeout(() => controller.abort(), timeoutMs)
-    const dbg = process.env.SEOA_DFS_DEBUG === '1'
+    const dbg = false
     const url = `${BASE_URL}${path}`
     const bodyString = JSON.stringify(tasks)
     try {
@@ -109,7 +110,7 @@ class DataForSeoClient {
       })
       const text = await res.text()
       if (!res.ok) {
-        console.error('[dfs] http_error', {
+        log.error('[dfs] http_error', {
           path,
           status: res.status,
           request: summarizeTasksPayload(tasks),
@@ -135,7 +136,7 @@ class DataForSeoClient {
             .slice(0, 3)
             .map((t: any) => ({ code: t.status_code, message: t.status_message }))
         }
-        console.info('[dfs] ok', summary)
+        log.info('[dfs] ok', summary)
       }
       return json
     } finally {
@@ -158,7 +159,7 @@ class DataForSeoClient {
         { keywords: chunk, location_code: locationCode, language_name: languageName }
       ])
       if (!Array.isArray(json?.tasks) || !json.tasks.length) {
-        console.warn('[dfs] keywordOverview empty', { keywords: chunk.length, locationCode, languageName })
+        log.warn('[dfs] keywordOverview empty', { keywords: chunk.length, locationCode, languageName })
         continue
       }
       for (const task of json.tasks) {
@@ -192,7 +193,7 @@ class DataForSeoClient {
         { keywords: chunk, location_code: locationCode, language_name: languageName }
       ])
       if (!Array.isArray(json?.tasks) || !json.tasks.length) {
-        console.warn('[dfs] searchVolume empty', { keywords: chunk.length, locationCode, languageName })
+        log.warn('[dfs] searchVolume empty', { keywords: chunk.length, locationCode, languageName })
         continue
       }
       for (const task of json.tasks) {
@@ -227,7 +228,7 @@ class DataForSeoClient {
     ]
     const json = await this.post('/v3/keywords_data/google/keywords_for_keywords/live', payload)
     if (!Array.isArray(json?.tasks) || !json.tasks.length) {
-      console.warn('[dfs] keywordsForKeywords empty', { keywords: keywords.length, locationCode, languageName })
+      log.warn('[dfs] keywordsForKeywords empty', { keywords: keywords.length, locationCode, languageName })
       return []
     }
     const out: Array<{ keyword: string; keyword_info?: any; keyword_properties?: any }> = []
@@ -257,7 +258,7 @@ class DataForSeoClient {
     const tasks = [{ target, location_code: locationCode, language_name: languageName }]
     const json = await this.post('/v3/dataforseo_labs/google/keywords_for_site/live', tasks)
     if (!Array.isArray(json?.tasks) || !json.tasks.length) {
-      console.warn('[dfs] keywordsForSite empty', { target, locationCode, languageName })
+      log.warn('[dfs] keywordsForSite empty', { target, locationCode, languageName })
     }
     return extractKeywordsFromDataforseoResponse(json)
   }
@@ -271,7 +272,7 @@ class DataForSeoClient {
         { keyword, location_code: locationCode, language_name: languageName }
       ])
       if (!Array.isArray(json?.tasks) || !json.tasks.length) {
-        console.warn('[dfs] relatedKeywords empty', { keyword, locationCode, languageName })
+        log.warn('[dfs] relatedKeywords empty', { keyword, locationCode, languageName })
         continue
       }
       out.push(...extractKeywordsFromDataforseoResponse(json))
@@ -288,7 +289,7 @@ class DataForSeoClient {
         { keywords: [keyword], location_code: locationCode, language_name: languageName }
       ])
       if (!Array.isArray(json?.tasks) || !json.tasks.length) {
-        console.warn('[dfs] keywordIdeas empty', { keyword, locationCode, languageName })
+        log.warn('[dfs] keywordIdeas empty', { keyword, locationCode, languageName })
         continue
       }
       out.push(...extractKeywordsFromDataforseoResponse(json))
@@ -305,7 +306,7 @@ class DataForSeoClient {
         { keywords: chunk, location_code: locationCode, language_name: languageName }
       ])
       if (!Array.isArray(json?.tasks) || !json.tasks.length) {
-        console.warn('[dfs] bulkKeywordDifficulty empty', { keywords: chunk.length, locationCode, languageName })
+        log.warn('[dfs] bulkKeywordDifficulty empty', { keywords: chunk.length, locationCode, languageName })
         continue
       }
       for (const task of json.tasks) {
@@ -328,7 +329,7 @@ class DataForSeoClient {
     const tasks = [{ keyword, location_code: locationCode, language_name: languageName }]
     const json = await this.post('/v3/dataforseo_labs/google/keyword_suggestions/live', tasks)
     if (!Array.isArray(json?.tasks) || !json.tasks.length) {
-      console.warn('[dfs] keywordSuggestions empty', { keyword, locationCode, languageName })
+      log.warn('[dfs] keywordSuggestions empty', { keyword, locationCode, languageName })
     }
     return extractKeywordsFromDataforseoResponse(json)
   }
@@ -341,7 +342,7 @@ class DataForSeoClient {
     const tasks = [{ keyword, location_code: locationCode, language_name: languageName, device }]
     const json = await this.post('/v3/serp/google/organic/live/regular', tasks)
     if (!Array.isArray(json?.tasks) || !json.tasks.length) {
-      console.warn('[dfs] serpOrganic empty', { keyword, locationCode, languageName, device })
+      log.warn('[dfs] serpOrganic empty', { keyword, locationCode, languageName, device })
     }
     const items: DFSSerpItem[] = []
     for (const task of json?.tasks ?? []) {

@@ -11,8 +11,9 @@ import * as bundle from '@common/bundle/store'
 import { latestRunDir } from '@common/bundle/store'
 import { readFileSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
+import { log } from '@src/common/logger'
 
-export async function processGenerate(payload: { projectId: string; planItemId: string }) {
+export async function processGenerate(payload: { projectId: string; planItemId: string; publishAfterGenerate?: boolean }) {
   const found = await planRepo.findById(payload.planItemId)
   if (!found) return
   const { item } = found
@@ -23,11 +24,11 @@ export async function processGenerate(payload: { projectId: string; planItemId: 
     outline: Array.isArray(item.outlineJson) ? (item.outlineJson as any) : undefined
   })
   if (draft.status === 'published') {
-    console.info('[generate] skip published article', { articleId: draft.id })
+    log.info('[generate] skip published article', { articleId: draft.id })
     return
   }
   if (draft.status === 'scheduled' && typeof draft.bodyHtml === 'string' && draft.bodyHtml.trim().length > 0) {
-    console.info('[generate] skip already scheduled article', { articleId: draft.id })
+    log.info('[generate] skip already scheduled article', { articleId: draft.id })
     return
   }
   try {
@@ -47,7 +48,7 @@ export async function processGenerate(payload: { projectId: string; planItemId: 
     try {
       const project = await projectsRepo.get(payload.projectId)
       const locale = project?.defaultLocale || 'en-US'
-      const loc = Number(process.env.SEOA_DEFAULT_LOCATION_CODE || '2840')
+      const loc = 2840
       const device: 'desktop' | 'mobile' = 'desktop'
       const canon = await ensureCanon(draft.title ?? item.title, locale)
       const snap = await ensureSerp({ canon: { id: canon.id, phrase: draft.title ?? item.title, language: locale }, locationCode: loc, device, topK: 10 })
@@ -83,15 +84,15 @@ export async function processGenerate(payload: { projectId: string; planItemId: 
     let passedGate = true
     try {
       const evalResult = await evaluateArticle(payload.projectId, draft.id, { title: draft.title ?? item.title, outline, bodyHtml })
-      const threshold = Math.max(0, Math.min(100, Number(process.env.SEOA_ARTICLE_AUTOPUBLISH_THRESHOLD || '80')))
+      const threshold = 80
       passedGate = evalResult.score >= threshold
     } catch {}
 
-    // optional immediate publish (policy-driven)
+    // optional immediate publish (policy-driven or first-init override)
     try {
       const project = await projectsRepo.get(payload.projectId)
       const policy = String((project as any)?.autoPublishPolicy || '')
-      if (policy === 'immediate' && passedGate) {
+      if ((policy === 'immediate' || payload.publishAfterGenerate) && passedGate) {
         const integrations = await integrationsRepo.list(String(payload.projectId))
         const { env } = await import('@common/infra/env')
         const target = integrations.find((i) => i.status === 'connected' && env.publicationAllowed.includes(String(i.type)))
@@ -101,7 +102,7 @@ export async function processGenerate(payload: { projectId: string; planItemId: 
             await publishJob({ type: 'publish', payload: { articleId: draft.id, integrationId: target.id } })
           }
         }
-      } else if (policy === 'immediate' && !passedGate) {
+      } else if ((policy === 'immediate' || payload.publishAfterGenerate) && !passedGate) {
         try { const { appendJsonl } = await import('@common/bundle/store'); appendJsonl(payload.projectId, 'logs/jobs.jsonl', { id: `gate_${draft.id}`, type: 'evaluate', status: 'failed', at: new Date().toISOString(), reason: 'quality_gate' }) } catch {}
       }
     } catch {}

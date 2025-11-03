@@ -11,7 +11,7 @@ type DevFlags = {
   }
   /** Discovery pipeline configuration */
   discovery: {
-    /** @deprecated Use mocks.* flags instead. Enables all discovery-related mocks for backward compatibility */
+    /** legacy removed: mockMode */
     mockMode: boolean
     llmSeedsMax: number
     seedLimit: number
@@ -48,29 +48,28 @@ function readNumber(key: string, defaultValue: number): number {
   return Number.isFinite(parsed) ? parsed : defaultValue
 }
 
-const legacyMockMode = readBoolean('SEOA_DISCOVERY_MOCK_MODE', false)
+const legacyMockMode = false
 
 const cachedFlags: DevFlags = {
   mocks: {
-    // Individual atomic flags with legacy fallback
-    crawl: readBoolean('SEOA_MOCK_CRAWL', legacyMockMode),
-    llm: readBoolean('SEOA_MOCK_LLM', legacyMockMode),
-    keywordExpansion: readBoolean('SEOA_MOCK_KEYWORD_EXPANSION', legacyMockMode),
-    metrics: readBoolean('SEOA_MOCK_METRICS', legacyMockMode),
-    serp: readBoolean('SEOA_MOCK_SERP', legacyMockMode)
+    // Single supported flag: MOCK_KEYWORD_GENERATOR
+    crawl: false,
+    llm: false,
+    keywordExpansion: readBoolean('MOCK_KEYWORD_GENERATOR', false),
+    metrics: false,
+    serp: false
   },
   discovery: {
-    mockMode: legacyMockMode,
-    llmSeedsMax: Math.max(1, readNumber('SEOA_DISCOVERY_LLM_SEEDS_MAX', 10)),
-    seedLimit: Math.max(1, readNumber('SEOA_DISCOVERY_SEED_LIMIT', 20)),
-    keywordLimit: Math.max(1, readNumber('SEOA_DISCOVERY_KEYWORD_LIMIT', 100))
+    mockMode: false,
+    llmSeedsMax: 10,
+    seedLimit: 20,
+    keywordLimit: 100
   },
   ui: {
-    devPanel: readBoolean('SEOA_DEV_PANEL', false)
+    devPanel: false
   }
 }
 
 export function getDevFlags(): DevFlags {
   return cachedFlags
 }
-

@@ -4,7 +4,7 @@ import type { ArticleOutlineSection } from '@entities/article/domain/article'
 /**
  * Mock LLM provider for PrepInterview.ai
  * Returns realistic, topic-aware content without OpenAI API calls
- * Used when SEOA_MOCK_LLM=1
+ * Used when LLM mocking is enabled in dev
  */
 
 const PREPINTERVIEW_BUSINESS_SUMMARY = `PrepInterview.ai is an AI-powered interview preparation platform that helps job seekers master behavioral, technical, and system design interviews. The platform offers personalized mock interviews, real-time feedback using the STAR method, and comprehensive resources for FAANG interview preparation. Target audience includes software engineers, product managers, and other tech professionals preparing for competitive job interviews.`
@@ -246,13 +246,22 @@ function generateSectionContent(heading: string, topic: string): string {
  */
 export const mockLlmProvider: LlmProvider = {
   async summarize(pages) {
-    console.info('[MockLLM] Using mock site summary (SEOA_MOCK_LLM=1)')
+    console.info('[MockLLM] Using mock site summary (dev mock enabled)')
 
     // Return PrepInterview business summary regardless of input
     return {
       businessSummary: PREPINTERVIEW_BUSINESS_SUMMARY,
       topicClusters: PREPINTERVIEW_TOPIC_CLUSTERS
     }
+  },
+
+  async pickTopFromSitemapString(siteUrl: string, listString: string, maxN: number): Promise<string[]> {
+    console.info('[MockLLM] pickTopFromSitemapString (mock)')
+    return listString
+      .split(/\r?\n/)
+      .map((s) => s.trim())
+      .filter(Boolean)
+      .slice(0, Math.max(1, Math.min(100, maxN || 100)))
   },
 
   async rankRepresentatives(siteUrl: string, candidates: string[], maxN: number): Promise<string[]> {
@@ -323,6 +332,11 @@ export const mockLlmProvider: LlmProvider = {
     const bodyHtml = generateArticleHtml(args.title, args.outline, topic)
 
     return { bodyHtml }
+  },
+
+  async summarizeWebsiteDump(siteUrl: string, dumpString: string): Promise<string> {
+    console.info('[MockLLM] summarizeWebsiteDump (mock)')
+    return PREPINTERVIEW_BUSINESS_SUMMARY
   },
 
   async factCheck(args) {

@@ -73,7 +73,7 @@ export function getDiscoveryProvider(): KeywordDiscoveryProvider {
   // Legacy mockMode flag (backward compatibility)
   if (flags.discovery.mockMode) return mockDiscoveryProvider
 
-  const name = String((config.providers as any).discovery || process.env.SEOA_PROVIDER_KEYWORD_DISCOVERY || 'dataforseo').toLowerCase()
+  const name = String((config.providers as any).discovery || 'dataforseo').toLowerCase()
   switch (name) {
     case 'mock':
       return mockDiscoveryProvider

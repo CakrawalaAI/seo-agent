@@ -1,9 +1,10 @@
 import type { SerpProvider, SerpSnapshot, SerpItem } from '../../interfaces/serp'
+import { log } from '@src/common/logger'
 
 /**
  * Mock SERP provider for testing
  * Returns fake search results related to interview preparation
- * Used when SEOA_MOCK_SERP=1
+ * Used when SERP mocking is enabled in dev
  */
 
 /**
@@ -129,7 +130,7 @@ ${item.snippet || 'No snippet available'}
  */
 export const mockSerpProvider: SerpProvider = {
   async ensure(args) {
-    console.info('[MockSERP] Using mock SERP results for:', args.canon.phrase)
+    log.info('[MockSERP] Using mock SERP results for:', args.canon.phrase)
 
     const topK = args.topK || 10
     const items = generateMockSerpItems(args.canon.phrase, topK)

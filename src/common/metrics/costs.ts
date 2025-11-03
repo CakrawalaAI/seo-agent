@@ -19,10 +19,10 @@ export function updateCostSummary() {
     try { rows.push(JSON.parse(line)) } catch {}
   }
   const perDay: Record<string, { counts: Record<string, number>; costUsd: number }> = {}
-  const serpCost = Number(process.env.SEOA_COST_SERP_PER_CALL_USD || '0.01')
-  const metricsCost = Number(process.env.SEOA_COST_METRICS_PER_CALL_USD || '0.005')
-  const llmCost = Number(process.env.SEOA_COST_LLM_PER_CALL_USD || '0')
-  const researchCost = Number(process.env.SEOA_COST_RESEARCH_PER_CALL_USD || '0')
+  const serpCost = 0.01
+  const metricsCost = 0.005
+  const llmCost = 0
+  const researchCost = 0
   for (const r of rows) {
     const day = (r.at || '').slice(0, 10) || 'unknown'
     if (!perDay[day]) perDay[day] = { counts: {}, costUsd: 0 }
@@ -73,10 +73,7 @@ export function getTodayCounts() {
 
 export function canSpend(node: 'serp' | 'metrics') {
   const counts = getTodayCounts()
-  const caps = {
-    serp: Math.max(0, Number(process.env.SEOA_DAILY_SERP_CALLS_CAP || '0')),
-    metrics: Math.max(0, Number(process.env.SEOA_DAILY_METRICS_CALLS_CAP || '0'))
-  }
+  const caps = { serp: 0, metrics: 0 }
   const provider = 'dataforseo'
   const key = `${node}:${provider}`
   if (!caps[node]) return true // zero or unset means unlimited

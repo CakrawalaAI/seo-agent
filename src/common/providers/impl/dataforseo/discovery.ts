@@ -1,16 +1,26 @@
 import type { KeywordDiscoveryProvider, DiscoveryResult } from '../../interfaces/keyword-discovery'
 import { DATAFORSEO_DEFAULT_LOCATION_CODE } from './geo'
 import { mockKeywordGenerator } from '../mock/keyword-generator'
+import { dfsClient } from './client'
+import { getDevFlags } from '@common/dev/flags'
 
-const keywordSource: {
-  keywordsForSite(params: { target: string; languageCode?: string | null; locationCode?: number | null }): Promise<string[]>
-  relatedKeywords(params: { keywords: string[]; languageCode?: string | null; locationCode?: number | null }): Promise<string[]>
-  keywordIdeas(params: { keywords: string[]; languageCode?: string | null; locationCode?: number | null }): Promise<string[]>
-} = mockKeywordGenerator
+function getKeywordSource() {
+  const flags = getDevFlags()
+  if (flags.mocks.keywordExpansion) return mockKeywordGenerator
+  return {
+    keywordsForSite: ({ target, languageCode, locationCode }: { target: string; languageCode?: string | null; locationCode?: number | null }) =>
+      dfsClient.keywordsForSite({ target, languageCode: languageCode || undefined, locationCode: locationCode || undefined }),
+    relatedKeywords: ({ keywords, languageCode, locationCode }: { keywords: string[]; languageCode?: string | null; locationCode?: number | null }) =>
+      dfsClient.relatedKeywords({ keywords, languageCode: languageCode || undefined, locationCode: locationCode || undefined }),
+    keywordIdeas: ({ keywords, languageCode, locationCode }: { keywords: string[]; languageCode?: string | null; locationCode?: number | null }) =>
+      dfsClient.keywordIdeas({ keywords, languageCode: languageCode || undefined, locationCode: locationCode || undefined }),
+  }
+}
 
 export const dataForSeoDiscovery: KeywordDiscoveryProvider = {
   async keywordsForSite({ domain, language, locationCode, limit }) {
-    const items = await keywordSource.keywordsForSite({
+    const source = getKeywordSource()
+    const items = await source.keywordsForSite({
       target: domain,
       languageCode: language,
       locationCode: Number(locationCode) || DATAFORSEO_DEFAULT_LOCATION_CODE
@@ -21,7 +31,8 @@ export const dataForSeoDiscovery: KeywordDiscoveryProvider = {
   },
   async relatedKeywords({ seeds, language, locationCode, limit }) {
     const batch = seeds.slice(0, 20)
-    const items = await keywordSource.relatedKeywords({
+    const source = getKeywordSource()
+    const items = await source.relatedKeywords({
       keywords: batch,
       languageCode: language,
       locationCode: Number(locationCode) || DATAFORSEO_DEFAULT_LOCATION_CODE
@@ -38,7 +49,8 @@ export const dataForSeoDiscovery: KeywordDiscoveryProvider = {
   },
   async keywordIdeas({ seeds, language, locationCode, limit }) {
     const batch = seeds.slice(0, 10)
-    const items = await keywordSource.keywordIdeas({
+    const source = getKeywordSource()
+    const items = await source.keywordIdeas({
       keywords: batch,
       languageCode: language,
       locationCode: Number(locationCode) || DATAFORSEO_DEFAULT_LOCATION_CODE

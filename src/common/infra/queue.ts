@@ -3,10 +3,11 @@ let conn: any = null
 let chan: any = null
 
 const PREFIX = process.env.RABBITMQ_QUEUE_PREFIX || ''
-const BASE_QUEUE = process.env.SEOA_QUEUE_NAME || 'seo_jobs'
+// Streamlined defaults: single unified queue/exchange
+const BASE_QUEUE = 'seo_jobs'
 const QUEUE_NAME = PREFIX ? `${PREFIX}.${BASE_QUEUE}` : BASE_QUEUE
-const EXCHANGE_NAME = process.env.SEOA_EXCHANGE_NAME || 'seo.jobs'
-const DLX_NAME = process.env.SEOA_DLX_NAME || 'seo.jobs.dlq'
+const EXCHANGE_NAME = 'seo.jobs'
+const DLX_NAME = 'seo.jobs.dlq'
 const DLQ_NAME = PREFIX ? `${PREFIX}.seo_jobs_dlq` : 'seo_jobs_dlq'
 
 export type JobMessage = {
@@ -51,7 +52,8 @@ export async function getChannel(): Promise<any> {
   }
   const amqp = await import('amqplib')
   const masked = maskRabbitUrl(process.env.RABBITMQ_URL)
-  console.info(`[queue] connecting`, { url: masked })
+  const { log } = await import('@src/common/logger')
+  log.info(`[queue] connecting`, { url: masked })
   // Ensure heartbeat parameter to avoid idle disconnects
   const HEARTBEAT = Math.max(5, Number(process.env.RABBITMQ_HEARTBEAT || '30'))
   let url = process.env.RABBITMQ_URL as string
@@ -64,21 +66,19 @@ export async function getChannel(): Promise<any> {
   } catch {}
   conn = await (amqp as any).connect(url)
   // Defensive: avoid process crashes on heartbeat errors
-  try { conn.on('error', (e: any) => console.error('[queue] connection error', { message: e?.message || String(e) })) } catch {}
-  try { conn.on('close', () => { console.warn('[queue] connection closed'); chan = null; conn = null }) } catch {}
+  try { conn.on('error', (e: any) => { try { log.error('[queue] connection error', { message: e?.message || String(e) }) } catch {} }) } catch {}
+  try { conn.on('close', () => { try { log.warn('[queue] connection closed') } catch {}; chan = null; conn = null }) } catch {}
   chan = await conn.createChannel()
-  try { chan.on?.('error', (e: any) => console.error('[queue] channel error', { message: e?.message || String(e) })) } catch {}
+  try { chan.on?.('error', (e: any) => { try { log.error('[queue] channel error', { message: e?.message || String(e) }) } catch {} }) } catch {}
   // Topic exchange for routing by type.projectId
   await chan.assertExchange(EXCHANGE_NAME, 'topic', { durable: true })
   await chan.assertExchange(DLX_NAME, 'topic', { durable: true })
   await chan.assertQueue(QUEUE_NAME, { durable: true, arguments: { 'x-dead-letter-exchange': DLX_NAME } })
-  const bindKey = (process.env.SEOA_BINDING_KEY || '#').split(',').map((s) => s.trim()).filter(Boolean)
-  for (const key of bindKey) {
-    await chan.bindQueue(QUEUE_NAME, EXCHANGE_NAME, key)
-  }
+  // Bind all topics by default; single worker handles all job types
+  await chan.bindQueue(QUEUE_NAME, EXCHANGE_NAME, '#')
   await chan.assertQueue(DLQ_NAME, { durable: true })
   await chan.bindQueue(DLQ_NAME, DLX_NAME, '#')
-  console.info(`[queue] channel ready`, { exchange: EXCHANGE_NAME, queue: QUEUE_NAME, dlq: DLQ_NAME })
+  log.info(`[queue] channel ready`, { exchange: EXCHANGE_NAME, queue: QUEUE_NAME, dlq: DLQ_NAME })
   return chan
 }
 
@@ -87,17 +87,17 @@ export async function publishJob(message: JobMessage): Promise<string> {
     const ch = await getChannel()
     const jobId = `job_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`
     const envelope = { id: jobId, retries: 0, ...message }
-    const ttlMs = Number(process.env.SEOA_JOB_TTL_MS || '0')
     const opts: any = { persistent: true }
-    if (ttlMs > 0) opts.expiration = String(ttlMs)
     const projectId = String((message.payload as any)?.projectId || 'unknown')
     const routingKey = `${message.type}.${projectId}`
     const ok = ch.publish(EXCHANGE_NAME, routingKey, Buffer.from(JSON.stringify(envelope)), opts)
-    console.info(`[queue] published`, { id: jobId, type: message.type, routingKey, persisted: ok })
+    const { log } = await import('@src/common/logger')
+    log.info(`[queue] published`, { id: jobId, type: message.type, routingKey, persisted: ok })
     return jobId
   } catch (err) {
     // queue disabled or connection failed; generate a local id so callers can proceed
-    console.error('[queue] publish failed, returning local id', { error: (err as Error)?.message || String(err) })
+    const { log } = await import('@src/common/logger')
+    log.error('[queue] publish failed, returning local id', { error: (err as Error)?.message || String(err) })
     return `job_local_${Date.now().toString(36)}`
   }
 }
@@ -108,17 +108,18 @@ export async function consumeJobs(
   const ch = await getChannel()
   const prefetch = Math.max(1, Number(process.env.RABBITMQ_PREFETCH || '1'))
   await ch.prefetch(prefetch)
-  console.info('[queue] consumer started', { queue: QUEUE_NAME, prefetch })
+  const { log } = await import('@src/common/logger')
+  log.info('[queue] consumer started', { queue: QUEUE_NAME, prefetch })
   ch.consume(QUEUE_NAME, async (msg: any) => {
     if (!msg) return
     try {
       const parsed = JSON.parse(msg.content.toString()) as JobMessage & { id: string }
-      console.info('[queue] message received', { id: parsed.id, type: parsed.type, projectId: (parsed.payload as any)?.projectId })
+      log.info('[queue] message received', { id: parsed.id, type: parsed.type, projectId: (parsed.payload as any)?.projectId })
       await handler(parsed)
       ch.ack(msg)
-      console.info('[queue] message acked', { id: parsed.id })
+      log.info('[queue] message acked', { id: parsed.id })
     } catch (err) {
-      console.error('[queue] handler error, nacking', { error: (err as Error)?.message || String(err) })
+      log.error('[queue] handler error, nacking', { error: (err as Error)?.message || String(err) })
       ch.nack(msg, false, false)
     }
   })

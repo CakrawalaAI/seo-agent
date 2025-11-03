@@ -6,7 +6,7 @@ type ProviderOverridesState = {
 
 const globalState: { store: ProviderOverridesState } = (() => {
   const g = globalThis as Record<string, unknown>
-  const key = '__SEOA_PROVIDER_OVERRIDES__'
+  const key = '__PROVIDER_OVERRIDES__'
   if (!g[key]) {
     g[key] = { discovery: null }
   }
@@ -20,4 +20,3 @@ export function getDiscoveryOverride(): DiscoveryOverride {
 export function setDiscoveryOverride(next: DiscoveryOverride): void {
   globalState.store.discovery = next ?? null
 }
-

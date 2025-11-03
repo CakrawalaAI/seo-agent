@@ -2,7 +2,7 @@ import type { CrawlPage } from '@entities/crawl/domain/page'
 
 /**
  * Mock crawler for PrepInterview.ai - returns hardcoded pages
- * Used when SEOA_MOCK_CRAWL=1
+ * Used when crawler mocking is enabled in dev
  */
 
 const PREPINTERVIEW_PAGES: Array<Omit<CrawlPage, 'id' | 'projectId' | 'createdAt' | 'updatedAt'>> = [

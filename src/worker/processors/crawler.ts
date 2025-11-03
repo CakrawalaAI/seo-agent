@@ -11,21 +11,22 @@ import { getLlmProvider } from '@common/providers/registry'
 import { summarizeSite } from '@common/providers/llm'
 import { projectDiscoveryRepo } from '@entities/project/discovery/repository'
 import { getDevFlags } from '@common/dev/flags'
+import { log } from '@src/common/logger'
 
 export async function processCrawl(payload: { projectId: string }) {
   const project = await projectsRepo.get(payload.projectId)
   if (!project?.siteUrl) {
-    console.warn('[crawler] missing siteUrl; skipping', { projectId: payload.projectId })
+    log.warn('[crawler] missing siteUrl; skipping', { projectId: payload.projectId })
     return
   }
   const siteUrl = project.siteUrl!
   const crawlBudget = 100
-  console.info('[crawler] start', { projectId: payload.projectId, siteUrl, render: env.crawlRender })
+  log.info('[crawler] start', { projectId: payload.projectId, siteUrl, render: env.crawlRender })
 
   // Check if we should use mock crawler
   const flags = getDevFlags()
   if (flags.mocks.crawl) {
-    console.info('[crawler] Using mock crawler (SEOA_MOCK_CRAWL=1)')
+    log.info('[crawler] Using mock crawler (dev mock enabled)')
     const { generateMockCrawl } = await import('@common/providers/impl/mock/crawler')
     const mockResult = generateMockCrawl(payload.projectId, crawlBudget)
 
@@ -33,7 +34,7 @@ export async function processCrawl(payload: { projectId: string }) {
       crawlRepo.addOrUpdate(payload.projectId, page)
     }
 
-    console.info('[crawler] Mock crawl complete', {
+    log.info('[crawler] Mock crawl complete', {
       projectId: payload.projectId,
       pagesGenerated: mockResult.urlsVisited
     })
@@ -44,18 +45,18 @@ export async function processCrawl(payload: { projectId: string }) {
   let reps: string[] = []
   try {
     const cleaned = await fetchAndParseSitemapUrls(project.siteUrl, 100000)
-    console.info('[crawler] sitemap parsed', { total: cleaned.length })
+    log.info('[crawler] sitemap parsed', { total: cleaned.length })
     const listString = cleaned.join('\n')
     const llm = getLlmProvider()
     if (typeof (llm as any).pickTopFromSitemapString === 'function') {
-      console.info('[crawler] LLM pickTop start', { requested: crawlBudget })
+      log.info('[crawler] LLM pickTop start', { requested: crawlBudget })
       const pickWithTimeout = async () => (llm as any).pickTopFromSitemapString(siteUrl, listString, crawlBudget)
       const picked: string[] = await Promise.race([
         pickWithTimeout(),
         new Promise<string[]>((resolve) => setTimeout(() => resolve([]), 20000))
       ])
       if (Array.isArray(picked) && picked.length) reps = picked.slice(0, crawlBudget)
-      else console.warn('[crawler] LLM pickTop timeout/fallback; using first URLs')
+      else log.warn('[crawler] LLM pickTop timeout/fallback; using first URLs')
     }
     if (!reps.length) reps = cleaned.slice(0, crawlBudget)
   } catch {
@@ -63,7 +64,7 @@ export async function processCrawl(payload: { projectId: string }) {
     const candidates = await discoverFromSitemap(project.siteUrl, crawlBudget)
     reps = candidates.slice(0, crawlBudget)
   }
-  console.info('[crawler] representatives selected', { count: reps.length })
+  log.info('[crawler] representatives selected', { count: reps.length })
   const initialSeeds = reps.map((u) => ({ url: u, depth: 0 }))
   // Record representatives in DB discovery log for snapshot/overview
   try {
@@ -80,7 +81,7 @@ export async function processCrawl(payload: { projectId: string }) {
     }
   } catch (err) {
     usePlaywright = false
-    console.warn('[crawler] playwright import failed; falling back to fetch', { error: (err as Error)?.message || String(err) })
+    log.warn('[crawler] playwright import failed; falling back to fetch', { error: (err as Error)?.message || String(err) })
   }
 
   let browser: any = null
@@ -90,10 +91,10 @@ export async function processCrawl(payload: { projectId: string }) {
       browser = await chromium.launch({ headless: true })
       const context = await browser.newContext()
       page = await context.newPage()
-      console.info('[crawler] using playwright rendering')
+      log.info('[crawler] using playwright rendering')
     } catch (err) {
       usePlaywright = false
-      console.warn('[crawler] playwright launch failed; falling back to fetch', { error: (err as Error)?.message || String(err) })
+      log.warn('[crawler] playwright launch failed; falling back to fetch', { error: (err as Error)?.message || String(err) })
     }
   }
 
@@ -103,7 +104,7 @@ export async function processCrawl(payload: { projectId: string }) {
   const nodes = new Map<string, { url: string; title?: string | null }>()
   const edges: Array<{ from: string; to: string; text?: string | null }> = []
   const queue: Array<{ url: string; depth: number }> = [...initialSeeds]
-  console.info('[crawler] seeds', { count: initialSeeds.length })
+  log.info('[crawler] seeds', { count: initialSeeds.length })
   for (let qi = 0; qi < queue.length && seen.size < visitLimit; qi++) {
     const { url, depth } = queue[qi]!
     if (seen.has(url)) continue
@@ -225,7 +226,7 @@ export async function processCrawl(payload: { projectId: string }) {
   }
   // Skip bundle lineage/link graph in DB-only mode
 
-  console.info('[crawler] done', { visited: seen.size })
+  log.info('[crawler] done', { visited: seen.size })
 
   // 3) Build one big dump string (no per-page cap), then summarize within model context budget
   try {
@@ -241,16 +242,13 @@ export async function processCrawl(payload: { projectId: string }) {
     const dump = sections.join('')
     // No file dump in DB-only mode
 
-    const modelName = process.env.SEOA_LLM_MODEL || 'gpt-5-2025-08-07'
-    const envCtx = Number(process.env.SEOA_LLM_CTX_TOKENS || '')
-    const defaultCtx = Number.isFinite(envCtx)
-      ? envCtx
-      : (/^gpt-5/i.test(modelName) ? 400_000 : 128_000)
+    const modelName = 'gpt-5-2025-08-07'
+    const defaultCtx = 400_000
     const targetTokens = Math.max(40_000, Math.floor(defaultCtx * 0.8))
     const approxTokens = (s: string) => Math.ceil((s?.length || 0) / 4)
     const trimToTokens = (s: string, tokens: number) => s.slice(0, Math.max(0, tokens) * 4)
     let budgetedDump = approxTokens(dump) > targetTokens ? trimToTokens(dump, targetTokens) : dump
-    console.info('[crawler] summary budget', { model: modelName, ctx: defaultCtx, targetTokens, dumpTokens: approxTokens(dump), budgetedTokens: approxTokens(budgetedDump) })
+    log.info('[crawler] summary budget', { model: modelName, ctx: defaultCtx, targetTokens, dumpTokens: approxTokens(dump), budgetedTokens: approxTokens(budgetedDump) })
 
     const llm = getLlmProvider() as any
     let businessSummary: string | null = null
@@ -259,13 +257,13 @@ export async function processCrawl(payload: { projectId: string }) {
         businessSummary = await llm.summarizeWebsiteDump(siteUrl, budgetedDump)
       } catch (e) {
         const msg = (e as Error)?.message || ''
-        console.warn('[crawler] summarizeWebsiteDump failed; retrying with smaller budget if possible', { error: msg })
+        log.warn('[crawler] summarizeWebsiteDump failed; retrying with smaller budget if possible', { error: msg })
         const match = msg.match(/maximum context length is\s+(\d+)\s+tokens/i)
         const maxFromError = match ? Number(match[1]) : NaN
         if (Number.isFinite(maxFromError) && maxFromError > 1000) {
           const retryTokens = Math.floor(maxFromError * 0.8)
           budgetedDump = trimToTokens(dump, retryTokens)
-          console.info('[crawler] retry summary budget', { retryTokens, budgetedTokens: approxTokens(budgetedDump) })
+          log.info('[crawler] retry summary budget', { retryTokens, budgetedTokens: approxTokens(budgetedDump) })
           try { businessSummary = await llm.summarizeWebsiteDump(siteUrl, budgetedDump) } catch {}
         }
       }
@@ -285,7 +283,7 @@ export async function processCrawl(payload: { projectId: string }) {
     })
     // No summary file in DB-only mode
   } catch (err) {
-    console.warn('[crawler] failed to summarize site', { error: (err as Error)?.message || String(err) })
+    log.warn('[crawler] failed to summarize site', { error: (err as Error)?.message || String(err) })
   }
 }
 
