@@ -42,11 +42,18 @@ export async function processCrawl(payload: { projectId: string }) {
   let reps: string[] = []
   try {
     const cleaned = await fetchAndParseSitemapUrls(project.siteUrl, 100000)
+    console.info('[crawler] sitemap parsed', { total: cleaned.length })
     const listString = cleaned.join('\n')
     const llm = getLlmProvider()
     if (typeof (llm as any).pickTopFromSitemapString === 'function') {
-      const picked: string[] = await (llm as any).pickTopFromSitemapString(siteUrl, listString, crawlBudget)
+      console.info('[crawler] LLM pickTop start', { requested: crawlBudget })
+      const pickWithTimeout = async () => (llm as any).pickTopFromSitemapString(siteUrl, listString, crawlBudget)
+      const picked: string[] = await Promise.race([
+        pickWithTimeout(),
+        new Promise<string[]>((resolve) => setTimeout(() => resolve([]), 20000))
+      ])
       if (Array.isArray(picked) && picked.length) reps = picked.slice(0, crawlBudget)
+      else console.warn('[crawler] LLM pickTop timeout/fallback; using first URLs')
     }
     if (!reps.length) reps = cleaned.slice(0, crawlBudget)
   } catch {
@@ -54,7 +61,7 @@ export async function processCrawl(payload: { projectId: string }) {
     const candidates = await discoverFromSitemap(project.siteUrl, crawlBudget)
     reps = candidates.slice(0, crawlBudget)
   }
-  console.info('[crawler] representatives selected', { count: reps.length, urls: reps })
+  console.info('[crawler] representatives selected', { count: reps.length })
   const initialSeeds = reps.map((u) => ({ url: u, depth: 0 }))
   // Write representatives to debug bundle for snapshot/overview (stateless workers)
   try {
@@ -107,6 +114,7 @@ export async function processCrawl(payload: { projectId: string }) {
       let linksForJson: Array<{ href: string; text?: string }> = []
       let pageHtml: string | null = null
       let textDump: string | null = null
+      let contentBlobUrl: string | null = null
 
       // record in-progress for live UI
       try {
@@ -183,6 +191,14 @@ export async function processCrawl(payload: { projectId: string }) {
         headings = headingMatches.map((hm) => ({ level: Number(hm[1]!.slice(1)), text: (hm[2] || '').replace(/<[^>]+>/g, '').trim() }))
       }
       const now = new Date().toISOString()
+      // Persist raw HTML to bundle for retrieval
+      try {
+        if (pageHtml && pageHtml.length) {
+          const rel = `crawl/html/${pageIdFor(url)}.html`
+          bundle.writeText(project.id, rel, pageHtml)
+          contentBlobUrl = rel
+        }
+      } catch {}
       const pageId = pageIdFor(url)
       crawlRepo.recordPage(project.id, {
         id: pageId,
@@ -196,6 +212,7 @@ export async function processCrawl(payload: { projectId: string }) {
         headingsJson: headings,
         linksJson: linksForJson,
         contentText: textDump || pageHtml || null,
+        contentBlobUrl,
         createdAt: now,
         updatedAt: now
       })
@@ -221,7 +238,7 @@ export async function processCrawl(payload: { projectId: string }) {
 
   console.info('[crawler] done', { visited: seen.size })
 
-  // 3) Build one big dump string (no per-page cap), then summarize with 80% of GPT-5 context
+  // 3) Build one big dump string (no per-page cap), then summarize within model context budget
   try {
     const pages = await crawlRepo.list(project.id, Math.max(200, reps.length || crawlBudget))
     const sections = pages.map((p) => {
@@ -235,13 +252,16 @@ export async function processCrawl(payload: { projectId: string }) {
     const dump = sections.join('')
     try { bundle.writeText(project.id, 'crawl/dump.top100.txt', dump) } catch {}
 
-    const MAX_INPUT_TOKENS = 320_000 // 80% of GPT-5 400k
+    const modelName = process.env.SEOA_LLM_MODEL || 'gpt-5-2025-08-07'
+    const envCtx = Number(process.env.SEOA_LLM_CTX_TOKENS || '')
+    const defaultCtx = Number.isFinite(envCtx)
+      ? envCtx
+      : (/^gpt-5/i.test(modelName) ? 400_000 : 128_000)
+    const targetTokens = Math.max(40_000, Math.floor(defaultCtx * 0.8))
     const approxTokens = (s: string) => Math.ceil((s?.length || 0) / 4)
-    let budgetedDump = dump
-    if (approxTokens(dump) > MAX_INPUT_TOKENS) {
-      const targetChars = MAX_INPUT_TOKENS * 4
-      budgetedDump = dump.slice(0, targetChars)
-    }
+    const trimToTokens = (s: string, tokens: number) => s.slice(0, Math.max(0, tokens) * 4)
+    let budgetedDump = approxTokens(dump) > targetTokens ? trimToTokens(dump, targetTokens) : dump
+    console.info('[crawler] summary budget', { model: modelName, ctx: defaultCtx, targetTokens, dumpTokens: approxTokens(dump), budgetedTokens: approxTokens(budgetedDump) })
 
     const llm = getLlmProvider() as any
     let businessSummary: string | null = null
@@ -249,7 +269,16 @@ export async function processCrawl(payload: { projectId: string }) {
       try {
         businessSummary = await llm.summarizeWebsiteDump(siteUrl, budgetedDump)
       } catch (e) {
-        console.warn('[crawler] summarizeWebsiteDump failed; falling back', { error: (e as Error)?.message || String(e) })
+        const msg = (e as Error)?.message || ''
+        console.warn('[crawler] summarizeWebsiteDump failed; retrying with smaller budget if possible', { error: msg })
+        const match = msg.match(/maximum context length is\s+(\d+)\s+tokens/i)
+        const maxFromError = match ? Number(match[1]) : NaN
+        if (Number.isFinite(maxFromError) && maxFromError > 1000) {
+          const retryTokens = Math.floor(maxFromError * 0.8)
+          budgetedDump = trimToTokens(dump, retryTokens)
+          console.info('[crawler] retry summary budget', { retryTokens, budgetedTokens: approxTokens(budgetedDump) })
+          try { businessSummary = await llm.summarizeWebsiteDump(siteUrl, budgetedDump) } catch {}
+        }
       }
     }
     if (!businessSummary || !businessSummary.trim()) {

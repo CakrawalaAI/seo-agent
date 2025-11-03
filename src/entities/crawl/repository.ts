@@ -1,5 +1,8 @@
 import type { CrawlPage } from './domain/page'
 import { appendJsonl, writeJson, latestRunDir } from '@common/bundle/store'
+import { hasDatabase, getDb } from '@common/infra/db'
+import { crawlPages } from './db/schema'
+import { desc, eq } from 'drizzle-orm'
 import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
@@ -13,6 +16,21 @@ type LinkGraph = {
 
 export const crawlRepo = {
   async list(projectId: string, limit = 100): Promise<CrawlPage[]> {
+    // Prefer DB when available
+    if (hasDatabase()) {
+      try {
+        const db = getDb()
+        const rows = await db
+          .select()
+          .from(crawlPages)
+          .where(eq(crawlPages.projectId, projectId))
+          .orderBy(desc(crawlPages.extractedAt))
+          .limit(limit)
+        return rows.map(toDomain)
+      } catch (err) {
+        console.warn('[crawlRepo] db list failed; falling back to bundle', { projectId, error: (err as Error)?.message || String(err) })
+      }
+    }
     try {
       const base = latestRunDir(projectId)
       const file = join(base, PAGES_FILE)
@@ -31,6 +49,54 @@ export const crawlRepo = {
       appendJsonl(projectId, PAGES_FILE, page)
     } catch (err) {
       console.warn('[crawlRepo] recordPage failed', { projectId, url: page.url, error: (err as Error)?.message || String(err) })
+    }
+    // Also persist to DB when available (upsert by id)
+    if (hasDatabase()) {
+      try {
+        const db = getDb()
+        // @ts-ignore drizzle onConflict typing differs per version
+        db
+          .insert(crawlPages)
+          .values({
+            id: page.id,
+            projectId,
+            url: page.url,
+            depth: page.depth ?? null,
+            httpStatus: typeof page.httpStatus === 'number' ? page.httpStatus : null,
+            status: page.status ?? null,
+            extractedAt: page.extractedAt ? (page.extractedAt as any) : null,
+            metaJson: (page.metaJson as any) ?? null,
+            headingsJson: page.headingsJson ?? null,
+            linksJson: page.linksJson ?? null,
+            contentBlobUrl: page.contentBlobUrl ?? null,
+            contentText: page.contentText ?? null,
+            createdAt: (page.createdAt as any) ?? (new Date() as any),
+            updatedAt: (page.updatedAt as any) ?? (new Date() as any)
+          } as any)
+          .onConflictDoUpdate({
+            target: crawlPages.id,
+            set: {
+              projectId,
+              url: page.url,
+              depth: page.depth ?? null,
+              httpStatus: typeof page.httpStatus === 'number' ? page.httpStatus : null,
+              status: page.status ?? null,
+              extractedAt: page.extractedAt ? (page.extractedAt as any) : null,
+              metaJson: (page.metaJson as any) ?? null,
+              headingsJson: page.headingsJson ?? null,
+              linksJson: page.linksJson ?? null,
+              contentBlobUrl: page.contentBlobUrl ?? null,
+              contentText: page.contentText ?? null,
+              updatedAt: new Date() as any
+            }
+          } as any)
+          .then(() => void 0)
+          .catch((e) => {
+            console.warn('[crawlRepo] db upsert failed', { projectId, url: page.url, error: (e as Error)?.message || String(e) })
+          })
+      } catch (err) {
+        console.warn('[crawlRepo] db recordPage failed', { projectId, url: page.url, error: (err as Error)?.message || String(err) })
+      }
     }
   },
 
@@ -96,6 +162,25 @@ export const crawlRepo = {
     ]
     for (const page of demo) this.recordPage(projectId, page)
     return { jobId: `crawl_${projectId}_${Date.now().toString(36)}`, added: demo.length }
+  }
+}
+
+function toDomain(row: any): CrawlPage {
+  return {
+    id: String(row.id),
+    projectId: String(row.projectId),
+    url: String(row.url),
+    depth: typeof row.depth === 'number' ? row.depth : null,
+    httpStatus: typeof row.httpStatus === 'number' ? row.httpStatus : null,
+    status: row.status ?? null,
+    extractedAt: row.extractedAt ? new Date(row.extractedAt).toISOString() : null,
+    metaJson: (row.metaJson || null) as any,
+    headingsJson: row.headingsJson ?? null,
+    linksJson: row.linksJson ?? null,
+    contentBlobUrl: row.contentBlobUrl ?? null,
+    contentText: row.contentText ?? null,
+    createdAt: row.createdAt ? new Date(row.createdAt).toISOString() : null,
+    updatedAt: row.updatedAt ? new Date(row.updatedAt).toISOString() : null
   }
 }
 
