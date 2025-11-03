@@ -9,9 +9,9 @@ import { cn } from '@src/common/ui/cn'
 import { Alert, AlertDescription, AlertTitle } from '@src/common/ui/alert'
 import { trackOnboardingEvent } from './telemetry'
 
-type OnboardingPhase = 'initializing' | 'crawling' | 'keywording' | 'planning' | 'ready'
+type OnboardingPhase = 'initializing' | 'sitemap' | 'crawling' | 'keywording' | 'planning' | 'ready'
 
-const PHASES: OnboardingPhase[] = ['initializing', 'crawling', 'keywording', 'planning', 'ready']
+const PHASES: OnboardingPhase[] = ['initializing', 'sitemap', 'crawling', 'keywording', 'planning', 'ready']
 
 const MAX_FEED_ITEMS = 7
 
@@ -298,12 +298,21 @@ function buildSteps(params: {
   const crawlCount = snapshot?.crawlPages?.length ?? 0
   const keywordCount = snapshot?.latestDiscovery?.keywordCount ?? snapshot?.keywords?.length ?? keywordFeedCount
   const totalPlan = snapshot?.planItems?.length ?? planSummary.totalCount
+  const repsCount = Array.isArray((snapshot as any)?.representatives) ? ((snapshot as any).representatives as string[]).length : 0
 
   return [
     {
+      id: 'sitemap',
+      title: 'Process sitemap',
+      description: 'Load sitemap and rank top 100 representative URLs.',
+      status: deriveStepStatus(phaseIndex, PHASES.indexOf('sitemap')),
+      metric: repsCount > 0 ? `${repsCount} selected` : undefined,
+      badge: repsCount > 0 ? 'Complete' : phaseIndex === PHASES.indexOf('sitemap') ? 'In progress' : undefined
+    },
+    {
       id: 'crawl',
       title: 'Crawling your website',
-      description: 'Discovering sitemap structure, depth, and internal links.',
+      description: 'Fetching the selected URLs and extracting content.',
       status: deriveStepStatus(phaseIndex, PHASES.indexOf('crawling')),
       metric:
         crawlCount > 0
@@ -570,7 +579,8 @@ function useCrawlFeed(project: Project | null, snapshot: ProjectSnapshot | null)
   }, [hasReal, placeholders])
 
   const crawlCount = snapshot?.crawlPages?.length ?? 0
-  const targetBaseline = project?.crawlBudget ?? 20
+  const repsCount = Array.isArray((snapshot as any)?.representatives) ? ((snapshot as any).representatives as string[]).length : null
+  const targetBaseline = repsCount && repsCount > 0 ? repsCount : (project?.crawlBudget ?? 20)
   const target = hasReal ? Math.max(targetBaseline, crawlCount || targetBaseline) : Math.max(targetBaseline, feed.length || 1)
   const completed = hasReal ? crawlCount : feed.filter((entry) => entry.status === 'complete').length
   const percent = target > 0 ? Math.min(100, Math.round((completed / target) * 100)) : 0
@@ -694,7 +704,9 @@ function derivePhase(snapshot: ProjectSnapshot | null, fallbackKeywordCount = 0)
   const keywordCount = snapshot.latestDiscovery?.keywordCount ?? snapshot.keywords?.length ?? fallbackKeywordCount
   if (keywordCount > 0) return 'keywording'
   const crawlCount = snapshot.crawlPages?.length ?? 0
+  const repsCount = Array.isArray((snapshot as any)?.representatives) ? ((snapshot as any).representatives as string[]).length : 0
   if (crawlCount > 0) return 'crawling'
+  if (repsCount > 0) return 'sitemap'
   return 'initializing'
 }
 

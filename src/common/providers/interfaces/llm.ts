@@ -24,4 +24,10 @@ export interface LlmProvider {
 
   // Optional: rank top-N representative URLs from sitemap
   rankRepresentatives?(siteUrl: string, candidates: string[], maxN: number): Promise<string[]>
+
+  // Simple-mode: pick top-N from a raw sitemap string (one URL per line)
+  pickTopFromSitemapString?(siteUrl: string, listString: string, maxN: number): Promise<string[]>
+
+  // Simple-mode: summarize a single big dump string into one business summary paragraph
+  summarizeWebsiteDump?(siteUrl: string, dumpString: string): Promise<string>
 }

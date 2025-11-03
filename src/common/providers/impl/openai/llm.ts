@@ -1,6 +1,7 @@
 import type { LlmProvider } from '../../interfaces/llm'
 import { config } from '@common/config'
 import type { ArticleOutlineSection } from '@entities/article/domain/article'
+import { buildPickTopFromSitemapPrompt, buildWebsiteSummaryPrompt } from '@common/prompts/summarize-website'
 
 export const openAiLlm: LlmProvider = {
   async summarize(pages) {
@@ -101,6 +102,82 @@ export const openAiLlm: LlmProvider = {
       try { return JSON.parse(text) } catch { return { score: 0, notes: text.slice(0, 200) } }
     } catch {
       return { score: 0, notes: 'error' }
+    }
+  }
+  ,
+
+  // Pick top-N URLs from a raw sitemap string
+  async pickTopFromSitemapString(siteUrl: string, listString: string, maxN: number): Promise<string[]> {
+    const key = process.env.OPENAI_API_KEY
+    const n = Math.max(1, Math.min(100, maxN || 100))
+    const fallback = () => listString
+      .split(/\r?\n/)
+      .map((s) => s.trim())
+      .filter(Boolean)
+      .slice(0, n)
+    if (!key) return fallback()
+    const { OpenAI } = await import('openai')
+    const client = new OpenAI({ apiKey: key })
+    const model = process.env.SEOA_LLM_MODEL || 'gpt-5-2025-08-07'
+    const prompt = buildPickTopFromSitemapPrompt(siteUrl, n)
+    try {
+      const resp = await client.chat.completions.create({
+        model,
+        messages: [{ role: 'user', content: `${prompt}\n\nSite: ${siteUrl}\n\nSitemap URLs (one per line):\n${listString}` }],
+        temperature: 0,
+        response_format: { type: 'json_object' as const }
+      }).catch(async (e) => {
+        // fallback to gpt-4o-mini if model unavailable
+        const fallbackModel = 'gpt-4o-mini'
+        return await client.chat.completions.create({
+          model: fallbackModel,
+          messages: [{ role: 'user', content: `${prompt}\n\nSite: ${siteUrl}\n\nSitemap URLs (one per line):\n${listString}` }],
+          temperature: 0,
+          response_format: { type: 'json_object' as const }
+        })
+      })
+      const text = resp.choices?.[0]?.message?.content || ''
+      try {
+        const parsed = JSON.parse(text)
+        const urls = Array.isArray(parsed?.urls) ? parsed.urls.filter((x: any) => typeof x === 'string') : []
+        if (urls.length) return urls.slice(0, n)
+      } catch {}
+      return fallback()
+    } catch {
+      return fallback()
+    }
+  },
+
+  // Summarize a single big dump string into one plain-text business context
+  async summarizeWebsiteDump(siteUrl: string, dumpString: string): Promise<string> {
+    const key = process.env.OPENAI_API_KEY
+    if (!key) throw new Error('OPENAI_API_KEY missing')
+    const { OpenAI } = await import('openai')
+    const client = new OpenAI({ apiKey: key })
+    const model = process.env.SEOA_LLM_MODEL || 'gpt-5-2025-08-07'
+    const prompt = buildWebsiteSummaryPrompt(siteUrl)
+    try {
+      const resp = await client.chat.completions.create({
+        model,
+        messages: [
+          { role: 'system', content: 'You are an SEO strategist. Be precise and extract concrete facts only.' },
+          { role: 'user', content: `${prompt}\n\nDUMP BEGIN\n${dumpString}\nDUMP END` }
+        ],
+        temperature: 0.2
+      }).catch(async () => {
+        const fallbackModel = 'gpt-4o-mini'
+        return await client.chat.completions.create({
+          model: fallbackModel,
+          messages: [
+            { role: 'system', content: 'You are an SEO strategist. Be precise and extract concrete facts only.' },
+            { role: 'user', content: `${prompt}\n\nDUMP BEGIN\n${dumpString}\nDUMP END` }
+          ],
+          temperature: 0.2
+        })
+      })
+      return resp.choices?.[0]?.message?.content?.trim() || ''
+    } catch (e) {
+      throw new Error(`LLM summarize dump failed: ${(e as Error)?.message || String(e)}`)
     }
   }
 }

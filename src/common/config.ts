@@ -62,10 +62,10 @@ export const config: AppConfig = {
     topKDefault: 10
   },
   crawl: {
-    maxRepresentatives: 10,
+    maxRepresentatives: 100,
     respectRobots: false,
     // dev default: expand one hop beyond representatives
-    expandDepth: 1
+    expandDepth: 0
   },
   email: {
     transport: 'stub',

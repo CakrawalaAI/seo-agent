@@ -1,6 +1,6 @@
 import { projectsRepo } from '@entities/project/repository'
 import { crawlRepo } from '@entities/crawl/repository'
-import { discoverFromSitemap } from '@common/crawl/sitemap'
+import { discoverFromSitemap, fetchAndParseSitemapUrls } from '@common/crawl/sitemap'
 // robots intentionally ignored per config (owner consent)
 import { env } from '@common/infra/env'
 import * as bundle from '@common/bundle/store'
@@ -17,7 +17,7 @@ export async function processCrawl(payload: { projectId: string }) {
     return
   }
   const siteUrl = project.siteUrl!
-  const crawlBudget = Math.max(1, Math.min(50, Number(project.crawlBudget ?? config.crawl.maxRepresentatives ?? 20)))
+  const crawlBudget = 100
   console.info('[crawler] start', { projectId: payload.projectId, siteUrl, render: env.crawlRender })
 
   // Check if we should use mock crawler
@@ -38,26 +38,22 @@ export async function processCrawl(payload: { projectId: string }) {
     return
   }
 
-  // 1) Gather candidates from sitemap (larger set), then let LLM pick representatives
-  const candidates = await discoverFromSitemap(project.siteUrl, crawlBudget * 2)
-  const reps = await (async () => {
-    try {
-      const llm = getLlmProvider()
-      if (typeof (llm as any).rankRepresentatives === 'function') {
-        const ranked: string[] = await (llm as any).rankRepresentatives(siteUrl, candidates, crawlBudget)
-        if (Array.isArray(ranked) && ranked.length) return ranked.slice(0, crawlBudget)
-      }
-    } catch {}
-    // Fallback heuristics
-    const set = new Set<string>()
-    const push = (p: string) => { try { set.add(new URL(p, siteUrl).toString()) } catch {} }
-    push('/')
-    push('/about')
-    push('/pricing')
-    push('/blog')
-    for (const u of candidates) if (set.size < crawlBudget) set.add(u)
-    return Array.from(set)
-  })()
+  // 1) SIMPLE MODE: sitemap raw → cleaned URLs → LLM picks top 100 (or fewer)
+  let reps: string[] = []
+  try {
+    const cleaned = await fetchAndParseSitemapUrls(project.siteUrl, 100000)
+    const listString = cleaned.join('\n')
+    const llm = getLlmProvider()
+    if (typeof (llm as any).pickTopFromSitemapString === 'function') {
+      const picked: string[] = await (llm as any).pickTopFromSitemapString(siteUrl, listString, crawlBudget)
+      if (Array.isArray(picked) && picked.length) reps = picked.slice(0, crawlBudget)
+    }
+    if (!reps.length) reps = cleaned.slice(0, crawlBudget)
+  } catch {
+    // Fallback to the older limited sitemap discover
+    const candidates = await discoverFromSitemap(project.siteUrl, crawlBudget)
+    reps = candidates.slice(0, crawlBudget)
+  }
   console.info('[crawler] representatives selected', { count: reps.length, urls: reps })
   const initialSeeds = reps.map((u) => ({ url: u, depth: 0 }))
   // Write representatives to debug bundle for snapshot/overview (stateless workers)
@@ -93,8 +89,8 @@ export async function processCrawl(payload: { projectId: string }) {
     }
   }
 
-  const visitLimit = Math.max(1, crawlBudget)
-  const maxDepth = Math.max(0, Math.min(2, config.crawl.expandDepth))
+  const visitLimit = Math.max(1, reps.length || crawlBudget)
+  const maxDepth = 0 // simple mode: no link expansion
   const seen = new Set<string>()
   const nodes = new Map<string, { url: string; title?: string | null }>()
   const edges: Array<{ from: string; to: string; text?: string | null }> = []
@@ -111,6 +107,26 @@ export async function processCrawl(payload: { projectId: string }) {
       let linksForJson: Array<{ href: string; text?: string }> = []
       let pageHtml: string | null = null
       let textDump: string | null = null
+
+      // record in-progress for live UI
+      try {
+        const now = new Date().toISOString()
+        crawlRepo.recordPage(project.id, {
+          id: pageIdFor(url),
+          projectId: project.id,
+          url,
+          depth,
+          httpStatus: null,
+          status: 'in_progress',
+          extractedAt: now,
+          metaJson: { title: '' },
+          headingsJson: [],
+          linksJson: [],
+          contentText: null,
+          createdAt: now,
+          updatedAt: now
+        })
+      } catch {}
       if (usePlaywright && page) {
         const res = await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 15000 })
         httpStatus = res?.status() ?? null
@@ -205,21 +221,51 @@ export async function processCrawl(payload: { projectId: string }) {
 
   console.info('[crawler] done', { visited: seen.size })
 
+  // 3) Build one big dump string (no per-page cap), then summarize with 80% of GPT-5 context
   try {
-    const pages = await crawlRepo.list(project.id, Math.max(50, crawlBudget))
-    const summaryInput = pages.slice(0, 50).map((p) => ({
-      url: p.url,
-      title: (p.metaJson as any)?.title as string | undefined,
-      text: p.contentText || undefined
-    }))
-    const summary = summaryInput.length ? await summarizeSite(summaryInput) : null
-    const businessSummary = summary?.businessSummary ?? project.businessSummary ?? null
+    const pages = await crawlRepo.list(project.id, Math.max(200, reps.length || crawlBudget))
+    const sections = pages.map((p) => {
+      const title = ((p.metaJson as any)?.title as string | undefined) || ''
+      const heads = Array.isArray(p.headingsJson)
+        ? (p.headingsJson as Array<{ level: number; text: string }>).map((h) => `H${h.level}: ${h.text}`).join('\n')
+        : ''
+      const body = p.contentText || ''
+      return `=== URL: ${p.url} | Title: ${title} ===\n${heads}\n${body}\n\n`
+    })
+    const dump = sections.join('')
+    try { bundle.writeText(project.id, 'crawl/dump.top100.txt', dump) } catch {}
+
+    const MAX_INPUT_TOKENS = 320_000 // 80% of GPT-5 400k
+    const approxTokens = (s: string) => Math.ceil((s?.length || 0) / 4)
+    let budgetedDump = dump
+    if (approxTokens(dump) > MAX_INPUT_TOKENS) {
+      const targetChars = MAX_INPUT_TOKENS * 4
+      budgetedDump = dump.slice(0, targetChars)
+    }
+
+    const llm = getLlmProvider() as any
+    let businessSummary: string | null = null
+    if (typeof llm.summarizeWebsiteDump === 'function') {
+      try {
+        businessSummary = await llm.summarizeWebsiteDump(siteUrl, budgetedDump)
+      } catch (e) {
+        console.warn('[crawler] summarizeWebsiteDump failed; falling back', { error: (e as Error)?.message || String(e) })
+      }
+    }
+    if (!businessSummary || !businessSummary.trim()) {
+      // Fallback to older JSON summarizer using first 50 pages
+      const summaryInput = pages.slice(0, 50).map((p) => ({ url: p.url, text: p.contentText || '' }))
+      const jsonSummary = await summarizeSite(summaryInput).catch(() => null)
+      businessSummary = jsonSummary?.businessSummary || (dump.slice(0, 2000) + ' ...')
+    }
+
     await projectsRepo.patch(project.id, {
       businessSummary,
       workflowState: 'pending_summary_approval',
       discoveryApproved: false,
       planningApproved: false
     })
+    try { bundle.writeJson(project.id, 'summary/site_summary.json', { businessSummary }) } catch {}
   } catch (err) {
     console.warn('[crawler] failed to summarize site', { error: (err as Error)?.message || String(err) })
   }
