@@ -154,7 +154,7 @@ export function OnboardingScreen({
     }
   }, [projectId])
 
-  const { crawlFeed, crawlActive, progress: crawlProgress } = useCrawlFeed(project, snapshot)
+  const { crawlFeed, crawlActive, progress: crawlProgress, summarizing } = useCrawlFeed(project, snapshot)
   const planSummary = usePlanSummary(snapshot)
 
   useEffect(() => {
@@ -206,7 +206,8 @@ export function OnboardingScreen({
     crawlActive,
     crawlProgress,
     planSummary,
-    keywordFeedCount: keywordFeed.length
+    keywordFeedCount: keywordFeed.length,
+    summarizing
   })
 
   return (
@@ -293,8 +294,9 @@ function buildSteps(params: {
   crawlProgress: { percent: number; completed: number; target: number }
   keywordFeedCount: number
   planSummary: ReturnType<typeof usePlanSummary>
+  summarizing: boolean
 }) {
-  const { phase, phaseIndex, snapshot, crawlActive, crawlProgress, keywordFeedCount, planSummary } = params
+  const { phase, phaseIndex, snapshot, crawlActive, crawlProgress, keywordFeedCount, planSummary, summarizing } = params
   const crawlCount = snapshot?.crawlPages?.length ?? 0
   const keywordCount = snapshot?.latestDiscovery?.keywordCount ?? snapshot?.keywords?.length ?? keywordFeedCount
   const totalPlan = snapshot?.planItems?.length ?? planSummary.totalCount
@@ -311,8 +313,8 @@ function buildSteps(params: {
     },
     {
       id: 'crawl',
-      title: 'Crawling your website',
-      description: 'Fetching the selected URLs and extracting content.',
+      title: summarizing ? 'Summarizing your website' : 'Crawling your website',
+      description: summarizing ? 'Merging page insights into a business context.' : 'Fetching the selected URLs and extracting content.',
       status: deriveStepStatus(phaseIndex, PHASES.indexOf('crawling')),
       metric:
         crawlCount > 0
@@ -320,7 +322,7 @@ function buildSteps(params: {
           : crawlActive
             ? `${Math.min(crawlProgress.completed, crawlProgress.target)} / ${crawlProgress.target} pages`
             : undefined,
-      badge: crawlActive ? 'In progress' : crawlCount > 0 ? 'Complete' : undefined
+      badge: summarizing ? 'Summarizing' : crawlActive ? 'In progress' : crawlCount > 0 ? 'Complete' : undefined
     },
     {
       id: 'keywords',
@@ -371,8 +373,8 @@ function CrawlCard({
     <div className="rounded-xl border bg-card p-5 shadow-sm">
       <div className="flex items-center justify-between">
         <div>
-          <h3 className="text-sm font-semibold text-foreground">Crawling sitemap</h3>
-          <p className="text-xs text-muted-foreground">{siteUrl ? `Scanning ${siteUrl}` : 'Discovering site structure'}</p>
+          <h3 className="text-sm font-semibold text-foreground">Crawling representatives</h3>
+          <p className="text-xs text-muted-foreground">{siteUrl ? `Processing ${siteUrl}` : 'Discovering site structure'}</p>
         </div>
         <Badge variant={active ? 'secondary' : 'outline'} className={cn('text-xs', active ? 'bg-primary/10 text-primary' : 'text-muted-foreground')}>
           {active ? 'In progress' : 'Live data'}
@@ -527,69 +529,66 @@ function PlanCard({
 
 function useCrawlFeed(project: Project | null, snapshot: ProjectSnapshot | null) {
   const baseUrl = project?.siteUrl ?? null
-  const placeholders = useMemo(() => buildPlaceholderCrawl(baseUrl), [baseUrl])
-  const [feed, setFeed] = useState<CrawlFeedItem[]>(() =>
-    placeholders.slice(0, Math.min(4, placeholders.length)).map((url, index) => ({
-      url,
-      status: (index === 0 ? 'pending' : 'queued') as CrawlFeedItem['status']
-    }))
-  )
-  const hasReal = (snapshot?.crawlPages?.length ?? 0) > 0
+  const reps: string[] = useMemo(() => (Array.isArray((snapshot as any)?.representatives) ? ((snapshot as any).representatives as string[]) : []), [snapshot])
+  const pages = snapshot?.crawlPages ?? []
 
-  useEffect(() => {
-    if (hasReal) return
-    setFeed(
-      placeholders.slice(0, Math.min(4, placeholders.length)).map((url, index) => ({
-        url,
-        status: (index === 0 ? 'pending' : 'queued') as CrawlFeedItem['status']
-      }))
-    )
-  }, [placeholders, hasReal])
-
-  useEffect(() => {
-    if (!hasReal) return
-    const real = buildRealCrawl(snapshot?.crawlPages ?? [], baseUrl)
-    if (real.length) setFeed(real.slice(-MAX_FEED_ITEMS))
-  }, [hasReal, snapshot?.crawlPages, baseUrl])
-
-  useEffect(() => {
-    if (hasReal) return
-    let idx = 0
-    let timer: number | undefined
-    let cancelled = false
-    const tick = () => {
-      if (cancelled) return
-      const next = placeholders.length ? placeholders[idx % placeholders.length] : `/${idx + 1}`
-      idx += 1
-      setFeed((prev) => {
-        const updated = prev.map((entry, entryIdx) =>
-          entryIdx === prev.length - 1 ? { ...entry, status: 'complete' as CrawlFeedItem['status'] } : entry
-        )
-        const merged = [...updated, { url: next, status: 'pending' as CrawlFeedItem['status'] }]
-        if (merged.length > MAX_FEED_ITEMS) return merged.slice(-MAX_FEED_ITEMS)
-        return merged
-      })
-      timer = window.setTimeout(tick, 300 + Math.random() * 200)
-    }
-    timer = window.setTimeout(tick, 220)
-    return () => {
-      cancelled = true
-      if (timer) window.clearTimeout(timer)
-    }
-  }, [hasReal, placeholders])
-
-  const crawlCount = snapshot?.crawlPages?.length ?? 0
-  const repsCount = Array.isArray((snapshot as any)?.representatives) ? ((snapshot as any).representatives as string[]).length : null
-  const targetBaseline = repsCount && repsCount > 0 ? repsCount : (project?.crawlBudget ?? 20)
-  const target = hasReal ? Math.max(targetBaseline, crawlCount || targetBaseline) : Math.max(targetBaseline, feed.length || 1)
-  const completed = hasReal ? crawlCount : feed.filter((entry) => entry.status === 'complete').length
+  // Build feed from representatives + actual page statuses
+  const feed = useMemo(() => buildRepFeed(reps, pages, baseUrl), [reps, pages, baseUrl])
+  const target = reps.length > 0 ? reps.length : (project?.crawlBudget ?? 20)
+  const completed = useMemo(() => countCompleted(reps, pages), [reps, pages])
   const percent = target > 0 ? Math.min(100, Math.round((completed / target) * 100)) : 0
+  const summarizing = reps.length > 0 && completed >= target && !project?.businessSummary
 
   return {
     crawlFeed: feed,
-    crawlActive: !hasReal,
-    progress: { percent, completed, target }
+    crawlActive: completed < target,
+    progress: { percent, completed, target },
+    summarizing
   }
+}
+
+function buildRepFeed(reps: string[], pages: ProjectSnapshot['crawlPages'] | undefined, baseUrl: string | null): CrawlFeedItem[] {
+  if (!Array.isArray(reps) || reps.length === 0) return buildRealCrawl(pages ?? [], baseUrl)
+  const statusByKey = new Map<string, CrawlFeedItem['status']>()
+  const urlByKey = new Map<string, string>()
+  for (const p of pages ?? []) {
+    const key = normalizeUrlKey(p.url)
+    statusByKey.set(key, mapCrawlStatus(p.status))
+    urlByKey.set(key, p.url)
+  }
+  const list: CrawlFeedItem[] = []
+  for (const u of reps) {
+    const key = normalizeUrlKey(u)
+    const st = statusByKey.get(key) || 'queued'
+    const display = formatUrl(urlByKey.get(key) || u, baseUrl) || u
+    list.push({ url: display, status: st })
+    if (list.length >= MAX_FEED_ITEMS) break
+  }
+  return list
+}
+
+function countCompleted(reps: string[], pages: ProjectSnapshot['crawlPages'] | undefined): number {
+  if (!Array.isArray(reps) || reps.length === 0) return (pages?.length ?? 0)
+  const wanted = new Set<string>(reps.map(normalizeUrlKey))
+  const done = new Set<string>()
+  for (const p of pages ?? []) {
+    if (mapCrawlStatus(p.status) !== 'complete') continue
+    const key = normalizeUrlKey(p.url)
+    if (wanted.has(key)) done.add(key)
+  }
+  return done.size
+}
+
+function normalizeUrlKey(url: string | null | undefined): string {
+  if (!url) return ''
+  try {
+    const u = new URL(url)
+    u.hash = ''
+    u.search = ''
+    let s = u.toString()
+    if (s.endsWith('/') && s !== `${u.protocol}//${u.host}/`) s = s.slice(0, -1)
+    return s
+  } catch { return String(url) }
 }
 
 function useKeywordFeed(project: Project | null, snapshot: ProjectSnapshot | null): KeywordFeedItem[] {
