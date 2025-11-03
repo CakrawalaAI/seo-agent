@@ -3,11 +3,13 @@ import { crawlRepo } from '@entities/crawl/repository'
 import { discoverFromSitemap, fetchAndParseSitemapUrls } from '@common/crawl/sitemap'
 // robots intentionally ignored per config (owner consent)
 import { env } from '@common/infra/env'
-import * as bundle from '@common/bundle/store'
+// bundle writes avoided when DB present; keep import only if needed for dev fallback
+// import * as bundle from '@common/bundle/store'
 import { createHash } from 'node:crypto'
 import { config } from '@common/config'
 import { getLlmProvider } from '@common/providers/registry'
 import { summarizeSite } from '@common/providers/llm'
+import { projectDiscoveryRepo } from '@entities/project/discovery/repository'
 import { getDevFlags } from '@common/dev/flags'
 
 export async function processCrawl(payload: { projectId: string }) {
@@ -63,11 +65,10 @@ export async function processCrawl(payload: { projectId: string }) {
   }
   console.info('[crawler] representatives selected', { count: reps.length })
   const initialSeeds = reps.map((u) => ({ url: u, depth: 0 }))
-  // Write representatives to debug bundle for snapshot/overview (stateless workers)
+  // Record representatives in DB discovery log for snapshot/overview
   try {
     const at = new Date().toISOString()
-    bundle.writeJson(String(payload.projectId), 'crawl/representatives.json', { at, urls: reps })
-    bundle.appendLineage(String(payload.projectId), { node: 'crawl', outputs: { representatives: reps.length } })
+    await projectDiscoveryRepo.recordRun({ projectId: project.id, providersUsed: ['crawl'], crawlDigest: { at, urls: reps } })
   } catch {}
 
   // Attempt Playwright; if unavailable, use undici fetch as fallback
@@ -191,14 +192,7 @@ export async function processCrawl(payload: { projectId: string }) {
         headings = headingMatches.map((hm) => ({ level: Number(hm[1]!.slice(1)), text: (hm[2] || '').replace(/<[^>]+>/g, '').trim() }))
       }
       const now = new Date().toISOString()
-      // Persist raw HTML to bundle for retrieval
-      try {
-        if (pageHtml && pageHtml.length) {
-          const rel = `crawl/html/${pageIdFor(url)}.html`
-          bundle.writeText(project.id, rel, pageHtml)
-          contentBlobUrl = rel
-        }
-      } catch {}
+      // No file storage: keep contentBlobUrl null (DB-only storage)
       const pageId = pageIdFor(url)
       crawlRepo.recordPage(project.id, {
         id: pageId,
@@ -229,12 +223,7 @@ export async function processCrawl(payload: { projectId: string }) {
   if (usePlaywright && browser) {
     try { await browser.close() } catch {}
   }
-  try { bundle.appendLineage(project.id, { node: 'crawl', outputs: { pages: seen.size } }) } catch {}
-  try {
-    const nodesArr = Array.from(nodes.values())
-    const uniqueEdges = dedupeEdges(edges)
-    crawlRepo.writeLinkGraph(project.id, { nodes: nodesArr, edges: uniqueEdges })
-  } catch {}
+  // Skip bundle lineage/link graph in DB-only mode
 
   console.info('[crawler] done', { visited: seen.size })
 
@@ -250,7 +239,7 @@ export async function processCrawl(payload: { projectId: string }) {
       return `=== URL: ${p.url} | Title: ${title} ===\n${heads}\n${body}\n\n`
     })
     const dump = sections.join('')
-    try { bundle.writeText(project.id, 'crawl/dump.top100.txt', dump) } catch {}
+    // No file dump in DB-only mode
 
     const modelName = process.env.SEOA_LLM_MODEL || 'gpt-5-2025-08-07'
     const envCtx = Number(process.env.SEOA_LLM_CTX_TOKENS || '')
@@ -294,7 +283,7 @@ export async function processCrawl(payload: { projectId: string }) {
       discoveryApproved: false,
       planningApproved: false
     })
-    try { bundle.writeJson(project.id, 'summary/site_summary.json', { businessSummary }) } catch {}
+    // No summary file in DB-only mode
   } catch (err) {
     console.warn('[crawler] failed to summarize site', { error: (err as Error)?.message || String(err) })
   }

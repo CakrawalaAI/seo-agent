@@ -45,12 +45,7 @@ export const crawlRepo = {
   },
 
   recordPage(projectId: string, page: CrawlPage) {
-    try {
-      appendJsonl(projectId, PAGES_FILE, page)
-    } catch (err) {
-      console.warn('[crawlRepo] recordPage failed', { projectId, url: page.url, error: (err as Error)?.message || String(err) })
-    }
-    // Also persist to DB when available (upsert by id)
+    // If DB is available, write only to DB (no bundle files)
     if (hasDatabase()) {
       try {
         const db = getDb()
@@ -97,6 +92,13 @@ export const crawlRepo = {
       } catch (err) {
         console.warn('[crawlRepo] db recordPage failed', { projectId, url: page.url, error: (err as Error)?.message || String(err) })
       }
+      return
+    }
+    // Fallback when DB is not present: write bundle JSONL
+    try {
+      appendJsonl(projectId, PAGES_FILE, page)
+    } catch (err) {
+      console.warn('[crawlRepo] recordPage failed', { projectId, url: page.url, error: (err as Error)?.message || String(err) })
     }
   },
 
@@ -128,27 +130,29 @@ export const crawlRepo = {
       updatedAt: page.updatedAt ?? now
     }
     this.recordPage(projectId, record)
-    try {
-      const graph = readLinkGraph(projectId)
-      const nodes = new Map<string, { url: string; title?: string | null }>(graph.nodes.map((n) => [String(n.url), { url: String(n.url), title: n.title ?? null }]))
-      const edgesSet = new Set<string>(graph.edges.map((e) => `${e.from}->${e.to}`))
-      nodes.set(record.url, { url: record.url, title: (record.metaJson as any)?.title ?? null })
-      const newEdges: Array<{ from: string; to: string; text?: string | null }> = []
-      const links = Array.isArray(record.linksJson) ? record.linksJson : []
-      for (const link of links.slice(0, 50)) {
-        const target = String((link as any)?.href || '')
-        if (!target) continue
-        const key = `${record.url}->${target}`
-        if (edgesSet.has(key)) continue
-        edgesSet.add(key)
-        newEdges.push({ from: record.url, to: target, text: (link as any)?.text ?? null })
+    if (!hasDatabase()) {
+      try {
+        const graph = readLinkGraph(projectId)
+        const nodes = new Map<string, { url: string; title?: string | null }>(graph.nodes.map((n) => [String(n.url), { url: String(n.url), title: n.title ?? null }]))
+        const edgesSet = new Set<string>(graph.edges.map((e) => `${e.from}->${e.to}`))
+        nodes.set(record.url, { url: record.url, title: (record.metaJson as any)?.title ?? null })
+        const newEdges: Array<{ from: string; to: string; text?: string | null }> = []
+        const links = Array.isArray(record.linksJson) ? record.linksJson : []
+        for (const link of links.slice(0, 50)) {
+          const target = String((link as any)?.href || '')
+          if (!target) continue
+          const key = `${record.url}->${target}`
+          if (edgesSet.has(key)) continue
+          edgesSet.add(key)
+          newEdges.push({ from: record.url, to: target, text: (link as any)?.text ?? null })
+        }
+        this.writeLinkGraph(projectId, {
+          nodes: Array.from(nodes.values()),
+          edges: [...graph.edges, ...newEdges]
+        })
+      } catch (err) {
+        console.warn('[crawlRepo] link graph update failed', { projectId, error: (err as Error)?.message || String(err) })
       }
-      this.writeLinkGraph(projectId, {
-        nodes: Array.from(nodes.values()),
-        edges: [...graph.edges, ...newEdges]
-      })
-    } catch (err) {
-      console.warn('[crawlRepo] link graph update failed', { projectId, error: (err as Error)?.message || String(err) })
     }
     return record
   },

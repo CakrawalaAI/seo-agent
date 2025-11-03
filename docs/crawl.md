@@ -16,11 +16,10 @@ Defaults
 - Dump trimming: only at final step to fit the 320k token budget (no per‑page trimming)
 - Playwright concurrency: 8, timeout/page: 12s
 
-API/Artifacts
-- Representatives written to bundle: `crawl/representatives.json` → `{ at, urls: [...] }`
-- Dump written to bundle: `crawl/dump.top100.txt`
-- Summary written to bundle: `summary/site_summary.json` → `{ businessSummary: "..." }`
-- DB update: `projects.businessSummary = businessSummary`
+Storage (DB‑only)
+- Raw crawl pages → table `crawl_pages` (url, status, meta/headings/links, contentText)
+- Representatives/topN → `project_discoveries.crawl_json` (e.g., `{ at, urls: [...] }`)
+- Final summary → `projects.businessSummary`
 
 Onboarding UI (live feedback)
 - Step 1: “Process sitemap” → shows once `representatives.json` is produced

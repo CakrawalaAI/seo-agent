@@ -32,21 +32,31 @@ export const Route = createFileRoute('/api/projects/$projectId/snapshot')({
             ])
             const crawlPages = await crawlRepo.list(params.projectId, 50)
             const keywords = await keywordsRepo.list(params.projectId, { status: 'all', limit: 50 })
-            // Try reading bundle artifacts for summary and representatives
+            // Prefer DB artifacts; fallback to bundle only if needed
             let siteSummary: any = null
             let reps: string[] | null = null
-            try {
-              const base = latestRunDir(params.projectId)
-              const sumFile = join(base, 'summary', 'site_summary.json')
-              const repFile = join(base, 'crawl', 'representatives.json')
-              if (existsSync(sumFile)) {
-                siteSummary = JSON.parse(readFileSync(sumFile, 'utf-8'))
-              }
-              if (existsSync(repFile)) {
-                const r = JSON.parse(readFileSync(repFile, 'utf-8'))
-                if (Array.isArray(r?.urls)) reps = r.urls
-              }
-            } catch {}
+            // representatives from latest discovery crawlJson
+            if (latestDiscovery?.crawlJson && Array.isArray((latestDiscovery.crawlJson as any).urls)) {
+              reps = (latestDiscovery.crawlJson as any).urls as string[]
+            }
+            if (!reps) {
+              try {
+                const base = latestRunDir(params.projectId)
+                const repFile = join(base, 'crawl', 'representatives.json')
+                if (existsSync(repFile)) {
+                  const r = JSON.parse(readFileSync(repFile, 'utf-8'))
+                  if (Array.isArray(r?.urls)) reps = r.urls
+                }
+              } catch {}
+            }
+            // summary: project_discoveries.summary_json (below) or bundle fallback
+            if (!latestDiscovery?.summaryJson) {
+              try {
+                const base = latestRunDir(params.projectId)
+                const sumFile = join(base, 'summary', 'site_summary.json')
+                if (existsSync(sumFile)) siteSummary = JSON.parse(readFileSync(sumFile, 'utf-8'))
+              } catch {}
+            }
             const latestDiscoveryPayload = latestDiscovery
               ? {
                   startedAt: latestDiscovery.startedAt ?? null,
