@@ -3,7 +3,7 @@ import { consumeJobs, queueEnabled, cleanupMetricCache, publishJob } from '@comm
 import { cleanupOldBlobs } from '@common/blob/store'
 import { env } from '@common/infra/env'
 import { recordJobCompleted, recordJobFailed, recordJobRunning } from '@common/infra/jobs'
-import { initConnectors } from '@common/connectors/registry'
+import { initConnectors } from '@features/integrations/server/registry'
 import { processCrawl } from './processors/crawler'
 import { processDiscovery } from './processors/discovery'
 import { processPlan } from './processors/plan'

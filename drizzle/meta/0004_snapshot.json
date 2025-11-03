@@ -1,6 +1,6 @@
 {
-  "id": "757b08f4-ab7b-4ed3-9399-331600e5877e",
-  "prevId": "b024aae1-105a-47f1-b956-bc9defc0bc24",
+  "id": "b62ac940-cd26-4e5c-8f6c-8f66559cc0b8",
+  "prevId": "757b08f4-ab7b-4ed3-9399-331600e5877e",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -68,14 +68,7 @@
           "type": "text",
           "primaryKey": false,
           "notNull": true,
-          "default": "'draft'"
-        },
-        "buffer_stage": {
-          "name": "buffer_stage",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'seed'"
+          "default": "'queued'"
         },
         "generation_date": {
           "name": "generation_date",
@@ -819,6 +812,40 @@
           "primaryKey": false,
           "notNull": false,
           "default": 3
+        },
+        "business_summary": {
+          "name": "business_summary",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "crawl_budget": {
+          "name": "crawl_budget",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "default": 20
+        },
+        "workflow_state": {
+          "name": "workflow_state",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'pending_summary_approval'"
+        },
+        "discovery_approved": {
+          "name": "discovery_approved",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "planning_approved": {
+          "name": "planning_approved",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
         },
         "serp_device": {
           "name": "serp_device",

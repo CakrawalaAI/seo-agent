@@ -42,9 +42,34 @@ export const Route = createFileRoute('/api/orgs')({
         if (action === 'invite') {
           const email = String(body?.email || '')
           if (!email) return httpError(400, 'Missing email')
+          const orgId = String(sess.activeOrg?.id || '')
+          if (!orgId) return httpError(400, 'Active organization required')
+          const normalizedEmail = email.trim().toLowerCase()
+          if (!normalizedEmail) return httpError(400, 'Invalid email')
+          const role = body?.role === 'owner' ? 'owner' : 'member'
+          if (hasDatabase()) {
+            try {
+              const db = getDb()
+              await db
+                .insert(orgMembers)
+                .values({ orgId, userEmail: normalizedEmail, role })
+                .onConflictDoUpdate({ target: [orgMembers.orgId, orgMembers.userEmail], set: { role } as any })
+            } catch (error) {
+              console.error('Invite insert failed', error)
+            }
+          }
           const token = `stub_${Date.now().toString(36)}`
-          await sendEmail({ to: email, subject: 'SEO Agent org invite', text: `Invitation token: ${token}` })
-          return json({ token, email })
+          const inviter = sess.user?.email ? `by ${sess.user.email}` : ''
+          const subject = `You're invited to ${orgId} on SEO Agent`
+          const lines = [
+            `You've been invited ${inviter} to collaborate on ${orgId}.`,
+            `Role: ${role}.`,
+            'Members can create and manage articles, keywords, and website settings.'
+          ]
+          const text = `${lines.join('\n')}`
+          const html = `<p>${lines.join('</p><p>')}</p>`
+          await sendEmail({ to: normalizedEmail, subject, text, html })
+          return json({ token, email: normalizedEmail, role, orgId })
         }
         // Invitations removed
         return httpError(400, 'Unsupported action')

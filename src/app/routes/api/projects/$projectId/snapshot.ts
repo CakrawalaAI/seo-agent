@@ -6,6 +6,7 @@ import { hasDatabase, getDb } from '@common/infra/db'
 import { eq } from 'drizzle-orm'
 import { projectIntegrations } from '@entities/integration/db/schema'
 import { latestRunDir } from '@common/bundle/store'
+import { buildIntegrationViews } from '@integrations/shared/catalog'
 import { join } from 'node:path'
 import { readFileSync, existsSync } from 'node:fs'
 import { crawlRepo } from '@entities/crawl/repository'
@@ -61,10 +62,12 @@ export const Route = createFileRoute('/api/projects/$projectId/snapshot')({
               : siteSummary
               ? { providersUsed: ['llm'], status: 'completed', summaryJson: siteSummary }
               : null
+            const integrationViews = buildIntegrationViews(ints)
             return json({
               queueDepth: 0,
               planItems: draftArticles.filter((a) => (a.status ?? 'draft') === 'draft'),
               integrations: ints,
+              integrationViews,
               crawlPages,
               keywords,
               latestDiscovery: latestDiscoveryPayload,
@@ -76,7 +79,8 @@ export const Route = createFileRoute('/api/projects/$projectId/snapshot')({
           crawlRepo.list(params.projectId, 50),
           keywordsRepo.list(params.projectId, { status: 'all', limit: 50 })
         ])
-        return json({ queueDepth: 0, planItems: [], integrations: [], crawlPages, keywords, latestDiscovery: null })
+        const integrationViews = buildIntegrationViews([])
+        return json({ queueDepth: 0, planItems: [], integrations: [], integrationViews, crawlPages, keywords, latestDiscovery: null })
       }
     }
   }

@@ -8,6 +8,7 @@ import * as bundle from '@common/bundle/store'
 import { computeOpportunity } from '@features/keyword/server/computeOpportunity'
 import { filterSeeds } from '@features/keyword/server/seedFilter'
 import { dfsClient } from '@common/providers/impl/dataforseo/client'
+import { getDevFlags } from '@common/dev/flags'
 import {
   DATAFORSEO_DEFAULT_LANGUAGE_CODE,
   DATAFORSEO_DEFAULT_LOCATION_CODE
@@ -18,6 +19,17 @@ export async function processDiscovery(payload: { projectId: string; locale?: st
   const projectId = String(payload.projectId)
   const locale = payload.locale || 'en-US'
   const project = await projectsRepo.get(projectId)
+  if (!project) {
+    console.warn('[discovery] project not found', { projectId })
+    return
+  }
+  if (!project.discoveryApproved) {
+    console.info('[discovery] skipped because discovery not approved', { projectId })
+    return
+  }
+  if (project.workflowState !== 'discovering_keywords') {
+    await projectsRepo.patch(projectId, { workflowState: 'discovering_keywords' })
+  }
   const defaultLocationCode = Number(process.env.SEOA_DEFAULT_LOCATION_CODE || String(DATAFORSEO_DEFAULT_LOCATION_CODE))
   // 1) Gather recent crawl pages from bundle
   const crawlPages = await crawlRepo.list(projectId, 200)
@@ -38,7 +50,8 @@ export async function processDiscovery(payload: { projectId: string; locale?: st
   }
   const providersUsed = ['llm']
   // 3) Expand seeds (LLM), derive from headings, and provider expansion (DataForSEO) → merge
-  const maxLlmSeeds = Math.max(1, Number(process.env.SEOA_DISCOVERY_LLM_SEEDS_MAX || '10'))
+  const devFlags = getDevFlags()
+  const maxLlmSeeds = Math.max(1, devFlags.discovery.llmSeedsMax)
   const seedsLlm = (await expandSeeds(summary.topicClusters || [], locale)).slice(0, maxLlmSeeds)
   console.info('[discovery] seeds from LLM', { count: seedsLlm.length })
   try { if ((await import('@common/config')).config.debug?.writeBundle) { const { appendJsonl } = await import('@common/bundle/store'); appendJsonl('global', 'metrics/costs.jsonl', { node: 'llm', provider: process.env.OPENAI_API_KEY ? 'openai' : 'stub', at: new Date().toISOString(), stage: 'expandSeeds' }) } } catch {}
@@ -73,20 +86,42 @@ export async function processDiscovery(payload: { projectId: string; locale?: st
   const dfsLanguage = project?.dfsLanguageCode || DATAFORSEO_DEFAULT_LANGUAGE_CODE
   const dfsLocation = Number(project?.metricsLocationCode || defaultLocationCode)
   const seedSnapshot = Array.from(seedInputs)
-  const seedLimit = Math.max(1, Number(process.env.SEOA_DISCOVERY_SEED_LIMIT || '20'))
+  const seedLimit = Math.max(1, devFlags.discovery.seedLimit)
   const seedBatch = seedSnapshot.slice(0, seedLimit)
   if (!seedBatch.length) {
     throw new Error('No discovery seeds available after preprocessing')
   }
 
-  const keywordRows = await dfsClient.keywordsForKeywordsDetailed({
-    keywords: seedBatch,
-    languageCode: dfsLanguage,
-    locationCode: dfsLocation
-  })
-  providersUsed.push('dataforseo_keywords_for_keywords')
-  if (!keywordRows.length) {
-    throw new Error('DataForSEO returned no keyword suggestions')
+  const useMock = devFlags.mocks.keywordExpansion || devFlags.discovery.mockMode
+  if (useMock) {
+    providersUsed.push('mock_keywords')
+  }
+  let mockMetricsModule: null | { mockKeywordMetrics: (index: number) => { searchVolume: number; difficulty: number; cpc: number; competition: number; rankability: number; asOf: string } } = null
+  let keywordRows: Array<any> = []
+  if (useMock) {
+    mockMetricsModule = await import('@common/providers/impl/mock/discovery') as any
+    keywordRows = seedBatch.map((_, idx) => {
+      const metrics = mockMetricsModule!.mockKeywordMetrics(idx)
+      return {
+        keyword: `mock keyword ${idx + 1}`,
+        keyword_info: {
+          search_volume: metrics.searchVolume,
+          cpc: metrics.cpc,
+          competition: metrics.competition,
+          last_updated_time: metrics.asOf
+        }
+      }
+    })
+  } else {
+    keywordRows = await dfsClient.keywordsForKeywordsDetailed({
+      keywords: seedBatch,
+      languageCode: dfsLanguage,
+      locationCode: dfsLocation
+    })
+    providersUsed.push('dataforseo_keywords_for_keywords')
+    if (!keywordRows.length) {
+      throw new Error('DataForSEO returned no keyword suggestions')
+    }
   }
 
   const candidateMap = new Map<string, {
@@ -117,31 +152,42 @@ export async function processDiscovery(payload: { projectId: string; locale?: st
     .filter((entry) => filteredSet.has(entry.phrase.toLowerCase()))
     .sort((a, b) => (b.searchVolume ?? 0) - (a.searchVolume ?? 0))
 
-  const topLimit = Math.max(1, Number(process.env.SEOA_DISCOVERY_KEYWORD_LIMIT || '100'))
+  const topLimit = Math.max(1, devFlags.discovery.keywordLimit)
   const topCandidates = candidates.slice(0, topLimit)
   if (!topCandidates.length) {
     throw new Error('No keyword candidates remained after filtering')
   }
 
-  const difficultyMap = await dfsClient.bulkKeywordDifficulty({
-    keywords: topCandidates.map((c) => c.phrase),
-    languageCode: dfsLanguage,
-    locationCode: dfsLocation
-  })
-  providersUsed.push('dataforseo_bulk_keyword_difficulty')
+  const difficultyMap = new Map<string, number>()
+  if (useMock && mockMetricsModule) {
+    topCandidates.forEach((candidate, idx) => {
+      difficultyMap.set(candidate.phrase.toLowerCase(), mockMetricsModule!.mockKeywordMetrics(idx).difficulty ?? 40)
+    })
+  } else {
+    const map = await dfsClient.bulkKeywordDifficulty({
+      keywords: topCandidates.map((c) => c.phrase),
+      languageCode: dfsLanguage,
+      locationCode: dfsLocation
+    })
+    providersUsed.push('dataforseo_bulk_keyword_difficulty')
+    for (const [key, value] of map.entries()) {
+      difficultyMap.set(key, typeof value === 'number' ? value : Number.NaN)
+    }
+  }
 
   const updates: Array<{ phrase: string; metrics: { searchVolume?: number | null; difficulty?: number | null; cpc?: number | null; competition?: number | null; rankability?: number | null; asOf?: string | null } }> = []
   const finalKeywords: string[] = []
   for (const candidate of topCandidates) {
     const diff = difficultyMap.get(candidate.phrase.toLowerCase())
     const difficulty = typeof diff === 'number' && Number.isFinite(diff) ? diff : null
+    const mockMetrics = useMock && mockMetricsModule ? mockMetricsModule.mockKeywordMetrics(updates.length) : null
     const metrics = {
-      searchVolume: candidate.searchVolume ?? null,
-      difficulty,
-      cpc: candidate.cpc,
-      competition: candidate.competition,
-      rankability: null,
-      asOf: candidate.asOf
+      searchVolume: candidate.searchVolume ?? mockMetrics?.searchVolume ?? null,
+      difficulty: mockMetrics?.difficulty ?? difficulty,
+      cpc: mockMetrics?.cpc ?? candidate.cpc,
+      competition: mockMetrics?.competition ?? candidate.competition,
+      rankability: mockMetrics?.rankability ?? null,
+      asOf: candidate.asOf ?? mockMetrics?.asOf ?? null
     }
     updates.push({ phrase: candidate.phrase, metrics })
     finalKeywords.push(candidate.phrase)
@@ -177,6 +223,9 @@ export async function processDiscovery(payload: { projectId: string; locale?: st
       startedAt: jobStartedAt.toISOString(),
       completedAt: completedAt.toISOString()
     })
+  } catch {}
+  try {
+    await projectsRepo.patch(projectId, { workflowState: 'pending_keywords_approval' })
   } catch {}
   // 7) No project.summary persistence; keep bundle artifacts only
   // lineage already appended above; avoid overwriting the lineage file

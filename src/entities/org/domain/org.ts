@@ -1,5 +1,14 @@
 export type OrgPlan = 'starter' | 'growth' | 'enterprise' | string
 
+export type OrgMemberRole = 'owner' | 'member' | (string & {})
+
+export type OrgMember = {
+  orgId: string
+  email: string
+  role: OrgMemberRole
+  joinedAt?: string | null
+}
+
 export type Org = {
   id: string
   name: string

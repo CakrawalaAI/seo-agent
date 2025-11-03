@@ -2,11 +2,21 @@
 import { createFileRoute } from '@tanstack/react-router'
 import crypto from 'crypto'
 import { httpError, safeHandler } from '@app/api-utils'
-import { clearTempCookie, exchangeCodeForTokens, fetchGoogleUser, parseTempCookie, sanitizeRedirect, upsertUserFromGoogle } from '@common/auth/google'
+import {
+  clearTempCookie,
+  exchangeCodeForTokens,
+  fetchGoogleUser,
+  GoogleOAuthConfigError,
+  parseTempCookie,
+  sanitizeRedirect,
+  upsertUserFromGoogle
+} from '@common/auth/google'
 import { hasDatabase, getDb } from '@common/infra/db'
 import { session } from '@common/infra/session'
 import { orgs, orgMembers } from '@entities/org/db/schema'
 import { eq } from 'drizzle-orm'
+import { projectsRepo } from '@entities/project/repository'
+import { normalizeSiteInput } from '@features/onboarding/shared/url'
 
 export const Route = createFileRoute('/api/auth/callback/google')({
   server: {
@@ -19,6 +29,7 @@ export const Route = createFileRoute('/api/auth/callback/google')({
         const tmp = parseTempCookie(request)
         if (!tmp?.state || tmp.state !== state) return httpError(400, 'Invalid state')
         const redirectTo = sanitizeRedirect(tmp.redirectTo || '/dashboard')
+        const payloadMeta = (tmp?.payload as any) ?? null
 
         if ((process.env.SEOA_AUTH_DEBUG || '') === '1') {
           console.info('[auth/callback/google:start]', {
@@ -26,7 +37,16 @@ export const Route = createFileRoute('/api/auth/callback/google')({
             hasTempCookie: Boolean(parseTempCookie(request)?.state),
           })
         }
-        const tokens = await exchangeCodeForTokens(request, code)
+        let tokens
+        try {
+          tokens = await exchangeCodeForTokens(request, code)
+        } catch (error) {
+          if (error instanceof GoogleOAuthConfigError) {
+            console.error('[auth/callback/google] missing Google OAuth credentials for token exchange')
+            return httpError(500, 'Google OAuth not configured')
+          }
+          throw error
+        }
         const profile = await fetchGoogleUser(tokens.access_token)
         const { userId } = await upsertUserFromGoogle({ sub: profile.sub, email: profile.email, name: profile.name, picture: profile.picture ?? null })
 
@@ -57,10 +77,39 @@ export const Route = createFileRoute('/api/auth/callback/google')({
           } catch {}
         }
 
-        const payload = { user: { email: profile.email, name: profile.name ?? null }, activeOrg }
+        let redirectOverride: string | null = null
+        let activeProjectId: string | null = null
+        if (payloadMeta?.onboarding?.siteUrl && activeOrg?.id) {
+          try {
+            const meta = payloadMeta.onboarding
+            const normalized = normalizeSiteInput(meta.siteUrl)
+            const slug = typeof meta.slug === 'string' && meta.slug ? meta.slug : normalized.slug
+            const ensureSearch = new URLSearchParams({
+              site: normalized.siteUrl,
+              slug
+            })
+            if (typeof meta.projectName === 'string' && meta.projectName) {
+              ensureSearch.set('name', meta.projectName)
+            }
+            redirectOverride = `/onboarding/ensure?${ensureSearch.toString()}`
+          } catch (error) {
+            console.error('[auth/callback/google] failed to prepare ensure redirect', {
+              siteUrl: payloadMeta.onboarding?.siteUrl,
+              error: (error as Error)?.message || String(error)
+            })
+          }
+        }
+
+        // If no onboarding payload, honor original redirect (default '/dashboard').
+
+        const payload = {
+          user: { email: profile.email, name: profile.name ?? null },
+          activeOrg,
+          activeProjectId
+        }
         const cookie = session.set(payload)
         const headers = new Headers()
-        headers.set('Location', redirectTo)
+        headers.set('Location', redirectOverride ?? redirectTo)
         headers.append('Set-Cookie', cookie)
         headers.append('Set-Cookie', clearTempCookie())
         if ((process.env.SEOA_AUTH_DEBUG || '') === '1') {

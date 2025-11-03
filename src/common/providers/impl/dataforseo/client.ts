@@ -259,7 +259,7 @@ class DataForSeoClient {
     if (!Array.isArray(json?.tasks) || !json.tasks.length) {
       console.warn('[dfs] keywordsForSite empty', { target, locationCode, languageName })
     }
-    return this.extractKeywordItems(json)
+    return extractKeywordsFromDataforseoResponse(json)
   }
 
   async relatedKeywords(params: KeywordArrayParams): Promise<string[]> {
@@ -274,7 +274,7 @@ class DataForSeoClient {
         console.warn('[dfs] relatedKeywords empty', { keyword, locationCode, languageName })
         continue
       }
-      out.push(...this.extractKeywordItems(json))
+      out.push(...extractKeywordsFromDataforseoResponse(json))
     }
     return out
   }
@@ -291,7 +291,7 @@ class DataForSeoClient {
         console.warn('[dfs] keywordIdeas empty', { keyword, locationCode, languageName })
         continue
       }
-      out.push(...this.extractKeywordItems(json))
+      out.push(...extractKeywordsFromDataforseoResponse(json))
     }
     return out
   }
@@ -330,7 +330,7 @@ class DataForSeoClient {
     if (!Array.isArray(json?.tasks) || !json.tasks.length) {
       console.warn('[dfs] keywordSuggestions empty', { keyword, locationCode, languageName })
     }
-    return this.extractKeywordItems(json)
+    return extractKeywordsFromDataforseoResponse(json)
   }
 
   async serpOrganic(params: SingleKeywordParams & { device?: 'desktop' | 'mobile' }): Promise<DFSSerpItem[]> {
@@ -353,17 +353,18 @@ class DataForSeoClient {
     return items
   }
 
-  private extractKeywordItems(json: any): string[] {
-    const out: string[] = []
-    for (const task of json?.tasks ?? []) {
-      const items = task?.result?.[0]?.items ?? []
-      for (const item of items) {
-        const keyword = String(item?.keyword || item?.keyword_data?.keyword || '').trim()
-        if (keyword) out.push(keyword)
-      }
+}
+
+export function extractKeywordsFromDataforseoResponse(json: any): string[] {
+  const out: string[] = []
+  for (const task of json?.tasks ?? []) {
+    const items = task?.result?.[0]?.items ?? []
+    for (const item of items) {
+      const keyword = String(item?.keyword || item?.keyword_data?.keyword || '').trim()
+      if (keyword) out.push(keyword)
     }
-    return out
   }
+  return out
 }
 
 function summarizeTasksPayload(tasks: unknown[]): Record<string, unknown> {

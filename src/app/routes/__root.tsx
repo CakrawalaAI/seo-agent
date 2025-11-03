@@ -8,6 +8,10 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { Toaster } from '@src/common/ui/sonner'
 import type { RouterContext } from '@app/router'
 import { DashboardLayout } from '@blocks/layouts/dashboard-layout'
+import { DevPanelHost } from '@features/dev/client/dev-panel'
+import { getDevFlags } from '@common/dev/flags'
+
+const devFlags = getDevFlags()
 
 function NotFound() {
   return (
@@ -54,6 +58,7 @@ function RootComponent(): JSX.Element {
           <Outlet />
         </RouteWrapper>
         <TanStackRouterDevtools position="bottom-right" />
+        {import.meta.env.DEV && devFlags.ui.devPanel ? <DevPanelHost /> : null}
       </QueryClientProvider>
     </RootDocument>
   )
@@ -76,7 +81,7 @@ function RootDocument({ children }: Readonly<{ children: React.ReactNode }>) {
 
 function RouteWrapper({ children }: { children: React.ReactNode }) {
   const pathname = useRouterState({ select: (s) => s.location.pathname })
-  const isPublic = pathname === '/' || pathname.startsWith('/login')
+  const isPublic = pathname === '/' || pathname.startsWith('/login') || pathname.startsWith('/onboarding')
   if (isPublic) {
     return <div className="min-h-screen bg-background text-foreground">{children}</div>
   }

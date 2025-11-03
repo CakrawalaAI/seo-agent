@@ -3,6 +3,7 @@ import type { LucideIcon } from 'lucide-react'
 import { CircleUserRound } from 'lucide-react'
 import clsx from 'clsx'
 import { Button } from '@src/common/ui/button'
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@src/common/ui/dropdown-menu'
 import { ProjectSwitcher } from './project-switcher'
 
 import {
@@ -48,6 +49,7 @@ export type DashboardNavGroup = {
 export type DashboardUserSummary = {
   name?: string | null
   email?: string | null
+  plan?: string | null
 }
 
 export type DashboardShellProps = {
@@ -56,12 +58,11 @@ export type DashboardShellProps = {
   actions?: React.ReactNode
   nav: DashboardNavGroup[]
   user?: DashboardUserSummary | null
-  usage?: { postsUsed?: number; monthlyPostCredits?: number } | null
   projectSwitcher?: boolean
   children: React.ReactNode
 }
 
-export function DashboardShell({ title, subtitle, actions, nav, user, usage, projectSwitcher = true, children }: DashboardShellProps) {
+export function DashboardShell({ title, subtitle, actions, nav, user, projectSwitcher = true, children }: DashboardShellProps) {
   return (
     <SidebarProvider>
       <div className="flex min-h-screen bg-background text-foreground">
@@ -76,9 +77,7 @@ export function DashboardShell({ title, subtitle, actions, nav, user, usage, pro
               <DashboardSidebarGroup key={group.key} group={group} />
             ))}
           </SidebarContent>
-          <SidebarSeparator />
           <SidebarFooter>
-            <Credits usage={usage} />
             <UserSummary user={user} />
           </SidebarFooter>
         </Sidebar>
@@ -173,31 +172,61 @@ function UserSummary({ user }: { user?: DashboardUserSummary | null }) {
     )
   }
   const initials = getInitials(user.name, user.email)
+  const planLabel = user.plan ? titleCase(user.plan) : 'No plan'
+  const [open, setOpen] = React.useState(false)
   return (
-    <div className="flex items-center gap-3">
-      <div className="flex h-9 w-9 items-center justify-center rounded-full bg-sidebar-accent text-sm font-semibold text-sidebar-accent-foreground">
-        {initials}
-      </div>
-      <div className="flex flex-col gap-0.5">
-        <span className="text-sm font-semibold text-sidebar-foreground">
-          {user.name ?? user.email ?? 'Account'}
-        </span>
-        {user.email ? (
-          <span className="text-xs text-sidebar-foreground/70">{user.email}</span>
-        ) : null}
-      </div>
-      <Button
-        type="button"
-        onClick={async () => {
-          try {
-            if (typeof window !== 'undefined') window.location.href = '/api/auth/logout'
-          } catch {}
-        }}
-        className="ml-auto text-xs text-sidebar-foreground/70 underline hover:text-sidebar-foreground"
+    <DropdownMenu open={open} onOpenChange={setOpen}>
+      <DropdownMenuTrigger asChild>
+        <button
+          type="button"
+          className="flex w-full items-center gap-3 rounded-md px-2 py-2 text-left transition hover:bg-sidebar-accent/40"
+        >
+          <div className="flex h-9 w-9 items-center justify-center rounded-full bg-sidebar-accent text-sm font-semibold text-sidebar-accent-foreground">
+            {initials}
+          </div>
+          <div className="flex flex-1 flex-col gap-0.5">
+            <span className="text-sm font-semibold text-sidebar-foreground">
+              {user.name ?? user.email ?? 'Account'}
+            </span>
+            <span className="text-xs text-sidebar-foreground/70">{planLabel}</span>
+          </div>
+          <svg className={clsx('h-4 w-4 text-sidebar-foreground/60 transition-transform', open ? 'rotate-180' : 'rotate-0')} viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M5 8l5 5 5-5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent
+        side="top"
+        sideOffset={8}
+        align="end"
+        className="min-w-[14rem] rounded-xl border-sidebar-border/60 bg-sidebar-accent/95 p-2 text-sidebar-foreground"
+        style={{ width: 'calc(var(--radix-dropdown-menu-trigger-width))' }}
       >
-        Sign out
-      </Button>
-    </div>
+        {user.email ? <div className="px-2 pb-2 text-xs text-sidebar-foreground/70">{user.email}</div> : null}
+        <DropdownMenuItem
+          className="cursor-pointer rounded-lg px-2 py-2 text-sm font-medium text-sidebar-foreground hover:bg-sidebar-accent"
+          onSelect={(event) => {
+            event.preventDefault()
+            try {
+              if (typeof window !== 'undefined') window.location.href = '/settings'
+            } catch {}
+          }}
+        >
+          Settings
+        </DropdownMenuItem>
+        <DropdownMenuItem
+          className="cursor-pointer rounded-lg px-2 py-2 text-sm font-medium text-sidebar-foreground hover:bg-sidebar-accent"
+          onSelect={(event) => {
+            event.preventDefault()
+            try {
+              if (typeof window !== 'undefined') window.location.href = '/api/auth/logout'
+            } catch {}
+          }}
+        >
+          Log out
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
   )
 }
 
@@ -215,23 +244,9 @@ function getInitials(name?: string | null, email?: string | null) {
   return '??'
 }
 
-function Credits({ usage }: { usage?: { postsUsed?: number; monthlyPostCredits?: number } | null }) {
-  const total = Number(usage?.monthlyPostCredits || 0)
-  const used = Number(usage?.postsUsed || 0)
-  if (!total && !used) return null
-  const remaining = Math.max(0, total - used)
-  const pct = total > 0 ? Math.min(100, Math.round((used / total) * 100)) : 0
-  return (
-    <div className="mb-2 rounded-md border border-sidebar-border bg-sidebar-accent p-3 text-xs text-sidebar-foreground">
-      <div className="flex items-center justify-between">
-        <span className="font-semibold">{remaining} credits remaining</span>
-        {total ? <span className="text-sidebar-foreground/70">{used}/{total}</span> : null}
-      </div>
-      {total ? (
-        <div className="mt-2 h-1.5 w-full rounded bg-sidebar-border/60">
-          <div className="h-1.5 rounded bg-sidebar-primary" style={{ width: `${pct}%` }} />
-        </div>
-      ) : null}
-    </div>
-  )
+function titleCase(value: string) {
+  return value
+    .split(/[-_\s]+/)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ')
 }

@@ -9,6 +9,11 @@ export type Project = {
   status: ProjectStatus
   autoPublishPolicy?: 'buffered' | 'immediate' | 'manual' | string | null
   bufferDays?: number | null
+  businessSummary?: string | null
+  crawlBudget?: number | null
+  workflowState?: string | null
+  discoveryApproved?: boolean | null
+  planningApproved?: boolean | null
   serpDevice?: 'desktop' | 'mobile' | null
   serpLocationCode?: number | null
   metricsLocationCode?: number | null

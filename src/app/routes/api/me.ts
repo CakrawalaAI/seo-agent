@@ -5,6 +5,7 @@ import { hasDatabase, getDb } from '@common/infra/db'
 import { orgs, orgMembers } from '@entities/org/db/schema'
 import { eq } from 'drizzle-orm'
 import { session } from '@common/infra/session'
+import { getEntitlements as fetchEntitlements } from '@common/infra/entitlements'
 
 export const Route = createFileRoute('/api/me')({
   server: {
@@ -45,23 +46,12 @@ export const Route = createFileRoute('/api/me')({
             }
             if (!activeOrg && joined.length) activeOrg = { id: joined[0]!.id, plan: joined[0]!.plan }
             if (activeOrg?.id) {
-              const found = all.find((o: any) => String(o.id) === activeOrg!.id)
-              if (found) {
-                entitlements = found.entitlementsJson ?? null
-                // Seed free trial if no entitlements exist
-                if (!entitlements) {
-                  const trialEnt = { monthlyPostCredits: 1 }
-                  try {
-                    await db
-                      .insert(orgs)
-                      .values({ id: activeOrg.id, name: activeOrg.id, plan: found.plan ?? 'starter', entitlementsJson: trialEnt as any })
-                      .onConflictDoUpdate({ target: orgs.id, set: { entitlementsJson: trialEnt as any, updatedAt: new Date() as any } })
-                  } catch {}
-                  entitlements = trialEnt
-                }
-                // org_usage removed; expose entitlements only
-                usage = { postsUsed: 0, monthlyPostCredits: Number(entitlements?.monthlyPostCredits || 0), cycleStart: null }
+              try {
+                entitlements = await fetchEntitlements(activeOrg.id)
+              } catch {
+                entitlements = { monthlyPostCredits: 1 }
               }
+              usage = { postsUsed: 0, monthlyPostCredits: Number(entitlements?.monthlyPostCredits || 0), cycleStart: null }
             }
           } catch {}
         }

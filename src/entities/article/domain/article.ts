@@ -1,11 +1,9 @@
-export type ArticleStatus = 'draft' | 'generating' | 'ready' | 'published' | 'failed' | string
+export type ArticleStatus = 'queued' | 'scheduled' | 'published' | string
 
 export type ArticleOutlineSection = {
   heading: string
   subpoints?: string[]
 }
-
-export type ArticleBufferStage = 'seed' | 'outline' | 'draft'
 
 export type Article = {
   id: string
@@ -16,7 +14,6 @@ export type Article = {
   language?: string | null
   tone?: string | null
   status?: ArticleStatus | null
-  bufferStage?: ArticleBufferStage | null
   outlineJson?: ArticleOutlineSection[] | null
   bodyHtml?: string | null
   generationDate?: string | null

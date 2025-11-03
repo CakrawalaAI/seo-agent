@@ -66,36 +66,23 @@ export function computeRankabilityBadge(keyword: Keyword) {
 
 export function resolvePlanStatus(planItem: PlanItem, articlesByPlanId: Map<string, Article>) {
   const article = articlesByPlanId.get(planItem.id)
-  if (article?.status === 'published') {
+  const status = (planItem.status || article?.status || 'queued') as string
+  if (status === 'published') {
     return { label: 'PUBLISHED', tone: 'emerald' as const }
   }
-  if (article?.status === 'ready') {
-    return { label: 'READY', tone: 'emerald' as const }
+  if (status === 'scheduled') {
+    return { label: 'SCHEDULED', tone: 'blue' as const }
   }
-  if (article?.status === 'generating') {
-    return { label: 'GENERATING', tone: 'amber' as const }
-  }
-  if (article?.status === 'failed' || planItem.status === 'failed') {
+  if (status === 'failed' || planItem.status === 'failed') {
     return { label: 'FAILED', tone: 'rose' as const }
   }
   if (planItem.status === 'skipped') {
     return { label: 'SKIPPED', tone: 'rose' as const }
   }
-  if (planItem.status === 'ready') {
-    return { label: 'READY', tone: 'emerald' as const }
+  if (status === 'queued') {
+    return { label: 'QUEUED', tone: 'amber' as const }
   }
-  if (planItem.status === 'generating') {
-    return { label: 'GENERATING', tone: 'amber' as const }
-  }
-  const stage = planItem.bufferStage ?? article?.bufferStage ?? (Array.isArray(planItem.outlineJson) && planItem.outlineJson.length ? 'outline' : 'seed')
-  if (stage === 'draft') {
-    const label = article?.status === 'draft' ? 'DRAFT' : 'DRAFT READY'
-    return { label, tone: 'emerald' as const }
-  }
-  if (stage === 'outline') {
-    return { label: 'OUTLINE', tone: 'blue' as const }
-  }
-  return { label: 'PLANNED', tone: 'blue' as const }
+  return { label: status.toUpperCase(), tone: 'amber' as const }
 }
 
 export function badgeClassForTone(tone: string) {

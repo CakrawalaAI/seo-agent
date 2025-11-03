@@ -78,7 +78,9 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
       }
     }
   }, [navigate, projects, projectsQuery.isLoading, requestedProjectParam, resolvedProjectId, searchValueById])
-  const userSummary: DashboardUserSummary | null = user ? { name: user.name, email: user.email } : null
+  const userSummary: DashboardUserSummary | null = user
+    ? { name: user.name, email: user.email, plan: meQuery.data?.activeOrg?.plan ?? null }
+    : null
 
   return (
     <MockDataProvider>
@@ -89,7 +91,6 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
         <DashboardLayoutInner
           pathname={pathname}
           userSummary={userSummary}
-          usage={meQuery.data?.usage ?? null}
           hasOrgNoProjects={Boolean(activeOrg?.id && projects.length === 0)}
           getSearchValue={getSearchValue}
         >
@@ -103,14 +104,12 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
 function DashboardLayoutInner({
   pathname,
   userSummary,
-  usage,
   hasOrgNoProjects,
   getSearchValue,
   children
 }: {
   pathname: string
   userSummary: DashboardUserSummary | null
-  usage: any
   hasOrgNoProjects: boolean
   getSearchValue: (id: string) => string
   children: React.ReactNode
@@ -159,11 +158,11 @@ function DashboardLayoutInner({
             element: <Link to="/integrations" search={() => (activeProjectId ? { project: getSearchValue(activeProjectId) } : {})} />
           },
           {
-            key: 'account',
-            label: 'Account',
+            key: 'settings',
+            label: 'Settings',
             icon: UserCircle2,
-            active: is('/account'),
-            element: <Link to="/account" search={() => (activeProjectId ? { project: getSearchValue(activeProjectId) } : {})} />
+            active: is('/settings'),
+            element: <Link to="/settings" search={() => (activeProjectId ? { project: getSearchValue(activeProjectId) } : {})} />
           }
         ]
       }
@@ -172,7 +171,7 @@ function DashboardLayoutInner({
   }, [pathname, activeProjectId, getSearchValue])
 
   return (
-    <DashboardShell nav={nav} user={userSummary} usage={usage}>
+    <DashboardShell nav={nav} user={userSummary}>
       {hasOrgNoProjects ? (
         <section className="mb-6 rounded-lg border border-dashed bg-muted/30 p-6 text-center">
           <h2 className="text-lg font-semibold">No projects yet</h2>

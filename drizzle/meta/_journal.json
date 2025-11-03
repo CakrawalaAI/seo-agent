@@ -29,6 +29,20 @@
       "when": 1762053166715,
       "tag": "0003_add_project_discoveries",
       "breakpoints": false
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1762065909413,
+      "tag": "0004_woozy_hitman",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1762080268296,
+      "tag": "0005_plain_luminals",
+      "breakpoints": true
     }
   ]
 }

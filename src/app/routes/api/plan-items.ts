@@ -26,7 +26,7 @@ export const Route = createFileRoute('/api/plan-items')({
                 and(
                   eq(articles.projectId, projectId),
                   isNotNull(articles.plannedDate),
-                  inArray(articles.status as any, ['planned', 'draft', 'generating', 'ready'] as any)
+                  inArray(articles.status as any, ['queued', 'scheduled', 'published'] as any)
                 )
               )
               .orderBy(asc(articles.plannedDate as any))
@@ -39,7 +39,6 @@ export const Route = createFileRoute('/api/plan-items')({
                 title: r.title,
                 plannedDate: r.plannedDate,
                 status: r.status,
-                bufferStage: r.bufferStage ?? null,
                 outlineJson: r.outlineJson
               }))
             })

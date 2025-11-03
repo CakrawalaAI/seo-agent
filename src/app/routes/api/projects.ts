@@ -77,7 +77,7 @@ export const Route = createFileRoute('/api/projects')({
             recordJobQueued(project.id, 'crawl', crawlJobId)
             console.info('[api/projects] crawl queued', { projectId: project.id, jobId: crawlJobId })
           } else {
-            const seeded = crawlRepo.seedRun(project.id)
+            const seeded = await crawlRepo.seedRun(project.id)
             crawlJobId = seeded.jobId
             console.warn('[api/projects] queue disabled; seeded local crawl pages', { projectId: project.id, jobId: crawlJobId })
           }

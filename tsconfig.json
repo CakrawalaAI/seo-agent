@@ -23,6 +23,7 @@
       "@common/*": ["src/common/*"],
       "@entities/*": ["src/entities/*"],
       "@entities": ["src/entities/index.ts"],
+      "@integrations/*": ["src/integrations/*"],
       "@server/*": ["src/server/*"],
       "@cli/*": ["src/cli/*"],
       "@worker/*": ["src/worker/*"]

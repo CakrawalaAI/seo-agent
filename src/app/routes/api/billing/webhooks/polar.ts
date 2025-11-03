@@ -2,6 +2,7 @@ import { createFileRoute } from '@tanstack/react-router'
 import { httpError, json } from '@app/api-utils'
 import { db } from '@common/infra/db'
 import { orgs } from '@entities/org/db/schema'
+import { upsertSubscriptionEntitlement } from '@entities/subscription/service'
 import { eq } from 'drizzle-orm'
 
 /**
@@ -49,27 +50,22 @@ export const Route = createFileRoute('/api/billing/webhooks/polar')({
           customData: data?.metadata || data?.custom_data
         })
 
-        // Extract orgId from metadata.referenceId or custom_data
-        const orgId = data?.metadata?.referenceId || data?.custom_data?.orgId
+        const orgId = data?.metadata?.referenceId || data?.metadata?.orgId || data?.custom_data?.orgId
+        const userIdHint = data?.metadata?.userId || data?.metadata?.user_id || data?.custom_data?.userId
 
         if (!orgId) {
-          console.warn('[Polar Webhook] No orgId in webhook payload, skipping')
-          return json({ received: true })
+          console.warn('[Polar Webhook] No orgId in webhook payload, attempting best-effort sync')
         }
 
         // Route to handler based on event type
         switch (eventType) {
           case 'subscription.created':
           case 'subscription.updated':
-            await handleSubscriptionUpdate(orgId, data)
-            break
-
           case 'subscription.canceled':
-            await handleSubscriptionCanceled(orgId)
+            await persistSubscriptionState(data, { orgId, userId: userIdHint })
             break
-
           case 'order.paid':
-            await handleOrderPaid(orgId, data)
+            await handleOrderPaid(orgId, userIdHint, data)
             break
 
           default:
@@ -103,86 +99,101 @@ function verifyWebhookSignature(body: string, signature: string | null, secret: 
   }
 }
 
-/**
- * Handle subscription.created or subscription.updated.
- * Updates org plan and entitlements based on subscription status.
- */
-async function handleSubscriptionUpdate(orgId: string, subscription: any): Promise<void> {
-  const status = subscription.status // "active" | "canceled" | "past_due" | etc.
-  const priceId = subscription.product_price_id || subscription.price_id
-  const currentPeriodStart = subscription.current_period_start
-  const metadata = subscription.metadata || subscription.price?.metadata || {}
+type SubscriptionContext = { orgId?: string | null; userId?: string | null }
 
-  // Determine plan and credits
-  let plan = 'starter'
-  let monthlyPostCredits = 1 // Free tier default
+const ACTIVE_STATUSES = new Set(['active', 'trialing'])
 
-  if (status === 'active') {
-    // Extract credits from price metadata
-    const unitPosts = Number(metadata.unit_posts || metadata.multiplier || 30)
-    monthlyPostCredits = unitPosts > 0 ? unitPosts : 30
-    plan = priceId || 'paid'
-  }
-
-  // Update org
-  await db
-    .update(orgs)
-    .set({
-      plan,
-      entitlementsJson: {
-        monthlyPostCredits,
-        projectQuota: 100, // Unlimited in practice
-        status
-      },
-      updatedAt: new Date()
-    })
-    .where(eq(orgs.id, orgId))
-
-  // org_usage removed: no usage reset
-
-  console.log('[Polar Webhook] Updated org entitlements:', {
-    orgId,
-    plan,
-    monthlyPostCredits,
-    status
-  })
-}
-
-/**
- * Handle subscription.canceled.
- * Downgrades org to free tier.
- */
-async function handleSubscriptionCanceled(orgId: string): Promise<void> {
-  await db
-    .update(orgs)
-    .set({
-      plan: 'starter',
-      entitlementsJson: {
-        monthlyPostCredits: 1,
-        projectQuota: 1,
-        status: 'canceled'
-      },
-      updatedAt: new Date()
-    })
-    .where(eq(orgs.id, orgId))
-
-  console.log('[Polar Webhook] Downgraded org to free tier:', orgId)
-}
-
-/**
- * Handle order.paid (renewal or one-time purchase).
- */
-async function handleOrderPaid(orgId: string, order: any): Promise<void> {
-  const subscriptionId = order.subscription_id
-
+async function persistSubscriptionState(subscription: any, context: SubscriptionContext = {}): Promise<void> {
+  const subscriptionId = String(subscription?.id || '')
   if (!subscriptionId) {
-    console.log('[Polar Webhook] Order has no subscription, skipping usage reset')
+    console.warn('[Polar Webhook] Subscription missing id, skipping')
     return
   }
 
-  // Fetch subscription to get current_period_start
+  const status: string = String(subscription?.status || 'unknown')
+  const orgId = context.orgId ?? resolveOrgId(subscription)
+  const userId = context.userId ?? resolveUserId(subscription)
+
+  if (!userId) {
+    console.warn('[Polar Webhook] No userId for subscription', { subscriptionId, status })
+    return
+  }
+
+  const priceMetadata = mergeMetadata(subscription)
+  const seatQuantity = normalizeNumber(subscription?.seats ?? subscription?.seat_quantity)
+  const tier = determineTier(subscription, priceMetadata)
+  const entitlements = deriveEntitlements(status, priceMetadata, seatQuantity)
+
+  await upsertSubscriptionEntitlement({
+    subscriptionId,
+    userId,
+    orgId,
+    status,
+    tier,
+    productId: subscription?.product_id || subscription?.product?.id || null,
+    priceId: subscription?.product_price_id || subscription?.price_id || subscription?.price?.id || null,
+    customerId: subscription?.customer_id || subscription?.customer?.id || null,
+    seatQuantity,
+    currentPeriodEnd: subscription?.current_period_end || subscription?.ends_at || null,
+    trialEndsAt: subscription?.trial_end || subscription?.trial_ends_at || null,
+    cancelAt: subscription?.cancel_at || subscription?.canceled_at || null,
+    cancelAtPeriodEnd: Boolean(subscription?.cancel_at_period_end),
+    metadata: priceMetadata,
+    entitlements,
+    rawPayload: buildRawSnapshot(subscription),
+    lastSyncedAt: new Date()
+  })
+
+  if (orgId) {
+    const plan = ACTIVE_STATUSES.has(status) ? tier || 'paid' : 'starter'
+    const activeUntil = subscription?.current_period_end || subscription?.ends_at || null
+    const trialEndsAt = subscription?.trial_end || null
+    await db
+      .update(orgs)
+      .set({
+        plan,
+        entitlementsJson: {
+          ...entitlements,
+          status,
+          activeUntil,
+          trialEndsAt,
+          seatQuantity
+        },
+        updatedAt: new Date()
+      })
+      .where(eq(orgs.id, orgId))
+
+    console.log('[Polar Webhook] Persisted subscription state', {
+      subscriptionId,
+      orgId,
+      userId,
+      status,
+      plan,
+      activeUntil,
+      seatQuantity
+    })
+  } else {
+    console.log('[Polar Webhook] Stored entitlement without org binding', {
+      subscriptionId,
+      userId,
+      status,
+      seatQuantity
+    })
+  }
+}
+
+async function handleOrderPaid(orgId: string | null | undefined, userIdHint: string | null | undefined, order: any): Promise<void> {
+  const subscriptionId = order?.subscription_id
+  if (!subscriptionId) {
+    console.log('[Polar Webhook] Order has no subscription, skipping')
+    return
+  }
+
   const token = process.env.POLAR_ACCESS_TOKEN
-  if (!token) return
+  if (!token) {
+    console.warn('[Polar Webhook] POLAR_ACCESS_TOKEN missing; cannot refresh subscription', { subscriptionId })
+    return
+  }
 
   const server =
     (process.env.POLAR_SERVER || '').toLowerCase() === 'sandbox'
@@ -195,13 +206,120 @@ async function handleOrderPaid(orgId: string, order: any): Promise<void> {
     })
 
     if (!res.ok) {
-      console.error('[Polar Webhook] Failed to fetch subscription:', res.status)
+      console.error('[Polar Webhook] Failed to fetch subscription', { subscriptionId, status: res.status })
       return
     }
 
     const subscription = await res.json()
-    await handleSubscriptionUpdate(orgId, subscription)
+    await persistSubscriptionState(subscription, { orgId, userId: userIdHint })
   } catch (error) {
-    console.error('[Polar Webhook] Error fetching subscription:', error)
+    console.error('[Polar Webhook] Error fetching subscription', {
+      subscriptionId,
+      message: (error as Error)?.message || String(error)
+    })
   }
+}
+
+function resolveOrgId(subscription: any): string | null {
+  return (
+    subscription?.metadata?.referenceId ||
+    subscription?.metadata?.orgId ||
+    subscription?.metadata?.org_id ||
+    subscription?.customer?.metadata?.orgId ||
+    subscription?.customer?.organization_id ||
+    null
+  )
+}
+
+function resolveUserId(subscription: any): string | null {
+  return (
+    subscription?.metadata?.userId ||
+    subscription?.metadata?.user_id ||
+    subscription?.customer?.metadata?.userId ||
+    subscription?.customer?.external_id ||
+    null
+  )
+}
+
+function mergeMetadata(subscription: any): Record<string, unknown> {
+  const merged: Record<string, unknown> = {}
+  const sources = [
+    subscription?.price?.metadata,
+    subscription?.product_price?.metadata,
+    subscription?.product?.metadata,
+    subscription?.metadata
+  ]
+  for (const source of sources) {
+    if (source && typeof source === 'object') {
+      Object.assign(merged, source as Record<string, unknown>)
+    }
+  }
+  return merged
+}
+
+function deriveEntitlements(
+  status: string,
+  metadata: Record<string, unknown>,
+  seatQuantity: number | null | undefined
+): Record<string, unknown> {
+  const active = ACTIVE_STATUSES.has(status)
+  const unitPosts = normalizeNumber(
+    metadata.unit_posts ?? metadata.unitPosts ?? metadata.monthly_post_credits ?? metadata.monthlyPostCredits
+  )
+  const multiplier = normalizeNumber(metadata.multiplier) || 1
+  const seats = seatQuantity && seatQuantity > 0 ? seatQuantity : 1
+
+  const monthlyPostCredits = active
+    ? Math.max(0, (unitPosts || 30) * Math.max(1, multiplier) * Math.max(1, seats))
+    : 0
+
+  const projectQuota = normalizeNumber(metadata.project_quota ?? metadata.projectQuota) || (active ? 100 : 1)
+
+  return {
+    monthlyPostCredits,
+    projectQuota
+  }
+}
+
+function determineTier(subscription: any, metadata: Record<string, unknown>): string | null {
+  if (typeof metadata?.plan_tier === 'string') return metadata.plan_tier as string
+  if (typeof metadata?.planTier === 'string') return metadata.planTier as string
+  if (typeof subscription?.product?.name === 'string') return subscription.product.name
+  if (typeof subscription?.product_price_id === 'string') return subscription.product_price_id
+  if (typeof subscription?.price_id === 'string') return subscription.price_id
+  return null
+}
+
+function buildRawSnapshot(subscription: any): Record<string, unknown> {
+  return {
+    id: subscription?.id,
+    status: subscription?.status,
+    current_period_end: subscription?.current_period_end ?? subscription?.ends_at,
+    current_period_start: subscription?.current_period_start,
+    trial_end: subscription?.trial_end,
+    cancel_at: subscription?.cancel_at,
+    cancel_at_period_end: subscription?.cancel_at_period_end,
+    customer_id: subscription?.customer_id,
+    product_id: subscription?.product_id,
+    price_id: subscription?.product_price_id || subscription?.price_id,
+    seats: subscription?.seats,
+    metadata: subscription?.metadata,
+    price_metadata: subscription?.price?.metadata || subscription?.product_price?.metadata,
+    customer: subscription?.customer
+      ? {
+          id: subscription.customer.id,
+          external_id: subscription.customer.external_id,
+          email: subscription.customer.email
+        }
+      : null
+  }
+}
+
+function normalizeNumber(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isFinite(value)) return value
+  if (typeof value === 'string') {
+    const parsed = Number(value)
+    return Number.isFinite(parsed) ? parsed : null
+  }
+  return null
 }

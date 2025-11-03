@@ -1,14 +1,18 @@
 import { db } from './db'
 import { orgs } from '@entities/org/db/schema'
+import { getSubscriptionEntitlementByOrg } from '@entities/subscription/service'
 import { eq } from 'drizzle-orm'
 
 /**
  * Entitlements from org.entitlementsJson.
  */
 export type Entitlements = {
-  monthlyPostCredits: number
-  projectQuota?: number
-  status?: string
+  monthlyPostCredits: number | null
+  projectQuota?: number | null
+  status?: string | null
+  activeUntil?: string | null
+  trialEndsAt?: string | null
+  seatQuantity?: number | null
   [key: string]: unknown
 }
 
@@ -36,26 +40,44 @@ export type EntitlementCheck = {
  * @returns EntitlementCheck object
  */
 export async function checkPostEntitlement(orgId: string): Promise<EntitlementCheck> {
-  // Fetch org entitlements
-  const orgRows = await db.select().from(orgs).where(eq(orgs.id, orgId)).limit(1)
+  const subscription = await getSubscriptionEntitlementByOrg(orgId)
+  const usage: Usage = { postsUsed: 0, cycleStart: null }
 
-  if (orgRows.length === 0) {
+  if (subscription) {
+    const entitlements = normalizeEntitlements(
+      subscription.entitlements,
+      subscription.status,
+      subscription.currentPeriodEnd ?? null,
+      subscription.trialEndsAt ?? null,
+      subscription.seatQuantity ?? null
+    )
+
+    const allowed = isActiveStatus(subscription.status)
+    const remaining = computeRemaining(entitlements, usage)
+    const reason = allowed ? undefined : `Subscription ${subscription.status || 'inactive'}`
+
+    return {
+      allowed,
+      reason,
+      entitlements,
+      usage,
+      remaining
+    }
+  }
+
+  const legacy = await readOrgEntitlements(orgId)
+  if (!legacy) {
     return {
       allowed: false,
       reason: 'Organization not found',
       entitlements: { monthlyPostCredits: 0 },
-      usage: { postsUsed: 0, cycleStart: null },
+      usage,
       remaining: 0
     }
   }
 
-  const org = orgRows[0]
-  const entitlements = (org.entitlementsJson as Entitlements) ?? { monthlyPostCredits: 1 }
-
-  // Usage gating removed: always allow; return zero usage
-  const usage: Usage = { postsUsed: 0, cycleStart: null }
-  const remaining = entitlements.monthlyPostCredits ?? Infinity
-  return { allowed: true, entitlements, usage, remaining }
+  const remaining = typeof legacy.monthlyPostCredits === 'number' ? legacy.monthlyPostCredits : 0
+  return { allowed: true, entitlements: legacy, usage, remaining }
 }
 
 /**
@@ -87,14 +109,75 @@ export async function requirePostEntitlement(orgId: string): Promise<Entitlement
  * Get entitlements for an organization (for display purposes).
  */
 export async function getEntitlements(orgId: string): Promise<Entitlements | null> {
-  const orgRows = await db.select().from(orgs).where(eq(orgs.id, orgId)).limit(1)
+  const subscription = await getSubscriptionEntitlementByOrg(orgId)
+  if (subscription) {
+    return normalizeEntitlements(
+      subscription.entitlements,
+      subscription.status,
+      subscription.currentPeriodEnd ?? null,
+      subscription.trialEndsAt ?? null,
+      subscription.seatQuantity ?? null
+    )
+  }
 
-  if (orgRows.length === 0) return null
-
-  return (orgRows[0].entitlementsJson as Entitlements) ?? { monthlyPostCredits: 1 }
+  const legacy = await readOrgEntitlements(orgId)
+  return legacy ?? { monthlyPostCredits: 1 }
 }
 
 /**
  * Get usage for an organization (for display purposes).
  */
 export async function getUsage(_orgId: string): Promise<Usage> { return { postsUsed: 0, cycleStart: null } }
+
+function isActiveStatus(status: string | undefined | null): boolean {
+  if (!status) return false
+  const normalized = String(status).toLowerCase()
+  return normalized === 'active' || normalized === 'trialing'
+}
+
+function normalizeEntitlements(
+  ent: Record<string, unknown> | null | undefined,
+  status: string | undefined | null,
+  activeUntil: string | null,
+  trialEndsAt: string | null,
+  seatQuantity: number | null
+): Entitlements {
+  const monthly =
+    normalizeNumber((ent as any)?.monthlyPostCredits ?? (ent as any)?.monthly_post_credits) ??
+    (isActiveStatus(status) ? 30 : 0)
+  const projectQuota =
+    normalizeNumber((ent as any)?.projectQuota ?? (ent as any)?.project_quota) ??
+    (isActiveStatus(status) ? 100 : 1)
+
+  return {
+    ...(ent || {}),
+    monthlyPostCredits: monthly,
+    projectQuota,
+    status: status ?? null,
+    activeUntil,
+    trialEndsAt,
+    seatQuantity
+  }
+}
+
+async function readOrgEntitlements(orgId: string): Promise<Entitlements | null> {
+  const rows = await db.select().from(orgs).where(eq(orgs.id, orgId)).limit(1)
+  if (rows.length === 0) return null
+  const ent = rows[0].entitlementsJson as Entitlements | null
+  return ent ?? { monthlyPostCredits: 1 }
+}
+
+function computeRemaining(entitlements: Entitlements, usage: Usage): number {
+  const monthly = typeof entitlements.monthlyPostCredits === 'number' ? entitlements.monthlyPostCredits : 0
+  if (monthly <= 0) return 0
+  return Math.max(0, monthly - usage.postsUsed)
+}
+
+function normalizeNumber(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isFinite(value)) return value
+  if (typeof value === 'string') {
+    const parsed = Number(value)
+    if (Number.isFinite(parsed)) return parsed
+  }
+  return null
+}

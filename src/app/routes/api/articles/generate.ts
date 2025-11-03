@@ -46,11 +46,13 @@ export const Route = createFileRoute('/api/articles/generate')({
           }
 
           const { usage, entitlements } = check
-          if (entitlements.monthlyPostCredits > 0 && usage.postsUsed / entitlements.monthlyPostCredits >= 0.9) {
+          const totalCredits = Number(entitlements?.monthlyPostCredits ?? 0)
+          const usedCredits = Number(usage?.postsUsed ?? 0)
+          if (totalCredits > 0 && usedCredits / totalCredits >= 0.9) {
             console.warn('[Billing] Usage approaching limit', {
               orgId: activeOrgId,
-              used: usage.postsUsed + 1,
-              total: entitlements.monthlyPostCredits
+              used: usedCredits + 1,
+              total: totalCredits
             })
           }
         }

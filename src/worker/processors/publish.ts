@@ -1,6 +1,6 @@
 import { articlesRepo } from '@entities/article/repository'
 import { integrationsRepo } from '@entities/integration/repository'
-import { connectorRegistry } from '@common/connectors/registry'
+import { connectorRegistry } from '@features/integrations/server/registry'
 import * as bundle from '@common/bundle/store'
 
 /**

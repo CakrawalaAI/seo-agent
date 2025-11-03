@@ -3,6 +3,7 @@ import {
   postJson,
   putJson,
   patchJson,
+  deleteJson,
   type JsonFetchOptions
 } from '@common/http/json'
 import type {
@@ -12,7 +13,8 @@ import type {
   PlanItem,
   Project,
   ProjectIntegration,
-  ProjectSnapshot
+  ProjectSnapshot,
+  IntegrationStatus
 } from '@entities'
 
 export function getProject(projectId: string, init?: JsonFetchOptions) {
@@ -88,13 +90,33 @@ export function testIntegration(integrationId: string) {
   return postJson(`/api/integrations/${integrationId}/test`, {})
 }
 
-export function createWebhook(projectId: string, targetUrl: string, secret: string) {
+export function createIntegration(input: {
+  projectId: string
+  type: string
+  config?: Record<string, unknown> | null
+  status?: IntegrationStatus
+}) {
   return postJson<ProjectIntegration>(`/api/integrations`, {
-    projectId,
-    type: 'webhook',
-    config: { targetUrl, secret },
-    status: 'connected'
+    projectId: input.projectId,
+    type: input.type,
+    config: input.config ?? null,
+    status: input.status ?? 'connected'
   })
+}
+
+export function updateIntegration(integrationId: string, patch: {
+  status?: IntegrationStatus
+  config?: Record<string, unknown> | null
+}) {
+  return patchJson<ProjectIntegration>(`/api/integrations/${integrationId}`, patch)
+}
+
+export function deleteIntegration(integrationId: string) {
+  return deleteJson(`/api/integrations/${integrationId}`)
+}
+
+export function createWebhook(projectId: string, targetUrl: string, secret: string) {
+  return createIntegration({ projectId, type: 'webhook', config: { targetUrl, secret }, status: 'connected' })
 }
 
 export function patchProject(projectId: string, payload: Record<string, unknown>) {

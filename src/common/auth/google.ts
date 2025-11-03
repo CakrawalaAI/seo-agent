@@ -5,15 +5,47 @@ import { and, eq } from 'drizzle-orm'
 
 const OAUTH_COOKIE = 'seoa_oauth'
 
+export class GoogleOAuthConfigError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'GoogleOAuthConfigError'
+  }
+}
+
 export function getBaseUrl(request: Request): string {
   // Prefer explicit APP_URL to avoid port mismatches between login and callback
   const env = process.env.APP_URL
   if (env) return env.replace(/\/$/, '')
   const url = new URL(request.url)
-  const proto = request.headers.get('x-forwarded-proto') || url.protocol.replace(':', '')
-  const host = request.headers.get('x-forwarded-host') || request.headers.get('host') || url.host
+  const proto = normalizeProto(request.headers.get('x-forwarded-proto')) || url.protocol.replace(':', '')
+  const host =
+    normalizeHost(request.headers.get('x-forwarded-host')) ||
+    normalizeHost(request.headers.get('host')) ||
+    url.host
   const base = `${proto}://${host}`
   return base
+}
+
+function normalizeProto(value: string | null): string | null {
+  if (!value) return null
+  const first = value.split(',')[0]?.trim().toLowerCase()
+  if (!first) return null
+  if (first.includes('://')) {
+    const split = first.split('://')[0]
+    if (split === 'http' || split === 'https') return split
+    return null
+  }
+  if (first === 'http' || first === 'https') return first
+  return null
+}
+
+function normalizeHost(value: string | null): string | null {
+  if (!value) return null
+  const first = value.split(',')[0]?.trim()
+  if (!first) return null
+  const stripped = first.replace(/^[a-z]+:\/\//i, '')
+  const host = stripped.split('/')[0]
+  return host || null
 }
 
 export function sanitizeRedirect(redirectTo?: string | null): string {
@@ -24,21 +56,34 @@ export function sanitizeRedirect(redirectTo?: string | null): string {
   return redirectTo
 }
 
-export function buildGoogleAuthUrl(request: Request, redirectTo?: string) {
-  const clientId = process.env.GOOGLE_CLIENT_ID!
+export function buildGoogleAuthUrl(
+  request: Request,
+  options?: { redirectTo?: string; payload?: Record<string, unknown> | null }
+) {
+  const clientId = process.env.GOOGLE_CLIENT_ID
+  if (!clientId) {
+    throw new GoogleOAuthConfigError('missing_google_client_id')
+  }
   const redirectUri = `${getBaseUrl(request)}/api/auth/callback/google`
   const state = randomId('st_')
   const scope = encodeURIComponent('openid email profile')
   const url = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${encodeURIComponent(clientId)}&response_type=code&redirect_uri=${encodeURIComponent(
     redirectUri,
   )}&scope=${scope}&state=${encodeURIComponent(state)}&access_type=offline&prompt=consent`
-  const cookie = setTempCookie({ state, redirectTo: sanitizeRedirect(redirectTo) })
+  const cookie = setTempCookie({
+    state,
+    redirectTo: sanitizeRedirect(options?.redirectTo),
+    payload: options?.payload ?? null
+  })
   return { url, cookie }
 }
 
 export async function exchangeCodeForTokens(request: Request, code: string) {
-  const clientId = process.env.GOOGLE_CLIENT_ID!
-  const clientSecret = process.env.GOOGLE_CLIENT_SECRET!
+  const clientId = process.env.GOOGLE_CLIENT_ID
+  const clientSecret = process.env.GOOGLE_CLIENT_SECRET
+  if (!clientId || !clientSecret) {
+    throw new GoogleOAuthConfigError('missing_google_credentials')
+  }
   const redirectUri = `${getBaseUrl(request)}/api/auth/callback/google`
   const body = new URLSearchParams({
     grant_type: 'authorization_code',
@@ -133,7 +178,7 @@ export async function upsertUserFromGoogle(profile: { sub: string; email: string
   return { userId }
 }
 
-export function parseTempCookie(request: Request): { state?: string; redirectTo?: string | null } {
+export function parseTempCookie(request: Request): { state?: string; redirectTo?: string | null; payload?: Record<string, unknown> | null } {
   const header = request.headers.get('cookie') || ''
   const m = header.match(new RegExp(`${OAUTH_COOKIE}=([^;]+)`))
   if (!m) return {}
@@ -149,7 +194,7 @@ export function clearTempCookie() {
   return serializeCookie(OAUTH_COOKIE, '', { path: '/', httpOnly: true, sameSite: 'Lax', secure: process.env.NODE_ENV === 'production', maxAge: 0 })
 }
 
-function setTempCookie(value: { state: string; redirectTo?: string }) {
+function setTempCookie(value: { state: string; redirectTo?: string | null; payload?: Record<string, unknown> | null }) {
   const raw = Buffer.from(JSON.stringify(value)).toString('base64')
   return serializeCookie(OAUTH_COOKIE, raw, { path: '/', httpOnly: true, sameSite: 'Lax', secure: process.env.NODE_ENV === 'production', maxAge: 10 * 60 })
 }

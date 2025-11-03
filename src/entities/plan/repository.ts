@@ -44,7 +44,6 @@ export const planRepo = {
         keywordId: articlesTable.keywordId,
         plannedDate: articlesTable.plannedDate,
         status: articlesTable.status,
-        bufferStage: articlesTable.bufferStage,
         outlineJson: articlesTable.outlineJson,
         bodyHtml: articlesTable.bodyHtml,
         title: articlesTable.title,
@@ -120,8 +119,8 @@ export const planRepo = {
     const selectedExistingIds = new Set<string>()
     const outlineIds = new Set<string>()
     const draftIds = new Set<string>()
-    const outlineStageFixIds = new Set<string>()
-    const draftStageFixIds = new Set<string>()
+    const queuedFixIds = new Set<string>()
+    const scheduledFixIds = new Set<string>()
     const newRows: Array<{
       id: string
       projectId: string
@@ -129,7 +128,6 @@ export const planRepo = {
       title: string
       plannedDate: string
       status: string
-      bufferStage: string
     }> = []
     const removeIds = new Set<string>()
 
@@ -146,8 +144,13 @@ export const planRepo = {
     }
 
     const rowHasOutline = (row: typeof existingRows[number]) => Array.isArray(row.outlineJson) && row.outlineJson.length > 0
-    const rowHasDraft = (row: typeof existingRows[number]) =>
-      Boolean(row.bodyHtml && String(row.bodyHtml).trim().length > 0) || row.bufferStage === 'draft' || row.status === 'draft'
+    const rowHasBody = (row: typeof existingRows[number]) => Boolean(row.bodyHtml && String(row.bodyHtml).trim().length > 0)
+    const canonicalStatus = (row: typeof existingRows[number]) => {
+      const raw = String(row.status || '').toLowerCase()
+      if (raw === 'published') return 'published'
+      if (raw === 'scheduled' || raw === 'draft' || raw === 'ready' || raw === 'generating') return 'scheduled'
+      return 'queued'
+    }
     const isIncluded = (row: typeof existingRows[number]) => (row.keywordScope || 'auto') !== 'exclude'
 
     for (let idx = 0; idx < targetDates.length; idx++) {
@@ -156,9 +159,9 @@ export const planRepo = {
       const options = [...(existingByDate.get(date) ?? [])]
       options.sort((a, b) => {
         const scoreFor = (row: typeof existingRows[number]) => {
-          const stage = row.bufferStage || (row.status === 'draft' ? 'draft' : 'seed')
-          if (stage === 'draft') return isDraftWindow ? 4 : 2
-          if (stage === 'outline') return 3
+          const status = canonicalStatus(row)
+          if (status === 'scheduled') return isDraftWindow ? 4 : 2
+          if (rowHasOutline(row)) return 3
           return 1
         }
         return scoreFor(b) - scoreFor(a)
@@ -196,8 +199,7 @@ export const planRepo = {
           keywordId: candidate.id,
           title: candidate.phrase,
           plannedDate: date,
-          status: 'planned',
-          bufferStage: 'seed'
+          status: 'queued'
         })
         outlineIds.add(newId)
         if (isDraftWindow) draftIds.add(newId)
@@ -209,15 +211,17 @@ export const planRepo = {
       if (chosen.keywordId) usedKeywordIds.add(chosen.keywordId)
       if (!rowHasOutline(chosen)) {
         outlineIds.add(chosen.id)
-      } else if ((chosen.bufferStage ?? null) === null || chosen.bufferStage === 'seed') {
-        outlineStageFixIds.add(chosen.id)
+      } else if (canonicalStatus(chosen) === 'queued' && !rowHasBody(chosen)) {
+        outlineIds.add(chosen.id)
       }
       if (isDraftWindow) {
-        if (!rowHasDraft(chosen)) {
+        if (!rowHasBody(chosen)) {
           draftIds.add(chosen.id)
-        } else if (chosen.bufferStage !== 'draft' || chosen.status !== 'draft') {
-          draftStageFixIds.add(chosen.id)
+        } else if (canonicalStatus(chosen) !== 'scheduled') {
+          scheduledFixIds.add(chosen.id)
         }
+      } else if (canonicalStatus(chosen) !== 'queued') {
+        queuedFixIds.add(chosen.id)
       }
     }
 
@@ -236,17 +240,18 @@ export const planRepo = {
       if (newRows.length) {
         await tx.insert(articlesTable).values(newRows as any).onConflictDoNothing?.()
       }
-      if (outlineStageFixIds.size) {
+      const nowTs = new Date() as any
+      if (queuedFixIds.size) {
         await tx
           .update(articlesTable)
-          .set({ bufferStage: 'outline', status: 'planned', updatedAt: new Date() as any })
-          .where(inArray(articlesTable.id, Array.from(outlineStageFixIds)))
+          .set({ status: 'queued', updatedAt: nowTs })
+          .where(inArray(articlesTable.id, Array.from(queuedFixIds)))
       }
-      if (draftStageFixIds.size) {
+      if (scheduledFixIds.size) {
         await tx
           .update(articlesTable)
-          .set({ bufferStage: 'draft', status: 'draft', updatedAt: new Date() as any })
-          .where(inArray(articlesTable.id, Array.from(draftStageFixIds)))
+          .set({ status: 'scheduled', updatedAt: nowTs })
+          .where(inArray(articlesTable.id, Array.from(scheduledFixIds)))
       }
     })
 
@@ -272,7 +277,7 @@ export const planRepo = {
         and(
           eq(articlesTable.projectId, projectId),
           isNotNull(articlesTable.plannedDate),
-          inArray(articlesTable.status as any, ['planned', 'draft', 'generating', 'ready'] as any)
+          inArray(articlesTable.status as any, ['queued', 'scheduled', 'published'] as any)
         )
       )
       .orderBy(asc(articlesTable.plannedDate as any))
@@ -284,9 +289,8 @@ export const planRepo = {
       keywordId: r.keywordId ?? null,
       title: r.title ?? '',
       plannedDate: r.plannedDate ?? '',
-      status: (r.status as any) ?? 'draft',
+      status: (r.status as any) ?? 'queued',
       outlineJson: (r as any).outlineJson ?? null,
-      bufferStage: (r as any).bufferStage ?? null,
       language: r.language ?? null,
       tone: r.tone ?? null,
       createdAt: r.createdAt,
@@ -308,32 +312,22 @@ export const planRepo = {
       plannedDate: r.plannedDate,
       status: r.status,
       outlineJson: r.outlineJson,
-      bufferStage: r.bufferStage ?? null,
       language: r.language,
       tone: r.tone,
       createdAt: r.createdAt,
       updatedAt: r.updatedAt
     } as any
   },
-  async updateFields(planItemId: string, patch: Partial<Pick<PlanItem, 'title' | 'outlineJson' | 'status' | 'bufferStage'>>): Promise<PlanItem | null> {
+  async updateFields(planItemId: string, patch: Partial<Pick<PlanItem, 'title' | 'outlineJson' | 'status'>>): Promise<PlanItem | null> {
     if (!hasDatabase()) return null
     const db = getDb()
     const set: any = { updatedAt: new Date() as any }
     if (typeof patch.title === 'string') set.title = patch.title
     if (patch.outlineJson) {
       set.outlineJson = patch.outlineJson as any
-      if (!patch.bufferStage) {
-        set.bufferStage = 'outline'
-      }
     }
     if (typeof patch.status === 'string') {
       set.status = patch.status
-      if (patch.status === 'draft') {
-        set.bufferStage = 'draft'
-      }
-    }
-    if (typeof patch.bufferStage === 'string') {
-      set.bufferStage = patch.bufferStage
     }
     await db.update(articlesTable).set(set).where(eq(articlesTable.id, planItemId))
     const rows = await db.select().from(articlesTable).where(eq(articlesTable.id, planItemId)).limit(1)
@@ -347,7 +341,6 @@ export const planRepo = {
       plannedDate: r.plannedDate,
       status: r.status,
       outlineJson: r.outlineJson,
-      bufferStage: r.bufferStage ?? null,
       language: r.language,
       tone: r.tone,
       createdAt: r.createdAt,
@@ -370,7 +363,6 @@ export const planRepo = {
         plannedDate: r.plannedDate,
         status: r.status,
         outlineJson: r.outlineJson,
-        bufferStage: r.bufferStage ?? null,
         language: r.language,
         tone: r.tone
       } as any
@@ -379,7 +371,9 @@ export const planRepo = {
   async removeByProject(projectId: string) {
     if (!hasDatabase()) return
     const db = getDb()
-    await db.delete(articlesTable).where(and(eq(articlesTable.projectId, projectId), eq(articlesTable.status as any, 'draft' as any)))
+    await db
+      .delete(articlesTable)
+      .where(and(eq(articlesTable.projectId, projectId), inArray(articlesTable.status as any, ['queued', 'scheduled'] as any)))
   }
 }
 

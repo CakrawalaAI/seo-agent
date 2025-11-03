@@ -14,6 +14,8 @@ Environment
 - SEOA_AUTOPUBLISH_POLICY=buffered|immediate|manual (default buffered)
 - SEOA_BUFFER_DAYS=3
 - SEO_AGENT_BASE_URL=http://localhost:5173 (for CLI)
+- REDIS_URL=redis://localhost:6379/0 (required for entitlement cache)
+- ENTITLEMENT_CACHE_TTL_SECONDS=3600 (optional override for Redis TTL)
 
 CLI examples
 - seo ping

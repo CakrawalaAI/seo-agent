@@ -2,7 +2,7 @@ import { createFileRoute } from '@tanstack/react-router'
 import { json, httpError, safeHandler, requireSession, requireProjectAccess } from '@app/api-utils'
 import { articlesRepo } from '@entities/article/repository'
 import { integrationsRepo } from '@entities/integration/repository'
-import { connectorRegistry } from '@common/connectors/registry'
+import { connectorRegistry } from '@features/integrations/server/registry'
 import { queueEnabled, publishJob } from '@common/infra/queue'
 import { recordJobQueued } from '@common/infra/jobs'
 

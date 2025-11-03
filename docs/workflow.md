@@ -9,6 +9,7 @@ Keep the worker DAGs explicit and document which side effects land in Postgres v
 
 ### Init Loop (crawl → discovery → score → plan)
 ```
+`/onboarding/ensure?site=<url>` → ensure project (org-scoped) + enqueue crawl
 ProjectCreated / plan regenerate
   └─ publish(crawl.{project})
        └─ crawler worker

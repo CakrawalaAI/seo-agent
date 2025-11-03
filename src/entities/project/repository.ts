@@ -12,10 +12,29 @@ export type CreateProjectInput = {
   serpLocationCode?: number
   metricsLocationCode?: number
   dfsLanguageCode?: string
+  businessSummary?: string | null
+  crawlBudget?: number | null
 }
 
 export type PatchProjectInput = Partial<
-  Pick<Project, 'name' | 'defaultLocale' | 'siteUrl' | 'autoPublishPolicy' | 'status' | 'bufferDays' | 'serpDevice' | 'serpLocationCode' | 'metricsLocationCode' | 'dfsLanguageCode'>
+  Pick<
+    Project,
+    | 'name'
+    | 'defaultLocale'
+    | 'siteUrl'
+    | 'autoPublishPolicy'
+    | 'status'
+    | 'bufferDays'
+    | 'businessSummary'
+    | 'crawlBudget'
+    | 'workflowState'
+    | 'discoveryApproved'
+    | 'planningApproved'
+    | 'serpDevice'
+    | 'serpLocationCode'
+    | 'metricsLocationCode'
+    | 'dfsLanguageCode'
+  >
 >
 
 export const projectsRepo = {
@@ -31,6 +50,11 @@ export const projectsRepo = {
       autoPublishPolicy: 'buffered',
       status: 'draft',
       bufferDays: 3,
+      businessSummary: input.businessSummary ?? null,
+      crawlBudget: input.crawlBudget ?? 20,
+      workflowState: 'pending_summary_approval',
+      discoveryApproved: false,
+      planningApproved: false,
       serpDevice: 'desktop',
       serpLocationCode: input.serpLocationCode ?? 2840,
       metricsLocationCode: input.metricsLocationCode ?? 2840,
@@ -58,6 +82,11 @@ export const projectsRepo = {
           autoPublishPolicy: project.autoPublishPolicy ?? null,
           status: project.status ?? 'draft',
           bufferDays: project.bufferDays ?? 3,
+          businessSummary: project.businessSummary ?? null,
+          crawlBudget: project.crawlBudget ?? 20,
+          workflowState: project.workflowState ?? 'pending_summary_approval',
+          discoveryApproved: project.discoveryApproved ?? false,
+          planningApproved: project.planningApproved ?? false,
           serpDevice: project.serpDevice ?? 'desktop',
           serpLocationCode: project.serpLocationCode ?? 2840,
           metricsLocationCode: project.metricsLocationCode ?? 2840,
@@ -97,6 +126,11 @@ export const projectsRepo = {
       autoPublishPolicy: r.autoPublishPolicy ?? undefined,
       status: r.status ?? 'draft',
       bufferDays: typeof r.bufferDays === 'number' ? r.bufferDays : null,
+      businessSummary: r.businessSummary ?? null,
+      crawlBudget: typeof r.crawlBudget === 'number' ? r.crawlBudget : null,
+      workflowState: r.workflowState ?? null,
+      discoveryApproved: typeof r.discoveryApproved === 'boolean' ? r.discoveryApproved : null,
+      planningApproved: typeof r.planningApproved === 'boolean' ? r.planningApproved : null,
       serpDevice: r.serpDevice ?? null,
       serpLocationCode: r.serpLocationCode ?? null,
       metricsLocationCode: r.metricsLocationCode ?? null,
@@ -121,6 +155,11 @@ export const projectsRepo = {
       autoPublishPolicy: r.autoPublishPolicy ?? undefined,
       status: r.status ?? 'draft',
       bufferDays: typeof r.bufferDays === 'number' ? r.bufferDays : null,
+      businessSummary: r.businessSummary ?? null,
+      crawlBudget: typeof r.crawlBudget === 'number' ? r.crawlBudget : null,
+      workflowState: r.workflowState ?? null,
+      discoveryApproved: typeof r.discoveryApproved === 'boolean' ? r.discoveryApproved : null,
+      planningApproved: typeof r.planningApproved === 'boolean' ? r.planningApproved : null,
       serpDevice: r.serpDevice ?? null,
       serpLocationCode: r.serpLocationCode ?? null,
       metricsLocationCode: r.metricsLocationCode ?? null,
@@ -134,7 +173,23 @@ export const projectsRepo = {
     if (!hasDatabase()) return null
     const db = getDb()
     const set: any = { updatedAt: new Date() as any }
-    for (const k of ['name', 'defaultLocale', 'siteUrl', 'autoPublishPolicy', 'status', 'bufferDays', 'serpDevice', 'serpLocationCode', 'metricsLocationCode', 'dfsLanguageCode'] as const) {
+    for (const k of [
+      'name',
+      'defaultLocale',
+      'siteUrl',
+      'autoPublishPolicy',
+      'status',
+      'bufferDays',
+      'businessSummary',
+      'crawlBudget',
+      'workflowState',
+      'discoveryApproved',
+      'planningApproved',
+      'serpDevice',
+      'serpLocationCode',
+      'metricsLocationCode',
+      'dfsLanguageCode'
+    ] as const) {
       const v = (input as any)[k]
       if (v !== undefined) set[k] = v as any
     }

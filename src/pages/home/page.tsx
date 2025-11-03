@@ -1,7 +1,12 @@
-import { Link } from '@tanstack/react-router'
+import { useMemo } from 'react'
+import { Link, useLoaderData } from '@tanstack/react-router'
 import { ArrowRight, CheckCircle2, PlayCircle } from 'lucide-react'
+import { OnboardingStartForm } from '@features/onboarding/client/start-form'
+import type { HomeLoaderData } from './loader'
 
 export function Page() {
+  const pricingConfig = useLoaderData({ from: '/' }) as HomeLoaderData
+
   return (
     <div className="bg-background text-foreground">
       <div className="mx-auto flex min-h-screen w-full max-w-6xl flex-col px-6 pb-24 pt-8 md:px-10">
@@ -39,38 +44,35 @@ export function Page() {
           <section id="hero" className="grid gap-12 lg:grid-cols-[1fr,0.9fr]">
             <div className="space-y-8">
               <div className="inline-flex items-center gap-2 rounded-full border border-primary/40 bg-primary/5 px-4 py-1 text-xs font-medium text-primary">
-                Google / ChatGPT / Claude / Gemini
+                Google • ChatGPT • Perplexity
               </div>
               <div className="space-y-5">
                 <h1 className="text-4xl font-semibold tracking-tight sm:text-5xl">
-                  Traffic on autopilot for modern search
+                  Google &amp; ChatGPT traffic on autopilot
                 </h1>
                 <p className="text-lg text-muted-foreground">
-                  SEO Agent researches, writes, optimizes, and publishes long-form articles for you 24/7.
-                  Connect your site once and wake up to fresh, search-ready content every morning.
+                  SEO Agent is an autonomous workflow that maps your niche, drafts human-quality content in your voice,
+                  and publishes every day while you keep shipping product.
                 </p>
               </div>
-              <div className="flex flex-wrap items-center gap-4">
-                <Link
-                  to="/login"
-                  className="inline-flex items-center justify-center rounded-md bg-primary px-6 py-3 text-base font-semibold text-primary-foreground shadow-sm transition hover:opacity-90"
-                >
-                  Start for Free
-                </Link>
-                <button
-                  type="button"
-                  className="inline-flex items-center gap-2 rounded-md border px-6 py-3 text-base font-semibold transition hover:bg-muted"
-                >
-                  <PlayCircle className="h-5 w-5" />
-                  Watch demo
-                </button>
-                <span className="text-sm text-muted-foreground">Rated 4.8/5 by operators worldwide</span>
+              <div className="space-y-4">
+                <OnboardingStartForm />
+                <div className="flex flex-wrap items-center gap-4 text-sm text-muted-foreground">
+                  <button
+                    type="button"
+                    className="inline-flex items-center gap-2 rounded-md border px-5 py-2 text-sm font-medium text-foreground transition hover:bg-muted"
+                  >
+                    <PlayCircle className="h-4 w-4" />
+                    Watch product tour
+                  </button>
+                  <span>Currently onboarding early-stage teams</span>
+                </div>
               </div>
               <div className="grid gap-6 sm:grid-cols-3">
-                {STATS.map((stat) => (
-                  <div key={stat.label} className="rounded-lg border bg-card p-4 shadow-sm">
-                    <p className="text-lg font-semibold">{stat.label}</p>
-                    <p className="text-sm text-muted-foreground">{stat.description}</p>
+                {HERO_CARDS.map((card) => (
+                  <div key={card.label} className="rounded-lg border bg-card p-4 shadow-sm">
+                    <p className="text-lg font-semibold">{card.label}</p>
+                    <p className="text-sm text-muted-foreground">{card.description}</p>
                   </div>
                 ))}
               </div>
@@ -117,13 +119,54 @@ export function Page() {
           </section>
         </header>
         <main className="mt-20 flex flex-col gap-24">
+          <section id="publish-daily" className="grid gap-12 lg:grid-cols-[1fr,0.9fr]">
+            <div className="space-y-6">
+              <span className="text-xs font-semibold uppercase tracking-wide text-primary">Publish articles daily</span>
+              <h2 className="text-3xl font-semibold">Ship 3,000+ word articles every morning</h2>
+              <p className="text-muted-foreground">
+                The agent reverse-engineers top results, drafts long-form content that sounds like your brand, and queues
+                images, videos, and links so every post lands fully optimized.
+              </p>
+              <ul className="space-y-3 text-sm text-muted-foreground">
+                {PUBLISH_POINTS.map((point) => (
+                  <li key={point} className="flex items-start gap-2">
+                    <CheckCircle2 className="mt-0.5 h-4 w-4 text-primary" />
+                    <span>{point}</span>
+                  </li>
+                ))}
+              </ul>
+              <div className="inline-flex items-center gap-2 rounded-full border px-4 py-2 text-xs font-medium text-muted-foreground">
+                Runs 24/7 · No extra SEO tools required
+              </div>
+            </div>
+            <div className="relative overflow-hidden rounded-2xl border bg-card p-6 shadow-sm">
+              <div className="absolute inset-0 pointer-events-none bg-[radial-gradient(circle_at_top,_rgba(59,130,246,0.18),_transparent_60%)]" />
+              <div className="relative flex h-full flex-col justify-between gap-6">
+                <div className="space-y-3">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-primary">Demo preview</p>
+                  <h3 className="text-xl font-semibold">See the workflow in under 90 seconds</h3>
+                  <p className="text-sm text-muted-foreground">
+                    Watch how SEO Agent analyzes your niche, drafts a 3,000-word article, and schedules it for publishing without human edits.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  className="inline-flex items-center gap-2 self-start rounded-md border px-4 py-2 text-sm font-semibold transition hover:bg-muted"
+                >
+                  <PlayCircle className="h-4 w-4" />
+                  Play demo
+                </button>
+              </div>
+            </div>
+          </section>
+
           <section id="inside" className="flex flex-col gap-10">
             <div className="flex flex-col gap-3">
               <span className="text-xs font-semibold uppercase tracking-wide text-primary">What's inside</span>
-              <h2 className="text-3xl font-semibold">Everything you need to run programmatic SEO on autopilot</h2>
+              <h2 className="text-3xl font-semibold">AI agent that brings traffic to you</h2>
               <p className="max-w-3xl text-muted-foreground">
-                From opportunity discovery to daily publishing, SEO Agent keeps the entire workflow moving while you
-                focus on the rest of the business.
+                Replace the patchwork of keyword tools, writers, and schedulers. SEO Agent turns one setup into a
+                self-driving content machine that keeps compounds every day.
               </p>
             </div>
             <div className="grid gap-6 md:grid-cols-2">
@@ -147,13 +190,13 @@ export function Page() {
             </div>
           </section>
 
-          <section className="grid gap-10 lg:grid-cols-[0.8fr,1fr]">
+          <section id="how-it-works" className="grid gap-10 lg:grid-cols-[0.8fr,1fr]">
             <div className="space-y-4">
-              <span className="text-xs font-semibold uppercase tracking-wide text-primary">Content engine</span>
-              <h2 className="text-3xl font-semibold">Plan months of content in seconds</h2>
+              <span className="text-xs font-semibold uppercase tracking-wide text-primary">How it works</span>
+              <h2 className="text-3xl font-semibold">Three steps to always-on traffic</h2>
               <p className="text-muted-foreground">
-                Choose approved keywords, let AutoPlan fill your calendar, and watch SEO Agent deliver ready-to-publish
-                articles while you sleep.
+                Launch once, then let the agent loop through research, writing, and publishing every day while you focus on
+                product and customers.
               </p>
               <div className="grid gap-3 text-sm text-muted-foreground">
                 {PROCESS_STEPS.map((step) => (
@@ -191,9 +234,10 @@ export function Page() {
           <section id="automations" className="flex flex-col gap-10">
             <div className="flex flex-col gap-3">
               <span className="text-xs font-semibold uppercase tracking-wide text-primary">Automation suite</span>
-              <h2 className="text-3xl font-semibold">Every lever you need already wired in</h2>
+              <h2 className="text-3xl font-semibold">Everything you need to get traffic on autopilot</h2>
               <p className="max-w-3xl text-muted-foreground">
-                SEO Agent brings the entire tool stack in-house - no extra subscriptions, no manual busywork, no guessing.
+                SEO Agent brings the entire stack in-house—no extra subscriptions, no manual busywork, no guessing. Flip on
+                the features you need and let the agent handle the rest.
               </p>
             </div>
             <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
@@ -203,6 +247,52 @@ export function Page() {
                   <p className="text-sm text-muted-foreground">{feature.description}</p>
                 </div>
               ))}
+            </div>
+          </section>
+
+          <section id="ai-search" className="grid gap-10 lg:grid-cols-[0.9fr,1fr]">
+            <div className="space-y-4">
+              <span className="text-xs font-semibold uppercase tracking-wide text-primary">AI search edge</span>
+              <h2 className="text-3xl font-semibold">Win both classic SERPs and AI answers</h2>
+              <p className="text-muted-foreground">
+                The agent optimizes every article for blended discovery—structured for Google crawlers, enriched for
+                conversational engines like ChatGPT, Claude, and Gemini.
+              </p>
+              <div className="grid gap-3 text-sm text-muted-foreground">
+                {AI_EDGE_POINTS.map((point) => (
+                  <div key={point.title} className="rounded-lg border bg-card/50 p-4">
+                    <div className="text-sm font-semibold text-primary">{point.title}</div>
+                    <p className="mt-1">{point.description}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div className="relative overflow-hidden rounded-2xl border bg-card p-6 shadow-sm">
+              <div className="absolute inset-0 pointer-events-none bg-[radial-gradient(circle_at_top,_rgba(59,130,246,0.2),_transparent_55%)]" />
+              <div className="relative flex h-full flex-col justify-between gap-6">
+                <div className="space-y-3">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-primary">Dual visibility</p>
+                  <h3 className="text-xl font-semibold">See how one article surfaces everywhere</h3>
+                  <p className="text-sm text-muted-foreground">
+                    Compare a ranked Google snippet beside an AI assistant response to understand how structured outlining,
+                    schema suggestions, and entity coverage keep you present in both experiences.
+                  </p>
+                </div>
+                <div className="grid gap-4 md:grid-cols-2">
+                  <div className="rounded-xl border bg-muted/40 p-4 shadow-inner">
+                    <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Google Result</p>
+                    <p className="mt-2 text-sm text-foreground">
+                      Rich snippet with FAQ schema, internal links, and media packed from the same draft.
+                    </p>
+                  </div>
+                  <div className="rounded-xl border bg-primary/10 p-4">
+                    <p className="text-xs font-medium uppercase tracking-wide text-primary/80">AI Answer</p>
+                    <p className="mt-2 text-sm text-foreground">
+                      Conversational summary citing your article because entities, citations, and takeaways are auto-tuned.
+                    </p>
+                  </div>
+                </div>
+              </div>
             </div>
           </section>
 
@@ -227,61 +317,32 @@ export function Page() {
             </div>
           </section>
 
-          <section className="flex flex-col gap-10">
-            <div className="flex flex-col gap-3">
-              <span className="text-xs font-semibold uppercase tracking-wide text-primary">Trusted results</span>
-              <h2 className="text-3xl font-semibold">Hear it from teams already scaling traffic</h2>
-            </div>
-            <div className="grid gap-6 md:grid-cols-2">
-              {TESTIMONIALS.map((testimonial) => (
-                <blockquote key={testimonial.name} className="flex h-full flex-col gap-3 rounded-xl border bg-card p-6 shadow-sm">
-                  <p className="text-sm text-muted-foreground">"{testimonial.quote}"</p>
-                  <div>
-                    <p className="text-sm font-semibold">{testimonial.name}</p>
-                    <p className="text-xs text-muted-foreground">{testimonial.role}</p>
-                  </div>
-                </blockquote>
-              ))}
-            </div>
-          </section>
-
           <section id="pricing" className="flex flex-col gap-10">
             <div className="flex flex-col gap-3">
               <span className="text-xs font-semibold uppercase tracking-wide text-primary">Pricing</span>
-              <h2 className="text-3xl font-semibold">One plan, everything included</h2>
+              <h2 className="text-3xl font-semibold">Pick the cadence that fits your runway</h2>
               <p className="max-w-2xl text-muted-foreground">
-                Start for $1, validate the results, then keep the engine running for less than the cost of a single
-                freelance article.
+                One organization, one project, one website. Let SEO Agent handle 30 long-form articles a month for you—
+                pay monthly or lock in annual savings. Polar keeps subscriptions, billing, and entitlements in sync.
               </p>
             </div>
-            <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-              {PRICING_PLANS.map((plan) => (
-                <div key={plan.name} className={`flex flex-col gap-4 rounded-2xl border p-6 shadow-sm ${plan.highlight ? 'border-primary bg-primary/5' : 'bg-card'}`}>
-                  <div className="flex items-baseline justify-between">
-                    <div>
-                      <h3 className="text-xl font-semibold">{plan.name}</h3>
-                      <p className="text-sm text-muted-foreground">{plan.description}</p>
-                    </div>
-                    {plan.highlight ? (
-                      <span className="text-xs font-semibold uppercase tracking-wide text-primary">Popular</span>
-                    ) : null}
-                  </div>
-                  <div className="text-3xl font-semibold">{plan.price}</div>
-                  <p className="text-sm text-muted-foreground">{plan.note}</p>
-                  <Link
-                    to="/login"
-                    className={`inline-flex items-center justify-center rounded-md px-4 py-2 text-sm font-semibold transition ${plan.highlight ? 'bg-primary text-primary-foreground hover:opacity-90' : 'border hover:bg-muted'}`}
-                  >
-                    {plan.cta}
-                  </Link>
-                  <ul className="space-y-2 text-sm text-muted-foreground">
-                    {plan.features.map((feature) => (
-                      <li key={feature} className="flex items-start gap-2">
-                        <CheckCircle2 className="mt-0.5 h-4 w-4 text-primary" />
-                        <span>{feature}</span>
-                      </li>
-                    ))}
-                  </ul>
+            <PricingPlans config={pricingConfig} />
+          </section>
+
+          <section className="flex flex-col gap-8 rounded-3xl border bg-card/60 p-8 shadow-sm">
+            <div className="flex flex-col gap-3 text-center">
+              <span className="text-xs font-semibold uppercase tracking-wide text-primary">All-in-one traffic solution</span>
+              <h2 className="text-3xl font-semibold">Everything required to rank without extra hires</h2>
+              <p className="mx-auto max-w-3xl text-muted-foreground">
+                Personalized keyword strategy, daily long-form content, hands-off publishing, and AI search optimization
+                all live under one login. Switch it on once and let the agent run.
+              </p>
+            </div>
+            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+              {SOLUTION_POINTS.map((item) => (
+                <div key={item.title} className="flex h-full flex-col gap-2 rounded-2xl border bg-background p-5 text-left">
+                  <h3 className="text-base font-semibold text-foreground">{item.title}</h3>
+                  <p className="text-sm text-muted-foreground">{item.description}</p>
                 </div>
               ))}
             </div>
@@ -334,10 +395,9 @@ export function Page() {
 
           <section className="rounded-3xl border bg-gradient-to-br from-primary/10 via-background to-background p-10 text-center shadow-xl">
             <div className="mx-auto flex max-w-3xl flex-col gap-6">
-              <h2 className="text-3xl font-semibold">Unlock traffic on autopilot</h2>
+              <h2 className="text-3xl font-semibold">Ready to earn traffic from Google &amp; ChatGPT?</h2>
               <p className="text-muted-foreground">
-                Launch in under 10 minutes. Approve your keyword strategy, schedule your calendar, and let SEO Agent
-                deliver 3,000-word articles every day.
+                Plug in your domain, approve the roadmap, and let the agent publish optimized articles and media every day while you focus on product.
               </p>
               <div className="flex flex-wrap justify-center gap-4">
                 <Link
@@ -401,17 +461,122 @@ export function Page() {
   )
 }
 
+type PricingPlansProps = { config: HomeLoaderData }
+
+function PricingPlans({ config }: PricingPlansProps) {
+  const { monthly, yearly } = config
+  const currencyFormatter = useMemo(
+    () => new Intl.NumberFormat('en-US', { style: 'currency', currency: monthly.currency || 'USD' }),
+    [monthly.currency]
+  )
+
+  const plans = useMemo(
+    () => [
+      {
+        title: 'Monthly plan',
+        interval: 'monthly' as const,
+        plan: monthly,
+        cta: 'Start 3-day trial'
+      },
+      {
+        title: 'Yearly plan',
+        interval: 'yearly' as const,
+        plan: yearly,
+        cta: 'Save with annual billing'
+      }
+    ],
+    [monthly, yearly]
+  )
+
+  return (
+    <div className="grid gap-6 lg:grid-cols-2">
+      {plans.map(({ title, interval, plan, cta }) => {
+        const billedLabel = interval === 'monthly' ? '/mo' : '/yr'
+        const priceLabel = currencyFormatter.format(plan.priceCents / 100)
+        const savings = interval === 'yearly' && monthly.priceCents > 0 ? 1 - plan.priceCents / (monthly.priceCents * 12) : null
+        const annualizedMonthly = interval === 'yearly' ? currencyFormatter.format(plan.priceCents / 12 / 100) : null
+
+        return (
+          <div key={interval} className="flex h-full flex-col gap-5 rounded-3xl border bg-card p-8 shadow-lg">
+            <div className="flex items-baseline justify-between">
+              <div>
+                <h3 className="text-2xl font-semibold text-foreground">{title}</h3>
+                <p className="text-sm text-muted-foreground">{plan.description ?? 'All features, one property.'}</p>
+              </div>
+              {savings && savings > 0 ? (
+                <span className="text-xs font-semibold uppercase tracking-wide text-primary">
+                  save {Math.round(savings * 100)}%
+                </span>
+              ) : null}
+            </div>
+            <div className="flex items-baseline gap-2">
+              <div className="text-4xl font-semibold text-primary">{priceLabel}</div>
+              <span className="text-sm text-muted-foreground">{billedLabel}</span>
+            </div>
+            {annualizedMonthly ? (
+              <p className="text-xs text-muted-foreground">Equivalent to {annualizedMonthly}/mo when billed annually.</p>
+            ) : null}
+            {plan.trialDays ? (
+              <p className="text-xs text-muted-foreground">
+                {plan.trialDays}-day free trial. Cancel anytime before it ends to avoid charges.
+              </p>
+            ) : null}
+            <Link
+              to="/login"
+              className="inline-flex items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground transition hover:opacity-90"
+            >
+              {cta}
+            </Link>
+            <ul className="space-y-2 text-sm text-muted-foreground">
+              {PRICING_VALUE_PROPS.map((feature) => (
+                <li key={`${interval}-${feature}`} className="flex items-start gap-2">
+                  <CheckCircle2 className="mt-0.5 h-4 w-4 text-primary" />
+                  <span>{feature}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+const PRICING_VALUE_PROPS = [
+  'One organization, one project, one website fully managed',
+  'Up to 30 long-form articles delivered every month',
+  'Auto research, outlining, on-page optimization, and publishing',
+  'Webhook + CMS integrations, internal linking, media automation',
+  'Cancel anytime—keep every draft, outline, and keyword list'
+] as const
+
 const NAV_ITEMS = [
-  { label: "What's Inside", href: "#inside" },
+  { label: "What's Inside", href: '#inside' },
+  { label: 'How it works', href: '#how-it-works' },
   { label: 'Examples', href: '#examples' },
   { label: 'Pricing', href: '#pricing' },
   { label: 'FAQ', href: '#faq' }
 ] as const
 
-const STATS = [
-  { label: '10,000+ articles', description: 'Published for customers in 120 industries' },
-  { label: '4.8/5 rating', description: 'Based on thousands of operator reviews' },
-  { label: '24/7 automation', description: 'Research, writing, optimization, and publishing on autopilot' }
+const HERO_CARDS = [
+  {
+    label: 'Agentic SEO autopilot',
+    description: 'An autonomous workflow researches opportunities, writes long-form drafts, and schedules publishing for you.'
+  },
+  {
+    label: 'Strategy without the grind',
+    description: 'Daily SERP analysis keeps keyword priorities fresh so every article targets a winnable query.'
+  },
+  {
+    label: 'Voice-locked execution',
+    description: 'Share past posts and the agent mirrors tone, product positioning, and calls to action automatically.'
+  }
+] as const
+
+const PUBLISH_POINTS = [
+  '3,000+ word drafts stay aligned with your brand voice and positioning',
+  'Rich media, internal/external links, and CTA blocks are embedded automatically',
+  'Articles ship to your CMS queue daily at 6AM UTC ready for approval or auto-publish'
 ] as const
 
 const KEYWORD_PREVIEW = [
@@ -448,23 +613,50 @@ const CORE_FEATURES = [
 ] as const
 
 const PROCESS_STEPS = [
-  { step: 1, title: 'Add your website', description: 'Connect a site or paste competitors. We crawl, audit, and build your opportunity model in minutes.' },
-  { step: 2, title: 'Approve your roadmap', description: 'Review keyword batches and content calendar suggestions. Lock in priorities with a single click.' },
-  { step: 3, title: 'Let it run', description: 'SEO Agent researches, drafts, optimizes, and publishes daily while you focus on product and sales.' }
+  {
+    step: 1,
+    title: 'Add your website (5 minutes)',
+    description: 'Drop in your domain and key competitors. The agent maps opportunity gaps and builds a ranked keyword backlog.'
+  },
+  {
+    step: 2,
+    title: 'Plan months of content in seconds',
+    description: 'Approve the roadmap, let AutoPlan fill your calendar, and tweak priorities with a single click.'
+  },
+  {
+    step: 3,
+    title: 'Get traffic on autopilot',
+    description: 'Daily research, writing, and publishing runs without handoffs—articles land in your CMS ready to go live.'
+  }
 ] as const
 
 const WITH_AGENT = [
-  'Auto-refreshing keyword backlog prioritized by win probability',
-  'Content calendar that fills itself with 3,000-word long-form drafts',
-  'Internal/external linking, media, and conversion CTAs handled for you',
-  'Native support for Google, ChatGPT, Claude, Gemini, Perplexity, Bing'
+  'Keyword backlog reprioritized daily by win probability',
+  '3,000-word drafts delivered with outlines, media, and internal linking',
+  'Auto-publish or approve from the queue you already use',
+  'Optimization tuned for Google SERPs and AI assistants'
 ] as const
 
 const OLD_WAY = [
-  'Late nights in spreadsheets chasing keyword ideas',
-  'Paying hundreds per article with uncertain ROI',
-  'Juggling five different SEO tools for basic insights',
-  'Publishing gaps that stall growth for weeks'
+  'Manual keyword spreadsheets that go stale every week',
+  'Paying freelancers and agencies for each long-form draft',
+  'Switching between half a dozen SEO tools to ship one article',
+  'Publishing gaps that stall growth for weeks at a time'
+] as const
+
+const AI_EDGE_POINTS = [
+  {
+    title: 'Structured for crawlers',
+    description: 'Entity coverage, schema suggestions, and internal links are embedded so Google understands context instantly.'
+  },
+  {
+    title: 'Conversational ready',
+    description: 'Answer-first summaries, citations, and fact checks make AI assistants reference your article as the source.'
+  },
+  {
+    title: 'Live feedback loop',
+    description: 'Daily performance signals refine outlines and keyword targets so visibility compounds across channels.'
+  }
 ] as const
 
 const AUTOMATION_FEATURES = [
@@ -517,60 +709,22 @@ const ARTICLE_EXAMPLES = [
   }
 ] as const
 
-const TESTIMONIALS = [
+const SOLUTION_POINTS = [
   {
-    quote:
-      "Thirty days in we jumped from a few hundred impressions to thousands. The automation genuinely owns the SEO pipeline now.",
-    name: 'Mark Eckert',
-    role: 'Owner, That Pitch'
+    title: 'Personalized keyword plan',
+    description: 'Upload your domain and competitors; the agent builds a prioritized roadmap you can approve in minutes.'
   },
   {
-    quote:
-      'Ranking on ChatGPT was a surprise win. We now see qualified leads from AI assistants daily.',
-    name: 'Nik Zechner',
-    role: 'Managing Director, Grauberg'
+    title: 'Daily long-form drafts',
+    description: '3,000+ word articles with structured outlines, brand voice alignment, and conversion-ready messaging.'
   },
   {
-    quote:
-      'Replaced our agency retainer and several tools. Content quality is on par with our best writers at a fraction of the cost.',
-    name: 'Elena Kowalski',
-    role: 'Marketing Director'
+    title: 'Hands-off publishing',
+    description: 'Connect WordPress, Webflow, Shopify, Framer, or webhooks once—autopublish takes it from there.'
   },
   {
-    quote:
-      'Organic traffic up 340% in three months. The cadence, quality, and conversion copy are unreal for the price.',
-    name: 'Bridget O\'Connor',
-    role: 'Founder'
-  }
-] as const
-
-const PRICING_PLANS = [
-  {
-    name: 'Starter',
-    description: 'Validate the workflow with a single property.',
-    price: '$49/mo',
-    note: '$1 for the first 3 days - Cancel anytime',
-    cta: 'Start pilot',
-    features: ['1 website included', 'Personalized keyword strategy', '15 SEO-optimized articles monthly', 'Auto images & media embeds', 'Unlimited keyword refreshes'],
-    highlight: false
-  },
-  {
-    name: 'Business',
-    description: 'Most popular for growing SaaS and agencies.',
-    price: '$99/mo',
-    note: '30 long-form articles monthly - Auto-publish included',
-    cta: 'Start for free',
-    features: ['1 website included', '30 AI-driven articles (1 daily)', 'Auto internal & external linking', 'Auto promotion blocks & CTAs', 'Unlimited team seats'],
-    highlight: true
-  },
-  {
-    name: 'Scale',
-    description: 'For multi-property portfolios and publishers.',
-    price: 'Talk to us',
-    note: 'Custom volumes, workflows, and integrations',
-    cta: 'Book a consult',
-    features: ['Up to 5 websites', 'Custom content cadence', 'Dedicated strategist & QA lane', 'Private Slack + priority support', 'Bespoke integrations & reporting'],
-    highlight: false
+    title: 'AI search optimization',
+    description: 'Entity coverage, schema hints, and citations tuned for Google SERPs and AI assistants alike.'
   }
 ] as const
 
@@ -578,7 +732,7 @@ const FAQS = [
   {
     question: 'How fast will I see results?',
     answer:
-      'Most teams see impression lifts in 30 days and meaningful traffic in 60-90 days depending on domain age and competitiveness.'
+      'SEO momentum depends on domain age, technical health, and competition. The agent ships optimized articles daily so search engines have constant fresh signals to index.'
   },
   {
     question: 'Is the content unique?',

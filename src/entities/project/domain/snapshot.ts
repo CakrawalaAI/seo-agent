@@ -2,12 +2,14 @@ import type { CrawlPage } from '../../crawl/domain/page'
 import type { Keyword } from '../../keyword/domain/keyword'
 import type { PlanItem } from '../../plan/domain/plan-item'
 import type { ProjectIntegration } from '../../integration/domain/integration'
+import type { ProjectIntegrationView } from '@integrations/shared/types'
 import type { ProjectDiscoverySummary } from './discovery'
 
 export type ProjectSnapshot = {
   queueDepth?: number
   planItems?: PlanItem[]
   integrations?: ProjectIntegration[]
+  integrationViews?: ProjectIntegrationView[]
   crawlPages?: CrawlPage[]
   keywords?: Keyword[]
   latestDiscovery?: {

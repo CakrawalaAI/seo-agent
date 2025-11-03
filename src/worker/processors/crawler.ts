@@ -7,8 +7,8 @@ import * as bundle from '@common/bundle/store'
 import { createHash } from 'node:crypto'
 import { config } from '@common/config'
 import { getLlmProvider } from '@common/providers/registry'
-import { queueEnabled, publishJob } from '@common/infra/queue'
-import { recordJobQueued } from '@common/infra/jobs'
+import { summarizeSite } from '@common/providers/llm'
+import { getDevFlags } from '@common/dev/flags'
 
 export async function processCrawl(payload: { projectId: string }) {
   const project = await projectsRepo.get(payload.projectId)
@@ -17,16 +17,35 @@ export async function processCrawl(payload: { projectId: string }) {
     return
   }
   const siteUrl = project.siteUrl!
+  const crawlBudget = Math.max(1, Math.min(50, Number(project.crawlBudget ?? config.crawl.maxRepresentatives ?? 20)))
   console.info('[crawler] start', { projectId: payload.projectId, siteUrl, render: env.crawlRender })
 
+  // Check if we should use mock crawler
+  const flags = getDevFlags()
+  if (flags.mocks.crawl) {
+    console.info('[crawler] Using mock crawler (SEOA_MOCK_CRAWL=1)')
+    const { generateMockCrawl } = await import('@common/providers/impl/mock/crawler')
+    const mockResult = generateMockCrawl(payload.projectId, crawlBudget)
+
+    for (const page of mockResult.pages) {
+      crawlRepo.addOrUpdate(payload.projectId, page)
+    }
+
+    console.info('[crawler] Mock crawl complete', {
+      projectId: payload.projectId,
+      pagesGenerated: mockResult.urlsVisited
+    })
+    return
+  }
+
   // 1) Gather candidates from sitemap (larger set), then let LLM pick representatives
-  const candidates = await discoverFromSitemap(project.siteUrl, 200)
+  const candidates = await discoverFromSitemap(project.siteUrl, crawlBudget * 2)
   const reps = await (async () => {
     try {
       const llm = getLlmProvider()
       if (typeof (llm as any).rankRepresentatives === 'function') {
-        const ranked: string[] = await (llm as any).rankRepresentatives(siteUrl, candidates, config.crawl.maxRepresentatives)
-        if (Array.isArray(ranked) && ranked.length) return ranked.slice(0, config.crawl.maxRepresentatives)
+        const ranked: string[] = await (llm as any).rankRepresentatives(siteUrl, candidates, crawlBudget)
+        if (Array.isArray(ranked) && ranked.length) return ranked.slice(0, crawlBudget)
       }
     } catch {}
     // Fallback heuristics
@@ -36,7 +55,7 @@ export async function processCrawl(payload: { projectId: string }) {
     push('/about')
     push('/pricing')
     push('/blog')
-    for (const u of candidates) if (set.size < config.crawl.maxRepresentatives) set.add(u)
+    for (const u of candidates) if (set.size < crawlBudget) set.add(u)
     return Array.from(set)
   })()
   console.info('[crawler] representatives selected', { count: reps.length, urls: reps })
@@ -74,8 +93,8 @@ export async function processCrawl(payload: { projectId: string }) {
     }
   }
 
-  const visitLimit = Math.max(1, config.crawl.maxRepresentatives * (1 + Math.max(0, config.crawl.expandDepth)))
-  const maxDepth = Math.max(0, config.crawl.expandDepth)
+  const visitLimit = Math.max(1, crawlBudget)
+  const maxDepth = Math.max(0, Math.min(2, config.crawl.expandDepth))
   const seen = new Set<string>()
   const nodes = new Map<string, { url: string; title?: string | null }>()
   const edges: Array<{ from: string; to: string; text?: string | null }> = []
@@ -185,16 +204,24 @@ export async function processCrawl(payload: { projectId: string }) {
   } catch {}
 
   console.info('[crawler] done', { visited: seen.size })
-  // auto-queue keyword discovery after crawl (if queue enabled)
+
   try {
-    if (queueEnabled() && project?.id) {
-      const locale = String(project?.defaultLocale || 'en-US')
-      const jobId = await publishJob({ type: 'discovery', payload: { projectId: String(project.id), locale } })
-      try { await recordJobQueued(String(project.id), 'discovery', jobId) } catch {}
-      console.info('[crawler] queued discovery', { projectId: String(project.id), locale, jobId })
-    }
+    const pages = await crawlRepo.list(project.id, Math.max(50, crawlBudget))
+    const summaryInput = pages.slice(0, 50).map((p) => ({
+      url: p.url,
+      title: (p.metaJson as any)?.title as string | undefined,
+      text: p.contentText || undefined
+    }))
+    const summary = summaryInput.length ? await summarizeSite(summaryInput) : null
+    const businessSummary = summary?.businessSummary ?? project.businessSummary ?? null
+    await projectsRepo.patch(project.id, {
+      businessSummary,
+      workflowState: 'pending_summary_approval',
+      discoveryApproved: false,
+      planningApproved: false
+    })
   } catch (err) {
-    console.warn('[crawler] failed to queue discovery', { error: (err as Error)?.message || String(err) })
+    console.warn('[crawler] failed to summarize site', { error: (err as Error)?.message || String(err) })
   }
 }
 

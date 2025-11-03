@@ -1,7 +1,7 @@
 import { createFileRoute } from '@tanstack/react-router'
 import { json, requireSession, requireProjectAccess } from '@app/api-utils'
 import { integrationsRepo } from '@entities/integration/repository'
-import { connectorRegistry } from '@common/connectors/registry'
+import { connectorRegistry } from '@features/integrations/server/registry'
 
 export const Route = createFileRoute('/api/integrations/$integrationId/test')({
   server: {

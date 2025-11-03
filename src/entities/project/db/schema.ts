@@ -1,4 +1,4 @@
-import { integer, pgTable, text, timestamp, index } from 'drizzle-orm/pg-core'
+import { boolean, integer, pgTable, text, timestamp, index } from 'drizzle-orm/pg-core'
 
 import { orgs } from '../../org/db/schema'
 
@@ -15,6 +15,11 @@ export const projects = pgTable(
     status: text('status').notNull().default('draft'),
     autoPublishPolicy: text('auto_publish_policy').default('buffered'),
     bufferDays: integer('buffer_days').default(3),
+    businessSummary: text('business_summary'),
+    crawlBudget: integer('crawl_budget').default(20),
+    workflowState: text('workflow_state').notNull().default('pending_summary_approval'),
+    discoveryApproved: boolean('discovery_approved').notNull().default(false),
+    planningApproved: boolean('planning_approved').notNull().default(false),
     serpDevice: text('serp_device').default('desktop'),
     serpLocationCode: integer('serp_location_code').default(2840),
     metricsLocationCode: integer('metrics_location_code').default(2840),

@@ -22,6 +22,14 @@ export async function processGenerate(payload: { projectId: string; planItemId: 
     title: item.title,
     outline: Array.isArray(item.outlineJson) ? (item.outlineJson as any) : undefined
   })
+  if (draft.status === 'published') {
+    console.info('[generate] skip published article', { articleId: draft.id })
+    return
+  }
+  if (draft.status === 'scheduled' && typeof draft.bodyHtml === 'string' && draft.bodyHtml.trim().length > 0) {
+    console.info('[generate] skip already scheduled article', { articleId: draft.id })
+    return
+  }
   try {
     // Generate outline first if missing
     const needOutline = !draft.outlineJson || draft.outlineJson.length === 0
@@ -30,8 +38,7 @@ export async function processGenerate(payload: { projectId: string; planItemId: 
       try {
         const o = await draftTitleOutline(draft.title ?? item.title)
         outline = o.outline
-        const nextStage = draft.bufferStage === 'draft' ? 'draft' : 'outline'
-        await articlesRepo.update(draft.id, { outlineJson: outline, bufferStage: nextStage as any })
+        await articlesRepo.update(draft.id, { outlineJson: outline })
       } catch {}
     }
     // Enrich with SERP dump if available
@@ -62,7 +69,7 @@ export async function processGenerate(payload: { projectId: string; planItemId: 
     const { bodyHtml } = await llm.generateBody({ title: draft.title ?? item.title, outline, serpDump, competitorDump })
     try { if ((await import('@common/config')).config.debug?.writeBundle) { const { appendJsonl } = await import('@common/bundle/store'); appendJsonl('global', 'metrics/costs.jsonl', { node: 'llm', provider: process.env.OPENAI_API_KEY ? 'openai' : 'stub', at: new Date().toISOString(), stage: 'generateBody' }) } } catch {}
     try { if ((await import('@common/config')).config.debug?.writeBundle) { const { updateCostSummary } = await import('@common/metrics/costs'); updateCostSummary() } } catch {}
-    await articlesRepo.update(draft.id, { bodyHtml, generationDate: new Date() as any, bufferStage: 'draft' as any, status: 'draft' })
+    await articlesRepo.update(draft.id, { bodyHtml, generationDate: new Date() as any, status: 'scheduled' })
     try { if ((await import('@common/config')).config.debug?.writeBundle) { const rel = `articles/drafts/${draft.id}.html`; bundle.writeText(payload.projectId, rel, bodyHtml); bundle.appendLineage(payload.projectId, { node: 'generate', outputs: { articleId: draft.id } }) } } catch {}
     // queue enrich step
     try {

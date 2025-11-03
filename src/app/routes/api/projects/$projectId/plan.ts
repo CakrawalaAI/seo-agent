@@ -4,7 +4,7 @@ import { json, requireSession, requireProjectAccess } from '@app/api-utils'
 import { planRepo } from '@entities/plan/repository'
 import { hasDatabase, getDb } from '@common/infra/db'
 import { articles } from '@entities/article/db/schema'
-import { and, eq, gte, lte, asc } from 'drizzle-orm'
+import { and, eq, gte, lte, asc, inArray } from 'drizzle-orm'
 
 export const Route = createFileRoute('/api/projects/$projectId/plan')({
   server: {
@@ -19,7 +19,7 @@ export const Route = createFileRoute('/api/projects/$projectId/plan')({
         if (hasDatabase()) {
           try {
             const db = getDb()
-            let where: any = and(eq(articles.projectId, params.projectId), eq(articles.status as any, 'planned' as any))
+            let where: any = and(eq(articles.projectId, params.projectId), inArray(articles.status as any, ['queued', 'scheduled', 'published'] as any))
             if (from) where = and(where, gte(articles.plannedDate as any, from))
             if (to) where = and(where, lte(articles.plannedDate as any, to))
             const rows = await db.select().from(articles).where(where).orderBy(asc(articles.plannedDate as any)).limit(Number.isFinite(limit) ? limit : 90)
