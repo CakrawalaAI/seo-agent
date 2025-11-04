@@ -1,7 +1,7 @@
 // @ts-nocheck
 import { createFileRoute } from '@tanstack/react-router'
 import { json, httpError, requireSession, requireWebsiteAccess } from '@app/api-utils'
-import { websiteCrawlRepo } from '@entities/crawl/repository.website'
+import { crawlRepo } from '@entities/crawl/repository'
 
 export const Route = createFileRoute('/api/crawl/pages')({
   server: {
@@ -16,7 +16,7 @@ export const Route = createFileRoute('/api/crawl/pages')({
           await requireSession(request)
           await requireWebsiteAccess(request, String(projectId))
         }
-        const items = await websiteCrawlRepo.listRecentPages(projectId, Number.isFinite(limit) ? limit : 100)
+        const items = await crawlRepo.listRecentPages(projectId, Number.isFinite(limit) ? limit : 100)
         const filtered = q
           ? items.filter((r: any) => {
               const needle = q.toLowerCase()

@@ -3,7 +3,7 @@ import { createFileRoute } from '@tanstack/react-router'
 import { json, httpError, requireSession, requireWebsiteAccess } from '@app/api-utils'
 import { hasDatabase, getDb } from '@common/infra/db'
 import { eq, desc } from 'drizzle-orm'
-import { crawlRuns } from '@entities/crawl/db/schema.website'
+import { crawlJobs } from '@entities/crawl/db/schema.website'
 
 export const Route = createFileRoute('/api/crawl/runs')({
   server: {
@@ -19,9 +19,9 @@ export const Route = createFileRoute('/api/crawl/runs')({
           const db = getDb()
           const rows = await db
             .select()
-            .from(crawlRuns)
-            .where(eq(crawlRuns.websiteId, String(projectId)))
-            .orderBy(desc(crawlRuns.createdAt as any))
+            .from(crawlJobs)
+            .where(eq(crawlJobs.websiteId, String(projectId)))
+            .orderBy(desc(crawlJobs.createdAt as any))
             .limit(50)
           return json({ items: rows })
         } catch {

@@ -1,7 +1,7 @@
 nodes:
   crawl:
-    onSuccess: [discovery]
-  discovery:
+    onSuccess: [generateKeywords]
+  generateKeywords:
     onSuccess: [plan]
   plan:
     onSuccess: []
@@ -9,4 +9,3 @@ nodes:
     onSuccess: [enrich]
   enrich:
     onSuccess: []
-

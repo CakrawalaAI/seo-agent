@@ -4,15 +4,18 @@
  * Generated on 2025-11-01T16:11:01.222Z
  */
 
-export type DataForSeoLanguage = { code: string; name: string }
+export type DataForSeoLanguage = {
+  readonly code: string
+  readonly name: string
+}
 export type DataForSeoLocation = {
-  code: number
-  name: string
-  parentCode: number | null
-  countryIsoCode: string | null
-  type: string | null
-  availableSources: string[]
-  languages: DataForSeoLanguage[]
+  readonly code: number
+  readonly name: string
+  readonly parentCode: number | null
+  readonly countryIsoCode: string | null
+  readonly type: string | null
+  readonly availableSources: ReadonlyArray<string>
+  readonly languages: ReadonlyArray<DataForSeoLanguage>
 }
 
 export const DATAFORSEO_DEFAULT_LOCATION_CODE = 2840 as const
@@ -1799,3 +1802,179 @@ export const DATAFORSEO_LANGUAGES = [
     "name": "Vietnamese"
   }
 ] as const
+
+// ----------------------------
+// Helper maps + lookup methods
+// ----------------------------
+
+const normalizeName = (value: string) => value.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()
+
+const LOCATION_ALIASES: Record<string, number> = {
+  // US variants
+  'us': 2840,
+  'u s': 2840,
+  'u s a': 2840,
+  'usa': 2840,
+  'america': 2840,
+  'united states of america': 2840,
+  // UK variants
+  'uk': 2826,
+  'u k': 2826,
+  'gb': 2826,
+  'great britain': 2826,
+  'britain': 2826,
+  'united kingdom': 2826
+}
+
+const locationByCode = new Map<number, DataForSeoLocation>()
+const locationByName = new Map<string, DataForSeoLocation>()
+const languageByCode = new Map<string, DataForSeoLanguage>()
+const languageByName = new Map<string, DataForSeoLanguage>()
+const languagesByLocationCode = new Map<number, ReadonlyArray<DataForSeoLanguage>>()
+
+export const LOCATION_CODE_TO_NAME: Record<number, string> = {}
+export const LOCATION_NAME_TO_CODE: Record<string, number> = {}
+export const LANGUAGE_CODE_TO_NAME: Record<string, string> = {}
+export const LANGUAGE_NAME_TO_CODE: Record<string, string> = {}
+
+for (const loc of DATAFORSEO_LOCATIONS) {
+  locationByCode.set(loc.code, loc)
+  locationByName.set(normalizeName(loc.name), loc)
+  languagesByLocationCode.set(loc.code, loc.languages)
+  LOCATION_CODE_TO_NAME[loc.code] = loc.name
+  LOCATION_NAME_TO_CODE[normalizeName(loc.name)] = loc.code
+  for (const lang of loc.languages) {
+    const codeKey = lang.code.toLowerCase()
+    languageByCode.set(codeKey, lang)
+    languageByName.set(normalizeName(lang.name), lang)
+    LANGUAGE_CODE_TO_NAME[codeKey] = lang.name
+    LANGUAGE_NAME_TO_CODE[normalizeName(lang.name)] = lang.code
+  }
+}
+
+export function languageCodeFromLocale(locale?: string | null): string {
+  if (!locale) return DATAFORSEO_DEFAULT_LANGUAGE_CODE
+  const codePart = String(locale).split(/[-_]/)[0]?.toLowerCase()
+  if (codePart && languageByCode.has(codePart)) return codePart
+  return DATAFORSEO_DEFAULT_LANGUAGE_CODE
+}
+
+export function languageCodeFromName(name?: string | null): string | undefined {
+  if (!name) return undefined
+  const key = normalizeName(name)
+  const byAlias = LANGUAGE_NAME_TO_CODE[key]
+  if (byAlias) return byAlias
+  const record = languageByName.get(key)
+  return record?.code
+}
+
+export function languageNameFromCode(code?: string | null): string {
+  if (!code) return 'English'
+  const rec = languageByCode.get(code.toLowerCase())
+  if (rec) return rec.name
+  const fallback = languageByName.get(normalizeName(code))
+  return fallback?.name || 'English'
+}
+
+function locationFromCountryIso(iso2?: string | null): DataForSeoLocation | undefined {
+  if (!iso2) return undefined
+  const key = iso2.toUpperCase()
+  return DATAFORSEO_LOCATIONS.find((loc) => (loc.countryIsoCode || '').toUpperCase() === key)
+}
+
+export function locationCodeFromLocale(locale?: string | null): number {
+  if (!locale) return DATAFORSEO_DEFAULT_LOCATION_CODE
+  const parts = String(locale).split(/[-_]/)
+  const iso = parts[1]?.toUpperCase()
+  if (iso) {
+    const byIso = locationFromCountryIso(iso)
+    if (byIso) return byIso.code
+  }
+  const alias = LOCATION_ALIASES[normalizeName(locale)]
+  if (alias) return alias
+  return DATAFORSEO_DEFAULT_LOCATION_CODE
+}
+
+export function locationCodeFromName(name?: string | null): number | undefined {
+  if (!name) return undefined
+  const key = normalizeName(name)
+  if (LOCATION_ALIASES[key]) return LOCATION_ALIASES[key]
+  return locationByName.get(key)?.code
+}
+
+export function locationNameFromCode(code?: number | null): string {
+  if (!code) return LOCATION_CODE_TO_NAME[DATAFORSEO_DEFAULT_LOCATION_CODE]
+  const rec = locationByCode.get(code)
+  return rec?.name || LOCATION_CODE_TO_NAME[DATAFORSEO_DEFAULT_LOCATION_CODE]
+}
+
+export function languagesForLocation(location?: number | string | null): ReadonlyArray<DataForSeoLanguage> {
+  if (location == null) return []
+  const code = typeof location === 'number' || /^\d+$/.test(String(location))
+    ? Number(location)
+    : locationCodeFromName(String(location))
+  if (!code) return []
+  return languagesByLocationCode.get(code) ?? []
+}
+
+export function supportsLanguage(location: number | string | undefined, language: string | undefined): boolean {
+  if (!location || !language) return false
+  const code = typeof location === 'number' || /^\d+$/.test(String(location))
+    ? Number(location)
+    : locationCodeFromName(String(location))
+  if (!code) return false
+  const languageCode = languageByCode.has(language.toLowerCase())
+    ? language.toLowerCase()
+    : languageCodeFromName(language)
+  if (!languageCode) return false
+  const available = languagesByLocationCode.get(code) ?? []
+  return available.some((l) => l.code.toLowerCase() === languageCode)
+}
+
+export function coerceToCodes(input: { location?: string | number | null; language?: string | null }): {
+  locationCode: number
+  languageCode?: string
+} {
+  const locationCode =
+    (typeof input.location === 'number' && input.location) ||
+    (typeof input.location === 'string' && /^\d+$/.test(input.location) && Number(input.location)) ||
+    (typeof input.location === 'string' && locationCodeFromName(input.location)) ||
+    DATAFORSEO_DEFAULT_LOCATION_CODE
+
+  const languageCode =
+    (input.language && languageByCode.has(input.language.toLowerCase()) && input.language.toLowerCase()) ||
+    (input.language && languageCodeFromName(input.language)) ||
+    undefined
+
+  return { locationCode, languageCode }
+}
+
+export const GEO_DICTIONARY = {
+  LOCATION_CODE_TO_NAME,
+  LOCATION_NAME_TO_CODE,
+  LANGUAGE_CODE_TO_NAME,
+  LANGUAGE_NAME_TO_CODE
+} as const
+
+export function getLocationOptions() {
+  return DATAFORSEO_LOCATIONS.map((loc) => ({ label: loc.name, value: loc.code })).sort((a, b) => a.label.localeCompare(b.label))
+}
+
+export function getLanguageOptions(location?: number | string) {
+  const langs = location ? languagesForLocation(location) : Array.from(languageByCode.values())
+  const uniq = new Map<string, DataForSeoLanguage>()
+  for (const lang of langs) uniq.set(lang.code.toLowerCase(), lang)
+  return Array.from(uniq.values())
+    .map((lang) => ({ label: lang.name, value: lang.code }))
+    .sort((a, b) => a.label.localeCompare(b.label))
+}
+
+export const dataforseoGeo = {
+  locationNameFromCode,
+  locationCodeFromName,
+  languageNameFromCode,
+  languageCodeFromName,
+  languagesForLocation,
+  supportsLanguage,
+  coerceToCodes
+} as const

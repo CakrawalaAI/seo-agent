@@ -25,7 +25,20 @@ export default [
       ...tsRules,
       '@typescript-eslint/no-unused-vars': 'warn',
       '@typescript-eslint/no-explicit-any': 'off',
-      '@typescript-eslint/ban-ts-comment': 'off'
+      '@typescript-eslint/ban-ts-comment': 'off',
+      'no-console': 'error'
+    }
+  },
+  {
+    files: ['src/common/logger/index.ts'],
+    rules: {
+      'no-console': 'off'
+    }
+  },
+  {
+    files: ['scripts/**/*.ts', 'tests/**/*.ts', 'tests/**/*.tsx'],
+    rules: {
+      'no-console': 'off'
     }
   }
 ]

@@ -151,12 +151,33 @@ export async function upsertUserFromGoogle(profile: { sub: string; email: string
       userId = (existing as any)[0].id as string
     }
   }
+  const now = new Date()
   if (!userId) {
     userId = randomId('usr_')
     try {
       // @ts-ignore drizzle types
-      await db.insert(users).values({ id: userId, email: profile.email, name: profile.name ?? null, image: profile.picture ?? null })
-    } catch {}
+      await db.insert(users).values({
+        id: userId,
+        email: profile.email,
+        name: profile.name ?? null,
+        image: profile.picture ?? null,
+        updatedAt: now
+      })
+    } catch (error) {
+      log.error('[auth/google] failed to insert user', { error })
+      throw error
+    }
+  } else {
+    try {
+      // @ts-ignore drizzle types
+      await db
+        .update(users)
+        .set({ name: profile.name ?? null, image: profile.picture ?? null, updatedAt: now })
+        .where(eq(users.id, userId))
+    } catch (error) {
+      log.error('[auth/google] failed to update user', { userId, error })
+      throw error
+    }
   }
   // ensure account link exists
   try {
@@ -172,8 +193,14 @@ export async function upsertUserFromGoogle(profile: { sub: string; email: string
         refreshToken: null,
         rawJson: null
       })
-      .onConflictDoNothing?.()
-  } catch {}
+      .onConflictDoUpdate?.({
+        target: [userAuthProviders.providerId, userAuthProviders.providerAccountId],
+        set: { userId, updatedAt: now }
+      })
+  } catch (error) {
+    log.error('[auth/google] failed to upsert auth provider', { userId, error })
+    throw error
+  }
   return { userId }
 }
 

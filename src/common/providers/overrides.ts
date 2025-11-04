@@ -1,22 +1,22 @@
-type DiscoveryOverride = 'mock' | 'dataforseo' | null
+export type KeywordIdeasOverride = 'mock' | 'dataforseo' | null
 
 type ProviderOverridesState = {
-  discovery: DiscoveryOverride
+  keywordIdeas: KeywordIdeasOverride
 }
 
 const globalState: { store: ProviderOverridesState } = (() => {
   const g = globalThis as Record<string, unknown>
   const key = '__PROVIDER_OVERRIDES__'
   if (!g[key]) {
-    g[key] = { discovery: null }
+    g[key] = { keywordIdeas: null }
   }
   return { store: g[key] as ProviderOverridesState }
 })()
 
-export function getDiscoveryOverride(): DiscoveryOverride {
-  return globalState.store.discovery ?? null
+export function getKeywordIdeasOverride(): KeywordIdeasOverride {
+  return globalState.store.keywordIdeas ?? null
 }
 
-export function setDiscoveryOverride(next: DiscoveryOverride): void {
-  globalState.store.discovery = next ?? null
+export function setKeywordIdeasOverride(next: KeywordIdeasOverride): void {
+  globalState.store.keywordIdeas = next ?? null
 }

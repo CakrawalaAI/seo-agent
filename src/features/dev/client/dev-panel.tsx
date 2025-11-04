@@ -4,10 +4,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Button } from '@src/common/ui/button'
 import { Switch } from '@src/common/ui/switch'
+import type { KeywordIdeasOverride } from '@common/providers/overrides'
 
-type DiscoveryOverride = 'mock' | null
+type DevKeywordOverride = Extract<KeywordIdeasOverride, 'mock' | null>
 
-const STORAGE_KEY = 'seo.dev.discoveryProvider'
+const STORAGE_KEY = 'seo.dev.keywordIdeasProvider'
+const LEGACY_STORAGE_KEYS: string[] = []
 
 export function DevPanelHost(): JSX.Element | null {
   if (import.meta.env.PROD) return null
@@ -16,11 +18,11 @@ export function DevPanelHost(): JSX.Element | null {
 
   const [container, setContainer] = useState<HTMLElement | null>(null)
   const [open, setOpen] = useState(false)
-  const [discovery, setDiscovery] = useState<DiscoveryOverride>(null)
+  const [keywordIdeas, setKeywordIdeas] = useState<DevKeywordOverride>(null)
   const [pending, setPending] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const mountedRef = useRef(true)
-  const discoveryRef = useRef<DiscoveryOverride>(null)
+  const keywordIdeasRef = useRef<DevKeywordOverride>(null)
 
   useEffect(() => {
     return () => {
@@ -59,31 +61,34 @@ export function DevPanelHost(): JSX.Element | null {
   }, [])
 
   const syncServer = useCallback(
-    async (next: DiscoveryOverride, options: { persistLocal: boolean }) => {
+    async (next: DevKeywordOverride, options: { persistLocal: boolean }) => {
       if (!mountedRef.current) return
       setPending(true)
       setError(null)
-      const previous = discoveryRef.current
+      const previous = keywordIdeasRef.current
       if (options.persistLocal) {
         if (next) {
           window.localStorage.setItem(STORAGE_KEY, next)
         } else {
           window.localStorage.removeItem(STORAGE_KEY)
         }
+        for (const legacyKey of LEGACY_STORAGE_KEYS) {
+          if (legacyKey !== STORAGE_KEY) window.localStorage.removeItem(legacyKey)
+        }
       }
       try {
         const res = await fetch('/api/dev/providers', {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ discovery: next })
+          body: JSON.stringify({ keywordIdeas: next })
         })
         if (!res.ok) {
           throw new Error(`HTTP ${res.status}`)
         }
-        const data = (await res.json().catch(() => ({}))) as { discovery?: unknown }
-        const serverValue = data.discovery === 'mock' ? 'mock' : null
-        discoveryRef.current = serverValue
-        setDiscovery(serverValue)
+        const data = (await res.json().catch(() => ({}))) as { keywordIdeas?: unknown }
+        const serverValue: DevKeywordOverride = data.keywordIdeas === 'mock' ? 'mock' : null
+        keywordIdeasRef.current = serverValue
+        setKeywordIdeas(serverValue)
       } catch (err) {
         if (options.persistLocal) {
           if (previous === 'mock') {
@@ -91,9 +96,12 @@ export function DevPanelHost(): JSX.Element | null {
           } else {
             window.localStorage.removeItem(STORAGE_KEY)
           }
+          for (const legacyKey of LEGACY_STORAGE_KEYS) {
+            if (legacyKey !== STORAGE_KEY) window.localStorage.removeItem(legacyKey)
+          }
         }
-        discoveryRef.current = previous
-        setDiscovery(previous)
+        keywordIdeasRef.current = previous
+        setKeywordIdeas(previous)
         setError(err instanceof Error ? err.message : 'Failed to sync override')
       } finally {
         if (mountedRef.current) {
@@ -105,21 +113,29 @@ export function DevPanelHost(): JSX.Element | null {
   )
 
   useEffect(() => {
-    const stored = window.localStorage.getItem(STORAGE_KEY) === 'mock' ? 'mock' : null
-    discoveryRef.current = stored
-    setDiscovery(stored)
-    const desired = stored
+    let stored: DevKeywordOverride = window.localStorage.getItem(STORAGE_KEY) === 'mock' ? 'mock' : null
+    if (!stored) {
+      for (const legacyKey of LEGACY_STORAGE_KEYS) {
+        if (window.localStorage.getItem(legacyKey) === 'mock') {
+          stored = 'mock'
+          break
+        }
+      }
+    }
+    keywordIdeasRef.current = stored
+    setKeywordIdeas(stored)
+    const desired: DevKeywordOverride = stored
     syncServer(desired, { persistLocal: false }).catch(() => {})
   }, [syncServer])
 
   useEffect(() => {
-    discoveryRef.current = discovery
-  }, [discovery])
+    keywordIdeasRef.current = keywordIdeas
+  }, [keywordIdeas])
 
   const statusLabel = useMemo(() => {
-    if (discovery === 'mock') return 'Mock keyword generator enabled'
+    if (keywordIdeas === 'mock') return 'Mock keyword generator enabled'
     return 'Using DataForSEO keyword generator'
-  }, [discovery])
+  }, [keywordIdeas])
 
   if (!container) return null
 
@@ -133,11 +149,11 @@ export function DevPanelHost(): JSX.Element | null {
           <div className="mb-3 flex items-center justify-between">
             <span className="font-medium">Mock keywords</span>
             <Switch
-              checked={discovery === 'mock'}
+              checked={keywordIdeas === 'mock'}
               disabled={pending}
               onCheckedChange={(checked) => {
                 const next = checked ? 'mock' : null
-                if (next === discoveryRef.current) return
+                if (next === keywordIdeasRef.current) return
                 syncServer(next, { persistLocal: true }).catch(() => {})
               }}
             />

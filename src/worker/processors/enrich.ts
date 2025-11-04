@@ -1,5 +1,5 @@
 import { articlesRepo } from '@entities/article/repository'
-import { websiteCrawlRepo } from '@entities/crawl/repository.website'
+import { crawlRepo } from '@entities/crawl/repository'
 import { getResearchProvider, getLlmProvider } from '@common/providers/registry'
 import * as bundle from '@common/bundle/store'
 
@@ -12,7 +12,7 @@ export async function processEnrich(payload: { projectId: string; articleId: str
   let citations: Array<{ title: string; url: string; snippet?: string }> = []
   try { citations = await research.search(q, { topK: 5 }); try { const { appendJsonl } = await import('@common/bundle/store'); appendJsonl('global', 'metrics/costs.jsonl', { node: 'research', provider: process.env.EXA_API_KEY ? 'exa' : 'stub', at: new Date().toISOString(), stage: 'citations' }) } catch {}; try { const { updateCostSummary } = await import('@common/metrics/costs'); updateCostSummary() } catch {} } catch {}
   // Internal links: from recent crawl pages (exclude homepage)
-  const crawlPages = await websiteCrawlRepo.listRecentPages(String(payload.projectId), 200)
+  const crawlPages = await crawlRepo.listRecentPages(String(payload.projectId), 200)
   const internal = crawlPages
     .filter((page) => {
       try {

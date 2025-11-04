@@ -2,11 +2,11 @@ import { describe, it, expect } from 'vitest'
 
 const modules = [
   () => import('../../src/worker/processors/crawler'),
-  () => import('../../src/worker/processors/discovery'),
+  () => import('../../src/worker/processors/generate-keywords'),
   () => import('../../src/worker/processors/generate'),
   () => import('../../src/worker/processors/enrich'),
   () => import('../../src/common/infra/jobs'),
-  () => import('../../src/entities/crawl/repository.website'),
+  () => import('../../src/entities/crawl/repository'),
   () => import('../../src/app/routes/api/websites/$websiteId/snapshot'),
   () => import('../../src/app/routes/api/crawl/pages'),
   () => import('../../src/app/routes/api/crawl/pages')

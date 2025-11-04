@@ -1,16 +1,16 @@
 import { boolean, index, integer, jsonb, pgTable, text, timestamp, uniqueIndex } from 'drizzle-orm/pg-core'
 
 import { users } from '@entities/auth/db/schema'
-import { orgs } from '@entities/org/db/schema'
+import { organizations } from '@entities/org/db/schema'
 
-export const subscriptionEntitlements = pgTable(
-  'subscription_entitlements',
+export const subscriptions = pgTable(
+  'subscriptions',
   {
     polarSubscriptionId: text('polar_subscription_id').primaryKey(),
     userId: text('user_id')
       .notNull()
       .references(() => users.id, { onDelete: 'cascade' }),
-    orgId: text('org_id').references(() => orgs.id, { onDelete: 'set null' }),
+    orgId: text('org_id').references(() => organizations.id, { onDelete: 'set null' }),
     status: text('status').notNull(),
     tier: text('tier'),
     productId: text('product_id'),
@@ -29,8 +29,8 @@ export const subscriptionEntitlements = pgTable(
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow()
   },
   (t) => ({
-    userUnique: uniqueIndex('subscription_entitlements_user_unique').on(t.userId),
-    orgIdx: index('subscription_entitlements_org_idx').on(t.orgId),
-    userIdx: index('subscription_entitlements_user_idx').on(t.userId)
+    userUnique: uniqueIndex('subscriptions_user_unique').on(t.userId),
+    orgIdx: index('subscriptions_org_idx').on(t.orgId),
+    userIdx: index('subscriptions_user_idx').on(t.userId)
   })
 )

@@ -78,102 +78,83 @@ PostgreSQL
 
 ## Mock Provider System (Composable)
 
+> **Caution:** Mock toggles exist only for keyword ideas and SERP snapshots. Do not introduce new provider stubs or dev flags without architecture review; production flows must rely on real external APIs.
+
 The SEO agent supports atomic mock providers for offline development and testing without external API costs. Each mock can be enabled independently via environment flags.
 
 ### Atomic Mock Flags
 
 | Flag | Env Var | Replaces | Returns |
 |------|---------|----------|---------|
-| `mocks.crawl` | `SEOA_MOCK_CRAWL=1` | Website scraping (Playwright/fetch) | Hardcoded PrepInterview.ai pages with realistic content |
-| `mocks.llm` | `SEOA_MOCK_LLM=1` | OpenAI API calls | Topic-aware PrepInterview content (summaries, outlines, articles) |
-| `mocks.keywordExpansion` | `SEOA_MOCK_KEYWORD_EXPANSION=1` | DataForSEO keyword expansion | PrepInterview-themed keywords with metrics |
-| `mocks.serp` | `SEOA_MOCK_SERP=1` | SERP scraping/APIs | Fake Google search results for interview prep queries |
+| `keywordGenerator` | `MOCK_KEYWORD_GENERATOR=true` *(aliases: `SEOA_MOCK_KEYWORD_GENERATION`, `SEOA_MOCK_KEYWORD_EXPANSION`, `SEOA_DISCOVERY_MOCK_MODE`)* | DataForSEO keyword ideas | PrepInterview-themed keywords with metrics |
+| `serp` | `SEOA_MOCK_SERP=1` | SERP scraping/APIs | Fake Google search results for interview prep queries |
 
 ### Mock Composability
 
-**Full Mock Mode (Zero External APIs):**
+**Keyword Mock Only:**
 ```bash
-export SEOA_MOCK_CRAWL="1"
-export SEOA_MOCK_LLM="1"
-export SEOA_MOCK_KEYWORD_EXPANSION="1"
-export SEOA_MOCK_SERP="1"
+export MOCK_KEYWORD_GENERATOR="true"
 ```
-All pipeline steps use mocks. No OpenAI, DataForSEO, or web requests.
+Only the keyword ideas step uses the mocked provider; crawl + LLM remain real.
 
 **Hybrid Mode Examples:**
 ```bash
-# Real crawl + mock LLM (no OpenAI costs)
-export SEOA_MOCK_LLM="1"
+# Real everything except keyword generation (avoid DataForSEO costs)
+export MOCK_KEYWORD_GENERATOR="true"
 
-# Real everything except keyword expansion (test DataForSEO alternatives)
-export SEOA_MOCK_KEYWORD_EXPANSION="1"
-
-# Mock crawl only (test discovery pipeline with real APIs)
-export SEOA_MOCK_CRAWL="1"
+# Mock SERP snapshots while keeping crawl/LLM real
+export SEOA_MOCK_SERP="1"
 ```
 
 **Legacy Compatibility:**
 ```bash
-# Old flag - enables all discovery-related mocks
+# Legacy flag - enables keyword mock
 export SEOA_DISCOVERY_MOCK_MODE="1"
-# Equivalent to: SEOA_MOCK_CRAWL=1 + SEOA_MOCK_LLM=1 + SEOA_MOCK_KEYWORD_EXPANSION=1
+# Equivalent to: MOCK_KEYWORD_GENERATOR=true
+```
+
+### Runtime Overrides
+
+```bash
+# Limit crawler to 10 pages per run
+export MAX_PAGES_CRAWLED=10
 ```
 
 ### Pipeline Flow with Mocks
 
 ```
-Discovery Pipeline:
+Keyword Generation Pipeline:
 ├─ CRAWL → pages from domain
 │   Real: Playwright/fetch scraping
 │   Mock: PrepInterview.ai pages (5 hardcoded URLs)
-├─ LLM.summarizeSite() → business summary + clusters
+├─ summarizeSite() → business summary + seed heuristics
 │   Real: OpenAI gpt-4o-mini
-│   Mock: PrepInterview business description
-├─ LLM.expandSeeds() → seed keywords
-│   Real: OpenAI gpt-4o-mini
-│   Mock: 20 PrepInterview keywords
-├─ extractSeedsFromHeadings() → parse page headings
-│   (Pure function, no mock needed)
-├─ provider.keywordsForKeywords() → expand seeds
-│   Real: DataForSEO Keyword Suggestion API
-│   Mock: PrepInterview keywords with volume/CPC/difficulty
-└─ enrichWithMetrics() → SEO metrics
-    Real: DataForSEO Bulk Keyword Difficulty API
-    Mock: Generated metrics (volume, difficulty, CPC)
+├─ seedExtractor() → ≤200 keywords
+│   Real: LLM + heading parser
+├─ provider.keywordIdeas() → expand seeds
+│   Real: DataForSEO keyword_ideas/live (limit≤100)
+│   Mock: 100 deterministic ideas w/ keyword_info, keyword_properties, impressions
+└─ persistKeywords() → write keywords rows
+    Real: Drizzle UPSERT + metrics JSON snapshot
+    Mock: same path using generated metrics
 
 Article Generation Pipeline:
 ├─ LLM.draftOutline() → title + outline
 │   Real: OpenAI gpt-4o-mini
-│   Mock: Topic-aware outline (behavioral vs technical vs FAANG)
 ├─ ensureSerp() → SERP data
-│   Real: DataForSEO SERP API or scraping
-│   Mock: Fake competitor results (LeetCode, Pramp, etc.)
+│   Real: DataForSEO SERP API or scraping (mock optional)
 ├─ LLM.generateBody() → article HTML
 │   Real: OpenAI gpt-4o-mini
-│   Mock: Topic-matched article template with PrepInterview CTAs
-└─ LLM.factCheck() → quality score
-    Real: OpenAI gpt-4o-mini (optional)
-    Mock: Returns score=85 (always pass)
+└─ LLM.factCheck() → quality score (optional)
 ```
 
 ### Mock Content Details
 
-**Crawler Mock** (`src/common/providers/impl/mock/crawler.ts`):
-- 5 PrepInterview.ai pages: home, features, pricing, behavioral guide, technical guide
-- Realistic meta tags, headings, content text
-- Used when `SEOA_MOCK_CRAWL=1`
-
-**LLM Mock** (`src/common/providers/impl/mock/llm.ts`):
-- Business summary: AI-powered interview prep platform description
-- Topic detection: behavioral | technical | faang | system-design | general
-- Article generation: Topic-aware templates with STAR method, algorithm patterns, company tips
-- Used when `SEOA_MOCK_LLM=1`
-
 **Keyword Mock** (`src/common/providers/impl/mock/keyword-generator.ts`):
-- 15+ base PrepInterview keywords with real metrics
-- Variations generated from domain: "prepinterview ai platform", "prepinterview ai tool", etc.
-- Volume: 1700-6600, Difficulty: 38-46, CPC: $1.80-$4.55
-- Used when `SEOA_MOCK_KEYWORD_EXPANSION=1`
+- 100 deterministic ideas seeded by domain + request seeds
+- Mirrors DataForSEO keyword ideas schema (`keyword_info`, `keyword_properties`, `impressions_info`)
+- Metrics ranges: volume 1.2k–8.4k, CPC $1.20–$4.80, difficulty 18–65
+- Used when `MOCK_KEYWORD_GENERATOR=true`
 
 **SERP Mock** (`src/common/providers/impl/mock/serp.ts`):
 - Competitor sites: LeetCode, InterviewCake, Pramp, Glassdoor, HackerRank

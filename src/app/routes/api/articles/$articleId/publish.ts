@@ -2,7 +2,6 @@ import { createFileRoute } from '@tanstack/react-router'
 import { json, httpError, safeHandler, requireSession, requireWebsiteAccess } from '@app/api-utils'
 import { log } from '@src/common/logger'
 import { articlesRepo } from '@entities/article/repository'
-import { websiteIntegrationsRepo } from '@entities/integration/repository.website'
 import { connectorRegistry } from '@features/integrations/server/registry'
 import { queueEnabled, publishJob } from '@common/infra/queue'
 import { recordJobQueued } from '@common/infra/jobs'
@@ -25,11 +24,11 @@ export const Route = createFileRoute('/api/articles/$articleId/publish')({
         const integration = await (async () => {
           try {
             const { getDb, hasDatabase } = await import('@common/infra/db')
-            const { websiteIntegrations } = await import('@entities/integration/db/schema.website')
+            const { integrations } = await import('@entities/integration/db/schema.integrations')
             const { eq } = await import('drizzle-orm')
             if (!hasDatabase()) return null
             const db = getDb()
-            const rows = await db.select().from(websiteIntegrations).where(eq(websiteIntegrations.id, String(integrationId))).limit(1)
+            const rows = await db.select().from(integrations).where(eq(integrations.id, String(integrationId))).limit(1)
             return rows?.[0] ?? null
           } catch { return null }
         })()

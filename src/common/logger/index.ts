@@ -14,7 +14,7 @@ export type LogContext = {
 
 const isBrowser = typeof window !== 'undefined' && typeof document !== 'undefined'
 
-const levelEnv = (typeof process !== 'undefined' && process.env?.SEOA_LOG_LEVEL) || undefined
+const levelEnv = (typeof process !== 'undefined' && process.env?.LOG_LEVEL) || undefined
 const readBrowserLevel = () => {
   try {
     const url = typeof window !== 'undefined' ? new URL(window.location.href) : null
@@ -56,26 +56,71 @@ const base = {
 let root: any
 
 if (isBrowser) {
-  // Console-backed logger with level gating
-  const order: Record<LogLevel, number> = { debug: 10, info: 20, warn: 30, error: 40, fatal: 50 }
-  let currentLevel: LogLevel = defaultLevel
-  const enabled = (lvl: LogLevel) => order[lvl] >= order[currentLevel]
-  const baseConsole = console
-  const browserLogger: any = {
-    set level(l: LogLevel) {
-      currentLevel = l
+  const levelOrder: Record<LogLevel, number> = { debug: 20, info: 30, warn: 40, error: 50, fatal: 60 }
+  let browserLevel: LogLevel = defaultLevel
+
+  const formatTimestamp = (input: Date) => {
+    const year = input.getFullYear()
+    const month = String(input.getMonth() + 1).padStart(2, '0')
+    const day = String(input.getDate()).padStart(2, '0')
+    const hours = String(input.getHours()).padStart(2, '0')
+    const minutes = String(input.getMinutes()).padStart(2, '0')
+    const seconds = String(input.getSeconds()).padStart(2, '0')
+    const millis = String(input.getMilliseconds()).padStart(3, '0')
+    const offsetMinutes = -input.getTimezoneOffset()
+    const offsetSign = offsetMinutes >= 0 ? '+' : '-'
+    const offsetAbs = Math.abs(offsetMinutes)
+    const offsetHours = String(Math.floor(offsetAbs / 60)).padStart(2, '0')
+    const offsetMins = String(offsetAbs % 60).padStart(2, '0')
+    return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}.${millis} ${offsetSign}${offsetHours}${offsetMins}`
+  }
+
+  const mergeArgs = (args: any[]) => {
+    const messageParts: string[] = []
+    const extra: Record<string, unknown> = {}
+    for (const value of args) {
+      if (!value && value !== 0) continue
+      if (typeof value === 'string') {
+        messageParts.push(value)
+      } else if (typeof value === 'object') {
+        Object.assign(extra, value)
+      } else {
+        messageParts.push(String(value))
+      }
+    }
+    return { message: messageParts.join(' '), context: extra }
+  }
+
+  const emit = (level: LogLevel, bindings: Record<string, unknown>, args: any[]) => {
+    if (levelOrder[level] < levelOrder[browserLevel]) return
+    const { message, context } = mergeArgs(args)
+    const payload = { ...base, ...bindings, ...context }
+    const timestamp = formatTimestamp(new Date())
+    const upper = level.toUpperCase()
+    const body = message ? `${message}` : ''
+    const json = Object.keys(payload).length ? ` ${JSON.stringify(payload)}` : ''
+    // Use log to keep consistent ordering across browsers
+    console.log(`[${timestamp}] ${upper}: ${body}${json}`)
+  }
+
+  const createBrowserLogger = (bindings: Record<string, unknown> = {}): any => ({
+    set level(next: LogLevel) {
+      browserLevel = next
     },
     get level() {
-      return currentLevel
+      return browserLevel
     },
-    debug: (...a: any[]) => enabled('debug') && baseConsole.debug(...a),
-    info: (...a: any[]) => enabled('info') && baseConsole.info(...a),
-    warn: (...a: any[]) => enabled('warn') && baseConsole.warn(...a),
-    error: (...a: any[]) => baseConsole.error(...a),
-    fatal: (...a: any[]) => baseConsole.error(...a),
-    child: () => browserLogger,
-  }
-  root = browserLogger
+    debug: (...a: any[]) => emit('debug', bindings, a),
+    info: (...a: any[]) => emit('info', bindings, a),
+    warn: (...a: any[]) => emit('warn', bindings, a),
+    error: (...a: any[]) => emit('error', bindings, a),
+    fatal: (...a: any[]) => emit('fatal', bindings, a),
+    child(extra: Record<string, unknown> = {}) {
+      return createBrowserLogger({ ...bindings, ...extra })
+    }
+  })
+
+  root = createBrowserLogger()
 } else {
   const transport = typeof (pino as any).transport === 'function' && pretty
     ? (pino as any).transport({

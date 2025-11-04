@@ -1,6 +1,5 @@
 import { planRepo } from '@entities/article/planner'
 import { articlesRepo } from '@entities/article/repository'
-import { draftTitleOutline } from '@common/providers/llm'
 import { getLlmProvider, getResearchProvider } from '@common/providers/registry'
 import { evaluateArticle } from '@features/articles/server/evaluate'
 import { ensureSerp } from '@features/serp/server/ensureSerp'
@@ -9,6 +8,7 @@ import { websitesRepo } from '@entities/website/repository'
 import { log } from '@src/common/logger'
 
 export async function processGenerate(payload: { projectId?: string; websiteId?: string; planItemId: string; publishAfterGenerate?: boolean }) {
+  log.debug('[generate] start', { websiteId: payload.websiteId || payload.projectId, planItemId: payload.planItemId })
   const found = await planRepo.findById(payload.planItemId)
   if (!found) return
   const { item } = found
@@ -27,15 +27,23 @@ export async function processGenerate(payload: { projectId?: string; websiteId?:
     return
   }
   try {
+    const llm = getLlmProvider()
+    let site: Awaited<ReturnType<typeof websitesRepo.get>> | null = null
+    try {
+      site = await websitesRepo.get(String(payload.websiteId || payload.projectId))
+    } catch (error) {
+      log.debug('[generate] site fetch failed', { articleId: draft.id, error: (error as Error)?.message || String(error) })
+    }
+    const locale = site?.defaultLocale || 'en-US'
+
     // Generate outline first if missing
     const needOutline = !draft.outlineJson || draft.outlineJson.length === 0
     let outline = draft.outlineJson ?? []
     if (needOutline) {
-      try {
-        const o = await draftTitleOutline(draft.title ?? item.title)
-        outline = o.outline
-        await articlesRepo.update(draft.id, { outlineJson: outline })
-      } catch {}
+      log.debug('[generate] drafting outline', { articleId: draft.id, title: draft.title })
+      const o = await llm.draftOutline(draft.title ?? item.title, locale)
+      outline = o.outline
+      await articlesRepo.update(draft.id, { outlineJson: outline, title: o.title })
     }
     // Enrich with SERP dump + research/media if available
     let serpDump: string | undefined
@@ -46,22 +54,22 @@ export async function processGenerate(payload: { projectId?: string; websiteId?:
     let images: Array<{ src: string; alt?: string; caption?: string }> = []
     let internalLinks: Array<{ anchor?: string; url: string }> = []
     try {
-      const site = await websitesRepo.get(String(payload.websiteId || payload.projectId))
-      const locale = site?.defaultLocale || 'en-US'
       const policy = ((site as any)?.settings || (site as any)?.settingsJson || {}) as { allowYoutube?: boolean; maxImages?: number }
       websiteSummary = site?.summary || undefined
-      const { locationCodeFromLocale } = await import('@common/providers/impl/dataforseo/geo-map')
+      const { locationCodeFromLocale } = await import('@common/providers/impl/dataforseo/geo')
       const loc = locationCodeFromLocale(locale)
       const device: 'desktop' | 'mobile' = 'desktop'
       // Check DB snapshot to avoid refetch
-      const { articleSerpRepo } = await import('@entities/article/repository.serp_snapshot')
-      const existing = await articleSerpRepo.get(draft.id)
+      const { keywordSerpRepo } = await import('@entities/article/repository.serp_snapshot')
+      const existing = await keywordSerpRepo.get(draft.id)
       if (existing && existing.snapshotJson) {
         serpDump = String((existing.snapshotJson as any)?.textDump || '')
+        log.debug('[generate] reuse serp snapshot', { articleId: draft.id })
       } else {
+        log.debug('[generate] fetching serp snapshot', { articleId: draft.id, phrase: draft.title ?? item.title })
         const snap = await ensureSerp({ phrase: draft.title ?? item.title, language: locale, locationCode: loc, device, topK: 10 })
         serpDump = String((snap as any)?.textDump || '')
-        try { await articleSerpRepo.upsert({ articleId: draft.id, phrase: draft.title ?? item.title, language: locale, locationCode: loc, device, topK: 10, snapshotJson: snap, fetchedAt: new Date() }) } catch {}
+        try { await keywordSerpRepo.upsert({ articleId: draft.id, phrase: draft.title ?? item.title, language: locale, locationCode: loc, device, topK: 10, snapshotJson: snap, fetchedAt: new Date() }) } catch {}
       }
       // competitorDump omitted in DB-only mode
       // Research citations + YouTube
@@ -75,8 +83,8 @@ export async function processGenerate(payload: { projectId?: string; websiteId?:
       } catch {}
       // Internal links from recent crawl pages
       try {
-        const { websiteCrawlRepo } = await import('@entities/crawl/repository.website')
-        const pages = await websiteCrawlRepo.listRecentPages(String(payload.websiteId || payload.projectId), 50)
+      const { crawlRepo } = await import('@entities/crawl/repository')
+      const pages = await crawlRepo.listRecentPages(String(payload.websiteId || payload.projectId), 50)
         internalLinks = pages
           .filter((p: any) => {
             try { const u = new URL(p.url); return u.pathname !== '/' } catch { return false }
@@ -91,8 +99,10 @@ export async function processGenerate(payload: { projectId?: string; websiteId?:
         images = maxImages > 0 ? await searchUnsplash(draft.title ?? item.title, maxImages) : []
       } catch {}
     } catch {}
-    const llm = getLlmProvider()
-    let { bodyHtml } = await llm.generateBody({ title: draft.title ?? item.title, outline, serpDump, competitorDump, websiteSummary, citations, youtube, images, internalLinks, locale: undefined })
+    log.debug('[generate] generating body', { articleId: draft.id, outlineSections: outline.length })
+    let bodyHtml: string
+    const { bodyHtml: generated } = await llm.generateBody({ title: draft.title ?? item.title, outline, serpDump, competitorDump, websiteSummary, citations, youtube, images, internalLinks, locale })
+    bodyHtml = generated
     // Fallback: if no embeds present, append minimal sections
     if (youtube.length && !/youtube\.com|youtu\.be/.test(bodyHtml)) {
       const first = youtube[0]
@@ -112,6 +122,7 @@ export async function processGenerate(payload: { projectId?: string; websiteId?:
     }
     // skip bundle cost logs in DB-only mode
     await articlesRepo.update(draft.id, { bodyHtml, generationDate: new Date() as any, status: 'scheduled' })
+    log.debug('[generate] article scheduled', { articleId: draft.id, hasCitations: citations.length > 0, hasYoutube: youtube.length > 0 })
     // Persist attachments to DB for downstream connectors
     try {
       const { attachmentsRepo } = await import('@entities/article/repository.attachments')
@@ -141,8 +152,8 @@ export async function processGenerate(payload: { projectId?: string; websiteId?:
     try {
       const immediate = false // global policy only; no per-website override
       if ((immediate || payload.publishAfterGenerate) && passedGate) {
-        const { websiteIntegrationsRepo } = await import('@entities/integration/repository.website')
-        const integrations = await websiteIntegrationsRepo.list(String(payload.websiteId || payload.projectId))
+        const { integrationsRepo } = await import('@entities/integration/repository')
+        const integrations = await integrationsRepo.list(String(payload.websiteId || payload.projectId))
         const { env } = await import('@common/infra/env')
         const target = (integrations as any[]).find((i) => i.status === 'connected' && env.publicationAllowed.includes(String(i.type)))
         if (target) {
@@ -151,9 +162,11 @@ export async function processGenerate(payload: { projectId?: string; websiteId?:
         }
       } else if ((immediate || payload.publishAfterGenerate) && !passedGate) {
         // hold article for manual review
+        log.debug('[generate] hold for review', { articleId: draft.id, scoreGate: passedGate })
       }
     } catch {}
-  } catch {
-    // leave stub body
+  } catch (error) {
+    log.error('[generate] job failed', { articleId: payload.planItemId, error: (error as Error)?.message || String(error) })
+    throw error
   }
 }

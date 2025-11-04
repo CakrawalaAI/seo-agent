@@ -1,6 +1,7 @@
 // @ts-nocheck
 import { createFileRoute } from '@tanstack/react-router'
 import { json, httpError, safeHandler, requireSession } from '@app/api-utils'
+import { log } from '@src/common/logger'
 import { websitesRepo } from '@entities/website/repository'
 
 export const Route = createFileRoute('/api/websites/')({
@@ -20,7 +21,9 @@ export const Route = createFileRoute('/api/websites/')({
         const url = String(body?.url || '')
         const defaultLocale = String(body?.defaultLocale || 'en-US')
         if (!orgId || !url) return httpError(400, 'Missing org or url')
+        log.debug('[websites.create] request', { orgId, url, defaultLocale })
         const w = await websitesRepo.create({ orgId, url, defaultLocale })
+        log.debug('[websites.create] created website', { websiteId: w.id })
         return json({ website: w }, { status: 201 })
       })
     }

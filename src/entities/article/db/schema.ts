@@ -1,6 +1,6 @@
 import { jsonb, pgTable, text, timestamp, index } from 'drizzle-orm/pg-core'
 import { websites } from '../../website/db/schema'
-import { websiteKeywords } from '../../keyword/db/schema.website_keywords'
+import { keywords } from '../../keyword/db/schema.keywords'
 
 export const articles = pgTable(
   'articles',
@@ -8,7 +8,7 @@ export const articles = pgTable(
     id: text('id').primaryKey(),
     // website_id is authoritative
     websiteId: text('website_id').references(() => websites.id, { onDelete: 'cascade' }),
-    keywordId: text('keyword_id').references(() => websiteKeywords.id, { onDelete: 'set null' }),
+    keywordId: text('keyword_id').references(() => keywords.id, { onDelete: 'set null' }),
     scheduledDate: text('scheduled_date'),
     title: text('title'),
     outlineJson: jsonb('outline_json').$type<Array<{ heading: string; subpoints?: string[] }> | null>().default(null),

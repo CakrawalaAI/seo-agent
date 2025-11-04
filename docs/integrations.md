@@ -1,6 +1,6 @@
 SEO Agent — Integrations
 
-- Table: `website_integrations` (per-website CMS/webhook targets).
+- Table: `integrations` (per-website CMS/webhook targets).
 - Shape: `{ id, website_id, type, status, config_json }`.
 - Snapshot API returns:
   - `integrations`: raw rows.

@@ -13,18 +13,18 @@ Table Inventory
 ```
 users ─┐
        │  user_auth_providers (OAuth accounts)
-orgs ──┼──────┐
+organizations ──┼──────┐
        │      │
-       │      └── org_members (email-based membership)
+       │      └── organization_members (email-based membership)
        │
-websites ──┬──────── website_integrations
+websites ──┬──────── integrations
            │
-           ├──── crawl_runs / crawl_pages (per‑page text + summaries)
+           ├──── crawl_jobs / crawl_pages (per‑page text + summaries)
            │
            ├──── articles (plan + drafts + published)
            │       └── article_attachments
            │
-           └──── website_keywords (per‑site)
+           └──── keywords (per‑site)
 ```
 
 ### users
@@ -39,15 +39,15 @@ websites ──┬──────── website_integrations
 ### user_auth_providers
 OAuth connections (Google). Unique by `(provider_id, provider_account_id)`.
 
-### orgs & org_members
-- `orgs`: plan and entitlements JSON (subscription source of truth)
-- `org_members`: `(org_id, user_email)` unique; `role` (`owner`,`admin`,`member`)
+### organizations & organization_members
+- `organizations`: plan and entitlements JSON (subscription source of truth)
+- `organization_members`: `(org_id, user_email)` unique; `role` (`owner`,`admin`,`member`)
 
 ### websites
 | Column | Type | Notes/Default |
 | --- | --- | --- |
 | `id` | text PK |
-| `org_id` | text FK → orgs.id (CASCADE) |
+| `org_id` | text FK → organizations.id (CASCADE) |
 | `url` | text | canonical website URL (input artifact) |
 | `default_locale` | text | `'en-US'` |
 | `summary` | text | business context from crawl top‑N (output artifact) |
@@ -55,22 +55,30 @@ OAuth connections (Google). Unique by `(provider_id, provider_account_id)`.
 | `status` | text enum | `'crawled'` → `'keyword_generated'` → `'articles_scheduled'` |
 | `created_at`, `updated_at` | timestamptz |
 
-### website_integrations
+### integrations
 Per‑website CMS connections. CASCADE via `website_id`.
 
-### website_keywords (per‑website)
-- `website_keywords`: `id`, `website_id` FK, `phrase`, `phrase_norm`, `language_code/name`, `location_code/name`, `provider`, `include` (boolean), `starred` (int), metrics columns (`search_volume`,`difficulty`,`cpc`,`competition`,`vol_12m_json`), `metrics_as_of`, timestamps.
+### keywords (per‑website)
+- `keywords`: `id`, `website_id` FK, `phrase`, `phrase_norm`, `language_code/name`, `location_code/name`, `provider`, `include` (boolean), `starred` (int), metrics columns (`search_volume`,`difficulty`,`cpc`,`competition`,`vol_12m_json`), `metrics_as_of`, timestamps.
 
-### crawl_runs / crawl_pages
-- `crawl_runs`: `id`, `website_id` FK, `providers_json`, `started_at`, `completed_at`, `created_at`.
+### keyword_serp
+- Cached SERP snapshots per article/keyword pair.
+- Columns: `article_id` PK (FK → `articles.id`), `phrase`, `language`, `location_code`, `device`, `top_k`, `snapshot_json`, `fetched_at`.
+
+### crawl_jobs / crawl_pages
+- `crawl_jobs`: `id`, `website_id` FK, `providers_json`, `started_at`, `completed_at`, `created_at`.
 - `crawl_pages`: page rows with `url`, `http_status`, `title`, `meta_json`, `headings_json`, `content_text`, `page_summary_json`, `created_at`.
+
+### subscriptions
+- Polar sync source of truth per user/org.
+- `subscriptions`: `polar_subscription_id`, `user_id`, optional `org_id`, status/tier/product/price/customer IDs, seat counts, billing timestamps (`current_period_end`, `trial_ends_at`, `cancel_at`), flags (`cancel_at_period_end`), entitlement metadata, raw payload cache, timestamps.
 
 ### articles (plan + content)
 | Column | Notes |
 | --- | --- |
 | `id` | text PK (reused as plan id) |
 | `website_id` | FK CASCADE |
-| `keyword_id` | optional FK → `website_keywords.id` (SET NULL) |
+| `keyword_id` | optional FK → `keywords.id` (SET NULL) |
 | `scheduled_date` | ISO `YYYY‑MM‑DD` |
 | `title`, `outline_json` | plan metadata |
 | `body_html` | generated content |
@@ -91,9 +99,9 @@ Per‑website CMS connections. CASCADE via `website_id`.
 None. All crawl pages, summaries, keyword caches, and article drafts persist in Postgres. Operational logs are ephemeral (no DB table yet).
 
 ## Process Contracts (inputs → outputs)
-- Crawl: input `websites.url` → output `websites.summary`, `crawl_runs` + `crawl_pages`.
-- Generate Keywords (real or mock): input `websites.summary` (+ headings) → output `website_keywords` with metrics. Users toggle `include`.
-- Plan/Schedule: input `website_keywords(include=true)` → output `articles` rows (30‑day runway or full subscription period; round‑robin; deletions leave days empty).
+- Crawl: input `websites.url` → output `websites.summary`, `crawl_jobs` + `crawl_pages`.
+- Generate Keywords (real or mock): input `websites.summary` (+ headings) → output `keywords` with metrics. Users toggle `include`.
+- Plan/Schedule: input `keywords(include=true)` → output `articles` rows (30‑day runway or full subscription period; round‑robin; deletions leave days empty).
 - Generate Articles: input `articles(status=queued)` within global 3‑day buffer → output `articles(status=scheduled, body_html)`.
 - Publish: input `articles(status=scheduled, scheduled_date<=today)` + integration → output `articles(status=published, url)`.
 

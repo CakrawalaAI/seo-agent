@@ -9,18 +9,24 @@ const seq = readFileSync(join(root, 'docs/sequence-diagram.md'), 'utf-8')
 const expectedTables = [
   'users',
   'user_auth_providers',
-  'orgs',
-  'org_members',
+  'organizations',
+  'organization_members',
+  'subscriptions',
   'websites',
-  'website_integrations',
-  'website_keywords',
+  'integrations',
+  'keywords',
   'articles',
-  'article_attachments'
+  'article_attachments',
+  'keyword_serp',
+  'crawl_jobs',
+  'crawl_pages'
 ]
 
 const forbiddenTerms = [
   'projects',           // Replaced by websites
-  'project_integrations', // Replaced by website_integrations
+  'project_integrations', // Replaced by integrations
+  'website_integrations',
+  'website_keywords',
   'logs/jobs.jsonl'     // DB-only architecture
 ]
 
@@ -71,13 +77,7 @@ describe('docs consistency', () => {
 
   it('Sequence diagram lists all DataForSEO endpoints we rely on', () => {
     const endpoints = [
-      '/v3/dataforseo_labs/google/keyword_overview/live',
-      '/v3/dataforseo_labs/google/keywords_for_site/live',
-      '/v3/dataforseo_labs/google/related_keywords/live',
-      '/v3/dataforseo_labs/google/bulk_keyword_difficulty/live',
-      '/v3/dataforseo_labs/google/keyword_suggestions/live',
       '/v3/dataforseo_labs/google/keyword_ideas/live',
-      '/v3/keywords_data/google_ads/keywords_for_keywords/live',
       '/v3/serp/google/organic/live/regular'
     ]
     for (const endpoint of endpoints) {

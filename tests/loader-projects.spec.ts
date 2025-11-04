@@ -14,21 +14,13 @@ function createFakeQC() {
 }
 
 describe('route loaders', () => {
-  beforeEach(() => {
-    globalThis.fetch = vi.fn(async () =>
-      new Response(JSON.stringify({ items: [], project: { id: 'proj_1', name: 'X', defaultLocale: 'en-US' } }), {
-        headers: { 'content-type': 'application/json' }
-      })
-    ) as any
-  })
   afterEach(() => {
     vi.restoreAllMocks()
   })
-  it('onboarding loader primes session and website lookup', async () => {
+  it('onboarding loader currently performs no prefetched queries', async () => {
     const { qc, calls } = createFakeQC()
     await onboardingLoader({ context: { queryClient: qc as any }, search: { websiteId: 'site_1' } } as any)
-    const keys = calls.map((c) => JSON.stringify(c.key))
-    expect(keys.some((k) => k.includes('me'))).toBe(true)
-    expect(keys.some((k) => k.includes('websites'))).toBe(true)
+    expect(calls).toHaveLength(0)
+    expect(qc.ensureQueryData).not.toHaveBeenCalled()
   })
 })

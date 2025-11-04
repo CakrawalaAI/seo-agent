@@ -1,7 +1,7 @@
 import { createFileRoute } from '@tanstack/react-router'
 import { json, requireSession, requireWebsiteAccess } from '@app/api-utils'
 import { getDb, hasDatabase } from '@common/infra/db'
-import { websiteIntegrations } from '@entities/integration/db/schema.website'
+import { integrations } from '@entities/integration/db/schema.integrations'
 import { eq } from 'drizzle-orm'
 import { connectorRegistry } from '@features/integrations/server/registry'
 import { log } from '@src/common/logger'
@@ -13,7 +13,7 @@ export const Route = createFileRoute('/api/integrations/$integrationId/test')({
         await requireSession(request)
         if (!hasDatabase()) return new Response('Not found', { status: 404 })
         const db = getDb()
-        const [integration] = await db.select().from(websiteIntegrations).where(eq(websiteIntegrations.id, params.integrationId)).limit(1)
+        const [integration] = await db.select().from(integrations).where(eq(integrations.id, params.integrationId)).limit(1)
         if (!integration) return new Response('Not found', { status: 404 })
         await requireWebsiteAccess(request, String((integration as any).websiteId))
 

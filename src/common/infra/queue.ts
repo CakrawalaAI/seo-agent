@@ -13,7 +13,7 @@ const DLQ_NAME = PREFIX ? `${PREFIX}.seo_jobs_dlq` : 'seo_jobs_dlq'
 export type JobMessage = {
   type:
     | 'crawl'
-    | 'discovery'
+    | 'generateKeywords'
     | 'score'
     | 'plan'
     | 'generate'

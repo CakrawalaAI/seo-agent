@@ -1,7 +1,7 @@
 // website-first scheduler
 import { websitesRepo } from '@entities/website/repository'
 import { articlesRepo } from '@entities/article/repository'
-import { websiteIntegrationsRepo } from '@entities/integration/repository.website'
+import { integrationsRepo } from '@entities/integration/repository'
 import { queueEnabled, publishJob } from '@common/infra/queue'
 import { env } from '@common/infra/env'
 import { log } from '@src/common/logger'
@@ -33,7 +33,7 @@ export async function runDailySchedules(opts: { websiteId?: string } = {}) {
     const projectId = project.id
     if (!project.planningApproved) continue
     const articles = await articlesRepo.list(projectId, 365)
-    const integrations = await websiteIntegrationsRepo.list(projectId)
+    const integrations = await integrationsRepo.list(projectId)
     const publishTarget = (integrations as any[]).find((i) => i.status === 'connected' && env.publicationAllowed.includes(String(i.type)))
     // Global lookahead window (default 3 days)
     const bufferDays = Math.max(0, Number(env.bufferDays ?? 3))

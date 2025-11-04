@@ -4,17 +4,13 @@
 export type AppConfig = {
   appUrl: string
   providers: {
-    // When true, missing provider credentials fall back to stubbed behavior in dev.
-    // For production, set to false to fail loudly.
-    allowStubs: boolean
     metrics: 'dataforseo'
     serp: 'dataforseo'
     research: 'exa'
     llm: 'openai'
     expand: 'dataforseo'
-    // Discovery provider (multi-source)
-    // default: 'dataforseo'
-    discovery?: 'dataforseo'
+    // Keyword ideas provider
+    keywordIdeas: 'dataforseo'
   }
   serp: {
     // Cache TTL in days for SERP snapshots before refreshing
@@ -48,15 +44,12 @@ export type AppConfig = {
 export const config: AppConfig = {
   appUrl: process.env.APP_URL || 'http://localhost:5173',
   providers: {
-    // Allow provider stubs by default (no flags)
-    allowStubs: true,
     metrics: 'dataforseo',
     serp: 'dataforseo',
     research: 'exa',
     llm: 'openai',
     expand: 'dataforseo',
-    // Discovery provider
-    discovery: 'dataforseo'
+    keywordIdeas: 'dataforseo'
   },
   serp: {
     ttlDays: 14,

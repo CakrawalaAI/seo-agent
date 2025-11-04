@@ -1,11 +1,58 @@
 import { useMemo } from 'react'
 import { Link, useLoaderData } from '@tanstack/react-router'
+import { useQuery } from '@tanstack/react-query'
 import { ArrowRight, CheckCircle2, PlayCircle } from 'lucide-react'
 import { OnboardingForm } from '@features/onboarding/client/onboarding-form'
+import { GoogleMark } from '@src/common/ui/icons/google'
+import { fetchSession } from '@entities/org/service'
+import { listWebsites } from '@entities/website/service'
+import type { MeSession } from '@entities'
+import type { Website } from '@entities/website/domain/website'
 import type { HomeLoaderData } from './loader'
 
 export function Page() {
   const pricingConfig = useLoaderData({ from: '/' }) as HomeLoaderData
+  const sessionQuery = useQuery<MeSession | null>({
+    queryKey: ['home.me'],
+    queryFn: async () => {
+      try {
+        return await fetchSession()
+      } catch {
+        return null
+      }
+    },
+    staleTime: 60_000,
+    refetchOnWindowFocus: false,
+    retry: false
+  })
+
+  const session = sessionQuery.data
+  const isAuthed = Boolean(session?.user)
+
+  const primaryOrgId = useMemo(() => {
+    if (!session) return null
+    return session.activeOrg?.id ?? session.orgs?.[0]?.id ?? null
+  }, [session])
+
+  const websitesQuery = useQuery<{ items: Website[] }>({
+    queryKey: ['home.websites', primaryOrgId],
+    queryFn: async () => {
+      if (!primaryOrgId) return { items: [] as Website[] }
+      try {
+        return await listWebsites(primaryOrgId)
+      } catch {
+        return { items: [] as Website[] }
+      }
+    },
+    enabled: Boolean(isAuthed && primaryOrgId),
+    staleTime: 30_000,
+    refetchOnWindowFocus: false,
+    retry: false
+  })
+
+  const websites = websitesQuery.data?.items ?? []
+  const sessionSignalsWebsite = Boolean(session?.activeProjectId)
+  const hasWebsites = sessionSignalsWebsite || websites.length > 0
 
   return (
     <div className="bg-background text-foreground">
@@ -25,21 +72,30 @@ export function Page() {
                 </a>
               ))}
             </nav>
-            <div className="flex items-center gap-3">
+            {isAuthed ? (
+              <div className="flex items-center gap-3">
+                <Link
+                  to="/dashboard"
+                  className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground shadow-sm transition hover:opacity-90"
+                >
+                  Go to Dashboard
+                </Link>
+                <a
+                  href="/api/auth/logout"
+                  className="inline-flex items-center gap-2 rounded-md border border-input bg-background px-4 py-2 text-sm font-semibold shadow-sm transition hover:bg-muted"
+                >
+                  Log out
+                </a>
+              </div>
+            ) : (
               <a
                 href="/api/auth/login?redirect=/dashboard"
-                className="hidden rounded-md border px-4 py-2 text-sm font-medium transition hover:bg-muted md:inline-flex"
+                className="inline-flex items-center gap-2 rounded-md border border-input bg-background px-4 py-2 text-sm font-semibold shadow-sm transition hover:bg-muted"
               >
-                Sign in
+                <GoogleMark />
+                Continue with Google
               </a>
-              <a
-                href="/api/auth/login?redirect=/dashboard"
-                className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground shadow-sm transition hover:opacity-90"
-              >
-                Start for Free
-                <ArrowRight className="h-4 w-4" />
-              </a>
-            </div>
+            )}
           </div>
           <section id="hero" className="grid gap-12 lg:grid-cols-[1fr,0.9fr]">
             <div className="space-y-8">
@@ -56,7 +112,7 @@ export function Page() {
                 </p>
               </div>
               <div className="space-y-4">
-                <OnboardingForm />
+                <OnboardingForm isAuthed={isAuthed} hasWebsites={hasWebsites} redirectIfAuthenticated />
                 <div className="flex flex-wrap items-center gap-4 text-sm text-muted-foreground">
                   <button
                     type="button"
@@ -255,7 +311,7 @@ export function Page() {
               <span className="text-xs font-semibold uppercase tracking-wide text-primary">AI search edge</span>
               <h2 className="text-3xl font-semibold">Win both classic SERPs and AI answers</h2>
               <p className="text-muted-foreground">
-                The agent optimizes every article for blended discovery—structured for Google crawlers, enriched for
+                The agent optimizes every article for blended keyword reach—structured for Google crawlers, enriched for
                 conversational engines like ChatGPT, Claude, and Gemini.
               </p>
               <div className="grid gap-3 text-sm text-muted-foreground">

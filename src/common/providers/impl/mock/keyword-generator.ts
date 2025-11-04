@@ -1,4 +1,58 @@
-import { extractKeywordsFromDataforseoResponse } from '../dataforseo/client'
+import { log } from '@src/common/logger'
+
+const TOPIC_TOKENS = [
+  'behavioral interview',
+  'technical interview',
+  'consulting case',
+  'product manager',
+  'system design',
+  'ai coaching',
+  'mock interview',
+  'voice practice',
+  'feedback rubric',
+  'remote practice',
+  'leadership prep',
+  'graduate program',
+  'executive coaching',
+  'sales interview',
+  'panel drill',
+  'hr simulator',
+  'storytelling tips',
+  'confidence training',
+  'competency workshop',
+  'behavioral signals'
+]
+
+const ACTION_TOKENS = ['tips', 'template', 'framework', 'worksheet', 'playbook', 'guide', 'script', 'questions', 'answers', 'matrix', 'scenario', 'plan']
+
+const AUDIENCE_TOKENS = ['ai', 'online', 'video', 'voice', 'interactive', 'live', 'async', 'bootcamp', 'accelerator', 'cohort', 'practice', 'trainer']
+
+const BASE_VOLUMES = [6600, 5400, 4200, 3900, 3600, 3400, 3200, 3000, 2800, 2600, 2400, 2200, 2100, 2000, 1900, 1800, 1700, 1600, 1500, 1400, 1300, 1200, 1100, 1000, 900, 820, 780, 740, 700, 660, 620, 580, 540, 500, 460, 430, 410, 390, 360, 330, 310, 290, 270, 250, 230, 210, 190, 170, 150, 140, 130, 120, 110, 100, 95, 90, 85, 80, 75, 70, 65, 60, 56, 52, 48, 44]
+
+const KEYWORD_TARGET = 100
+
+function hashString(input: string): number {
+  let h = 2166136261
+  for (let i = 0; i < input.length; i++) {
+    h ^= input.charCodeAt(i)
+    h = Math.imul(h, 16777619)
+  }
+  return h >>> 0
+}
+
+function createSeededRandom(seed: string) {
+  let state = hashString(seed) || 1
+  return () => {
+    state ^= state << 13
+    state ^= state >>> 17
+    state ^= state << 5
+    return ((state >>> 0) % 1_000_000) / 1_000_000
+  }
+}
+
+function pick<T>(arr: T[], rand: () => number): T {
+  return arr[Math.floor(rand() * arr.length)]!
+}
 
 type SiteParams = {
   target: string
@@ -10,42 +64,47 @@ type KeywordParams = {
   keywords: string[]
   languageCode?: string | null
   locationCode?: number | null
+  limit?: number | null
 }
+
+type MockMonthlySearch = { year: number; month: number; search_volume: number }
 
 type MockKeywordItem = {
   keyword: string
+  keyword_data: {
+    keyword: string
+  }
   keyword_info: {
     search_volume: number
     cpc: number
     competition: number
     keyword_difficulty: number
     last_updated_time: string
+    monthly_searches: MockMonthlySearch[]
   }
-}
-
-type MockPayload = {
-  status_code: number
-  result: Array<{ items: MockKeywordItem[] }>
-}
-
-function buildResponse(items: MockKeywordItem[]): { tasks: Array<MockPayload> } {
-  return {
-    tasks: [
-      {
-        status_code: 20000,
-        result: [
-          {
-            items
-          }
-        ]
-      }
-    ]
+  keyword_properties: {
+    keyword_difficulty: number
+  }
+  impressions_info: {
+    last_updated_time: string
+    ad_position_min: number
+    ad_position_max: number
+    ad_position_prominence: number
+    ad_impressions_share: number
   }
 }
 
 function toList(items: MockKeywordItem[]): string[] {
-  const json = buildResponse(items)
-  return extractKeywordsFromDataforseoResponse(json)
+  return items.map((item) => item.keyword)
+}
+
+function toDetailed(items: MockKeywordItem[]): Array<{ keyword: string; keyword_info: MockKeywordItem['keyword_info']; keyword_properties: MockKeywordItem['keyword_properties']; impressions_info: MockKeywordItem['impressions_info'] }> {
+  return items.map((item) => ({
+    keyword: item.keyword,
+    keyword_info: item.keyword_info,
+    keyword_properties: item.keyword_properties,
+    impressions_info: item.impressions_info
+  }))
 }
 
 function brandFromDomain(target: string): string {
@@ -58,91 +117,139 @@ function brandFromDomain(target: string): string {
   }
 }
 
-function baseItems(): Array<{ seed: string; volume: number; cpc: number; competition: number; difficulty: number }> {
-  return [
-    { seed: 'interview prep platform', volume: 5400, cpc: 3.25, competition: 0.68, difficulty: 42 },
-    { seed: 'behavioral interview practice', volume: 2900, cpc: 2.9, competition: 0.62, difficulty: 38 },
-    { seed: 'ai interview coach', volume: 1700, cpc: 4.1, competition: 0.74, difficulty: 46 },
-    { seed: 'mock interview questions', volume: 6600, cpc: 1.8, competition: 0.55, difficulty: 40 },
-    { seed: 'job interview feedback', volume: 1200, cpc: 2.2, competition: 0.48, difficulty: 34 },
-    { seed: 'practice interview answers', volume: 2200, cpc: 3.05, competition: 0.51, difficulty: 36 },
-    { seed: 'interview preparation app', volume: 1500, cpc: 2.65, competition: 0.57, difficulty: 39 },
-    { seed: 'ai behavioral questions', volume: 900, cpc: 3.45, competition: 0.6, difficulty: 37 },
-    { seed: 'hr interview simulator', volume: 540, cpc: 1.95, competition: 0.42, difficulty: 28 },
-    { seed: 'interview drill software', volume: 410, cpc: 2.15, competition: 0.39, difficulty: 26 },
-    { seed: 'faang interview prep', volume: 2100, cpc: 4.55, competition: 0.7, difficulty: 44 },
-    { seed: 'interview confidence training', volume: 880, cpc: 1.65, competition: 0.41, difficulty: 30 },
-    { seed: 'structured interview practice', volume: 620, cpc: 1.92, competition: 0.37, difficulty: 29 },
-    { seed: 'self paced interview coaching', volume: 430, cpc: 1.48, competition: 0.33, difficulty: 24 },
-    { seed: 'interview rubric feedback', volume: 350, cpc: 1.76, competition: 0.35, difficulty: 25 },
-    { seed: 'leadership interview scenarios', volume: 780, cpc: 2.35, competition: 0.46, difficulty: 32 },
-    { seed: 'interview debrief template', volume: 560, cpc: 1.28, competition: 0.29, difficulty: 22 },
-    { seed: 'product manager interview prep', volume: 3100, cpc: 3.6, competition: 0.63, difficulty: 41 },
-    { seed: 'technical interview coaching', volume: 1900, cpc: 3.1, competition: 0.58, difficulty: 35 },
-    { seed: 'sales interview role play', volume: 740, cpc: 1.72, competition: 0.36, difficulty: 27 },
-    { seed: 'remote interview practice', volume: 820, cpc: 2.05, competition: 0.4, difficulty: 31 },
-    { seed: 'interview storytelling training', volume: 460, cpc: 1.55, competition: 0.34, difficulty: 23 },
-    { seed: 'executive interview preparation', volume: 1250, cpc: 4.2, competition: 0.69, difficulty: 45 },
-    { seed: 'behavioral interview rubric', volume: 690, cpc: 1.88, competition: 0.38, difficulty: 28 },
-    { seed: 'competency interview workshop', volume: 520, cpc: 1.97, competition: 0.4, difficulty: 27 },
-    { seed: 'mock interview program', volume: 980, cpc: 2.45, competition: 0.49, difficulty: 33 },
-    { seed: 'graduate interview prep course', volume: 870, cpc: 1.86, competition: 0.37, difficulty: 29 },
-    { seed: 'behavioral interview matrix', volume: 430, cpc: 1.61, competition: 0.32, difficulty: 24 },
-    { seed: 'interview feedback examples', volume: 1280, cpc: 1.74, competition: 0.43, difficulty: 31 },
-    { seed: 'panel interview practice kit', volume: 610, cpc: 1.9, competition: 0.36, difficulty: 27 }
-  ]
+function buildBaseMetrics(index: number, rand: () => number) {
+  const baseVolume = BASE_VOLUMES[index % BASE_VOLUMES.length] ?? 400
+  const volumeJitter = 0.75 + rand() * 0.6
+  const searchVolume = Math.max(40, Math.round(baseVolume * volumeJitter))
+  const cpc = Number((1.2 + rand() * 3.8).toFixed(2))
+  const competition = Number((0.25 + rand() * 0.55).toFixed(2))
+  const difficulty = Math.max(18, Math.min(72, Math.round(25 + rand() * 45)))
+  return { searchVolume, cpc, competition, difficulty }
 }
 
-function makeItems(prefix: string, adjectives: string[] = []): MockKeywordItem[] {
+function buildMonthlySearches(now: number, seedVolume: number, rand: () => number): MockMonthlySearch[] {
+  const months: MockMonthlySearch[] = []
+  const base = Math.max(50, Math.round(seedVolume / 12))
+  for (let i = 0; i < 12; i++) {
+    const date = new Date(now - i * 30 * 24 * 60 * 60 * 1000)
+    const seasonal = 0.6 + rand() * 0.9
+    const monthVolume = Math.max(20, Math.round(base * seasonal))
+    months.push({ year: date.getUTCFullYear(), month: date.getUTCMonth() + 1, search_volume: monthVolume })
+  }
+  return months
+}
+
+function buildImpressions(now: number, rand: () => number) {
+  const positionMin = 1 + Math.floor(rand() * 3)
+  const positionMax = positionMin + Math.floor(1 + rand() * 3)
+  return {
+    last_updated_time: new Date(now - Math.floor(rand() * 72) * 3600 * 1000).toISOString(),
+    ad_position_min: positionMin,
+    ad_position_max: positionMax,
+    ad_position_prominence: Number((0.6 + rand() * 0.3).toFixed(2)),
+    ad_impressions_share: Number((0.28 + rand() * 0.3).toFixed(2))
+  }
+}
+
+function makeItems(prefix: string, adjectives: string[] = [], seedTokens: string[] = []): MockKeywordItem[] {
   const now = Date.now()
-  const base = baseItems()
-  return base.map((entry, index) => {
-    const modifier = adjectives[index % adjectives.length] ?? ''
-    const keyword = [prefix, modifier, entry.seed].filter(Boolean).join(' ').replace(/\s+/g, ' ').trim()
-    return {
+  const rand = createSeededRandom([prefix, ...adjectives, ...seedTokens].filter(Boolean).join('|') || 'seed')
+  const baseTokens = prefix.split(/\s+/).filter(Boolean)
+  const seen = new Set<string>()
+  const items: MockKeywordItem[] = []
+  let guard = 0
+  while (items.length < KEYWORD_TARGET && guard < KEYWORD_TARGET * 6) {
+    guard++
+    const topic = pick(TOPIC_TOKENS, rand)
+    const action = pick(ACTION_TOKENS, rand)
+    const audience = pick(AUDIENCE_TOKENS, rand)
+    const modifier = adjectives.length ? adjectives[items.length % adjectives.length] : ''
+    const parts = [...baseTokens, modifier, topic, audience, action]
+    const keyword = parts.filter(Boolean).join(' ').replace(/\s+/g, ' ').trim()
+    if (!keyword) continue
+    const key = keyword.toLowerCase()
+    if (seen.has(key)) continue
+    seen.add(key)
+    const metrics = buildBaseMetrics(items.length, rand)
+    const infoLastUpdated = new Date(now - Math.floor(rand() * 96) * 3600 * 1000).toISOString()
+    items.push({
       keyword,
+      keyword_data: {
+        keyword
+      },
       keyword_info: {
-        search_volume: entry.volume,
-        cpc: Number(entry.cpc.toFixed(2)),
-        competition: Number(entry.competition.toFixed(2)),
-        keyword_difficulty: entry.difficulty,
-        last_updated_time: new Date(now - index * 86400000).toISOString()
-      }
-    }
-  })
+        search_volume: metrics.searchVolume,
+        cpc: metrics.cpc,
+        competition: metrics.competition,
+        keyword_difficulty: metrics.difficulty,
+        last_updated_time: infoLastUpdated,
+        monthly_searches: buildMonthlySearches(now, metrics.searchVolume, rand)
+      },
+      keyword_properties: {
+        keyword_difficulty: metrics.difficulty
+      },
+      impressions_info: buildImpressions(now, rand)
+    })
+  }
+  return items
 }
 
 function keywordsForSiteItems(params: SiteParams): MockKeywordItem[] {
+  log.debug('[mock.keywordGenerator] keywordsForSiteItems input', { target: params.target, languageCode: params.languageCode ?? null, locationCode: params.locationCode ?? null })
   const brand = brandFromDomain(params.target || '')
   const adjectives = ['platform', 'tool', 'software', 'solution', 'service']
-  return makeItems(brand, adjectives)
+  const items = makeItems(brand, adjectives, [params.target || ''])
+  log.debug('[mock.keywordGenerator] keywordsForSiteItems generated', { target: params.target, total: items.length, keywords: items.map((item) => item.keyword) })
+  return items
 }
 
 function relatedKeywordItems(params: KeywordParams): MockKeywordItem[] {
   const adjectives = ['best', 'top', 'guide', 'tips', 'examples']
   const seeds = params.keywords.slice(0, 3)
-  if (!seeds.length) return makeItems('interview', adjectives)
+  const limit = typeof params.limit === 'number' && params.limit > 0 ? params.limit : undefined
+  if (!seeds.length) {
+    const fallback = makeItems('interview', adjectives, []).slice(0, limit)
+    log.debug('[mock.keywordGenerator] relatedKeywordItems fallback', { limit: limit ?? null, keywords: fallback.map((item) => item.keyword) })
+    return fallback
+  }
   const combined = seeds.join(' ')
-  return makeItems(combined, adjectives)
+  const items = makeItems(combined, adjectives, seeds)
+  log.debug('[mock.keywordGenerator] relatedKeywordItems generated', { seeds, limit: limit ?? null, keywords: items.map((item) => item.keyword) })
+  return typeof limit === 'number' ? items.slice(0, limit) : items
 }
 
 function keywordIdeasItems(params: KeywordParams): MockKeywordItem[] {
   const modifiers = ['online', 'ai', 'template', 'framework', 'worksheet']
   const seed = params.keywords[0] || 'interview'
-  return makeItems(seed, modifiers)
+  const limit = typeof params.limit === 'number' && params.limit > 0 ? params.limit : undefined
+  const items = makeItems(seed, modifiers, params.keywords)
+  log.debug('[mock.keywordGenerator] keywordIdeasItems generated', { seed, seeds: params.keywords, limit: limit ?? null, keywords: items.map((item) => item.keyword) })
+  return typeof limit === 'number' ? items.slice(0, limit) : items
 }
 
 export const mockKeywordGenerator = {
   async keywordsForSite(params: SiteParams): Promise<string[]> {
     const items = keywordsForSiteItems(params)
-    return toList(items)
+    const list = toList(items)
+    log.debug('[mock.keywordGenerator] keywordsForSite result', { target: params.target, total: list.length, keywords: list })
+    return list
   },
   async relatedKeywords(params: KeywordParams): Promise<string[]> {
     const items = relatedKeywordItems(params)
-    return toList(items)
+    const list = toList(items)
+    log.debug('[mock.keywordGenerator] relatedKeywords result', { seeds: params.keywords, total: list.length, keywords: list })
+    return list
   },
   async keywordIdeas(params: KeywordParams): Promise<string[]> {
     const items = keywordIdeasItems(params)
-    return toList(items)
+    const list = toList(items)
+    log.debug('[mock.keywordGenerator] keywordIdeas result', { seeds: params.keywords, total: list.length, keywords: list })
+    return list
+  },
+  async keywordIdeasDetailed(params: KeywordParams): Promise<Array<{ keyword: string; keyword_info: MockKeywordItem['keyword_info']; keyword_properties: MockKeywordItem['keyword_properties']; impressions_info: MockKeywordItem['impressions_info'] }>> {
+    const items = keywordIdeasItems(params)
+    const detailed = toDetailed(items)
+    log.debug('[mock.keywordGenerator] keywordIdeasDetailed result', { seeds: params.keywords, total: detailed.length, keywords: detailed.map((item) => item.keyword) })
+    return detailed
   }
 }

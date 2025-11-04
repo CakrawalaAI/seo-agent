@@ -31,7 +31,7 @@ All long‑running state is recorded in RabbitMQ; artifacts persist in Postgres 
 - **Workers** (crawler, general)
 - **External Providers:**
   - Playwright (headless crawl)
-  - DataForSEO (keyword discovery, metrics, SERP)
+  - DataForSEO (keyword ideas, metrics, SERP)
   - OpenAI (LLM for summaries, keywords, article generation)
   - Exa (research)
   - CMS (webhook, Webflow, WordPress, etc.)
@@ -69,13 +69,13 @@ Reduce (site summary)
 - Fallback: `summarizeSite(sample pages)` if dump fails
 
 DB Shape (crawl)
-- `crawl_runs(id, website_id, started_at, completed_at, created_at)`
+- `crawl_jobs(id, website_id, started_at, completed_at, created_at)`
 - `crawl_pages(id, website_id, run_id, url, http_status, title TEXT, content TEXT, summary TEXT, created_at)`
 - Removed legacy: `meta_json`, `headings_json`, `content_text`, `page_summary_json`
 
 Rationale
 - Plain-text storage simplifies pipelines and reduces JSON friction
-- BFS biases shallow, discoverable pages; penalizes deep rarely-visited paths naturally
+- BFS biases shallow, crawlable pages; penalizes deep rarely-visited paths naturally
 
 ---
 
@@ -109,12 +109,12 @@ Rationale
    - Snapshot fetched via React Query (30s refetch) for crawl/keywords/plan status
 
 5. **Crawl Animation**
-   - While snapshot lacks `crawl_pages` rows: show faux discovery list (300–500 ms cadence)
+   - While snapshot lacks `crawl_pages` rows: show faux keyword list (300–500 ms cadence)
    - Switch to real data once `crawl_pages` populated; show recent URLs with status chip
    - Progress meter from representatives count (if available)
 
 6. **Keyword Animation**
-   - Trigger when `website_keywords` count > 0
+   - Trigger when `keywords` count > 0
    - Stream top keyword tuples (`keyword | metrics`) in ticker
 
 7. **Plan Summary Card**
@@ -131,7 +131,7 @@ Rationale
 - `url_required`: authenticated, no website created yet
 - `initializing`: website row exists, jobs enqueued
 - `crawling`: `crawl_pages` non-empty
-- `keywording`: `website_keywords` populated, articles empty
+- `keywording`: `keywords` populated, articles empty
 - `planning`: articles queued exist, none scheduled
 - `ready`: scheduled article(s) present
 
@@ -155,24 +155,24 @@ User              API                  Postgres         RabbitMQ               W
  |  <------------
  |                                                            |
  |                                                            └──> Crawler Worker:
- |  Poll snapshot                                                  • Discover sitemap (index + child)
+|  Poll snapshot                                                  • Map sitemap (index + child)
  |  (GET /api/websites/:id/snapshot)                               • Clean URLs, dedupe, same host
  | ----------------> SELECT websites                               • Rank representatives (LLM or first N≤100)
  |  <--------------- + crawl status                                • Crawl reps (Playwright, 8 concurrent)
  |                                                                  • Extract {title,meta,headings,content_text}
  |                                                                  • Per-page LLM summary → page_summary_json
- |                                                                  • INSERT crawl_runs, crawl_pages (DB only)
+ |                                                                  • INSERT crawl_jobs, crawl_pages (DB only)
  |                                                                  • Reduce all page summaries → websites.summary
- |                                                                  • publish(discovery.{website}) ------------> Discovery Worker:
+|                                                                  • publish(generateKeywords.{website}) -----> Keyword Worker:
  |                                                                                                                 • Seeds (LLM from summary, 10 terms)
  |                                                                                                                 • One call: keyword_ideas/live (limit ≤30, include_serp_info=false)
- |                                                                                                                 • Normalize phrase → UPSERT website_keywords (per website)
+ |                                                                                                                 • Normalize phrase → UPSERT keywords (per website)
  |                                                                                                                 • No global cache; no auto-refresh; SERP fetched later on article gen
  |                                                                                                                 • Enqueue plan rebuild (if requested)
 ```
 
 **Snapshot Endpoint:**
-`/api/websites/:id/snapshot` aggregates: `websites.summary`, `website_keywords`, `articles`, `integrations`.
+`/api/websites/:id/snapshot` aggregates: `websites.summary`, `keywords`, `articles`, `integrations`.
 Geo Defaults: `language_code`/`location_code` derived from `websites.defaultLocale` (e.g., en-US → en + 2840) with names mapped from DataForSEO lists.
 
 ### 2.3 Crawl Pipeline Detail
@@ -187,15 +187,15 @@ Geo Defaults: `language_code`/`location_code` derived from `websites.defaultLoca
 5. **Reduce:** LLM summarize all page summaries → `websites.summary`
 
 **Defaults:**
-- N (representatives): 100
+- N (representatives): 100 (override with `MAX_PAGES_CRAWLED` env)
 - Model: from `SEOA_LLM_MODEL`
 - Playwright concurrency: 8; timeout/page: 12s
 
 **Storage (DB only):**
-- `crawl_runs(id, website_id, started_at, completed_at)`
+- `crawl_jobs(id, website_id, started_at, completed_at)`
 - `crawl_pages(id, website_id, run_id, url, http_status, title, content, summary, created_at)`
 - `websites.summary` (reduce over per‑page summaries)
-- `website_keywords(id, website_id, phrase_norm, language_code/name, location_code/name, search_volume, difficulty, cpc, competition, vol_12m_json, impressions_json, raw_json, metrics_as_of)`
+- `keywords(id, website_id, phrase_norm, language_code/name, location_code/name, search_volume, difficulty, cpc, competition, vol_12m_json, impressions_json, raw_json, metrics_as_of)`
 
 **Error Handling:**
 - If rank fails → take first N cleaned sitemap URLs
@@ -203,7 +203,7 @@ Geo Defaults: `language_code`/`location_code` derived from `websites.defaultLoca
 - If per‑page summarize fails → store short excerpt as fallback in `page_summary_json`
 
 **Process Contract:**
-Input `websites.url` → Output `websites.summary`, `crawl_runs` + `crawl_pages`
+Input `websites.url` → Output `websites.summary`, `crawl_jobs` + `crawl_pages`
 (See `docs/erd.md` for full schema)
 
 ### 2.4 Keyword Generation (DB-only, Global Cache)
@@ -215,21 +215,21 @@ Input `websites.url` → Output `websites.summary`, `crawl_runs` + `crawl_pages`
 - Headings: sample from latest `crawl_pages`
 
 **Keyword Store (per website):**
-- `website_keywords(id, website_id, phrase_norm UNIQUE per site+geo+lang, include BOOLEAN, starred INT, metrics columns…)`
+- `keywords(id, website_id, phrase_norm UNIQUE per site+geo+lang, include BOOLEAN, starred INT, metrics columns…)`
 
 **Steps:**
 1. **Seeds:** from website summary (LLM) + headings (parser)
 2. **Expand:** DataForSEO (real) or deterministic mock (default)
 3. **Canon:** normalize phrase
 4. **Metrics:** fetch and upsert volume/difficulty
-5. **Attach:** persist into `website_keywords` with default `include=false` (auto-include top picks)
+5. **Attach:** persist into `keywords` with default `include=false` (auto-include top picks)
 
 **Notes:**
 - No location/language/device dims; keyword identity is the string
 - TTL default 30d; background refresh can update metrics
 
 **Process Contract:**
-Input `websites.summary` (+ headings) → Output `website_keywords` (per‑site rows)
+Input `websites.summary` (+ headings) → Output `keywords` (per‑site rows)
 
 ---
 
@@ -281,7 +281,7 @@ Cron/User                API                          RabbitMQ                  
 - Interval 24h default
 
 **Process Contracts:**
-- **Plan/Schedule:** Input `website_keywords(include=true)` → Output `articles` rows (30‑day runway or full subscription period; round‑robin; deletions leave days empty)
+- **Plan/Schedule:** Input `keywords(include=true)` → Output `articles` rows (30‑day runway or full subscription period; round‑robin; deletions leave days empty)
 - **Generate Articles:** Input `articles(status=queued)` within global 3‑day buffer → Output `articles(status=scheduled, body_html)`
 - **Publish:** Input `articles(status=scheduled, scheduled_date<=today)` + integration → Output `articles(status=published, url)`
 
@@ -296,7 +296,7 @@ Cron/User                API                          RabbitMQ                  
 ### 4.1 Integration Lifecycle
 
 **Architecture:**
-- `src/entities/integration/*`: persist website integrations (`website_integrations` table), OAuth tokens, status transitions
+- `src/entities/integration/*`: persist website integrations (`integrations` table), OAuth tokens, status transitions
 - `src/features/integrations/server/*`: connector registry, runtime adapters, shared helpers (no React deps)
 - Routes, workers, CLI import from server package
 
@@ -403,7 +403,7 @@ Daily Scheduler      Worker (publish)       Integration Registry      CMS Provid
 
 **Snapshot Endpoints:**
 - `GET /api/crawl/pages?websiteId` → DB `crawl_pages` (recent crawl pages from DB)
-- `GET /api/websites/:id/snapshot` → Aggregator: `websites` + `website_keywords` + `articles` + `integrations`
+- `GET /api/websites/:id/snapshot` → Aggregator: `websites` + `keywords` + `articles` + `integrations`
   - Computes: `status`, `isActive`, `isConfigured`, `supportsOneClick`, `missingCapabilities`
   - When connector requires additional capabilities (images, categories), `missingCapabilities` array blocks activation + surfaces checklist
 
@@ -416,81 +416,44 @@ Daily Scheduler      Worker (publish)       Integration Registry      CMS Provid
 
 ## 6. Provider Touchpoints
 
-### 6.1 DataForSEO API Endpoints (9 Total)
+### 6.1 DataForSEO Keyword Ideas (Primary Endpoint)
 
 **Base URL:** `https://api.dataforseo.com`
 **Auth:** HTTP Basic Auth (export `DATAFORSEO_AUTH=$(printf '%s:%s' "$LOGIN" "$PASSWORD" | base64)`)
 
-**Discovery Phase (4 endpoints):**
-1. **Keywords For Site** (`/v3/dataforseo_labs/google/keywords_for_site/live`)
-   Purpose: Baseline discovery - what site currently ranks for
-   Usage: First step in discovery workflow (limit: 500)
+- Endpoint: `/v3/dataforseo_labs/google/keyword_ideas/live`
+- Contract: accepts up to 200 seed keywords, returns keyword ideas with `keyword_info`, `keyword_properties`, `impressions_info`.
+- Client wrapper: `src/common/providers/impl/dataforseo/keyword-ideas.ts` (20s timeout, single-task payload, error logging).
+- Provider interface: `src/common/providers/interfaces/keyword-ideas.ts` standardises return shape for real + mock providers.
+- Geo helpers: `src/common/providers/impl/dataforseo/geo.ts` exposes `locationCodeFromLocale`, `languageCodeFromLocale`, plus name lookups.
 
-2. **Related Keywords** (`/v3/dataforseo_labs/google/related_keywords/live`)
-   Purpose: Semantic expansion - find conceptually related terms
-   Usage: 20 seeds → ~2000 phrases
-
-3. **Keyword Ideas** (`/v3/dataforseo_labs/google/keyword_ideas/live`)
-   Purpose: Broader expansion - Google autocomplete-style suggestions
-   Usage: 10 seeds → ~1000 phrases
-
-4. **Keyword Suggestions** (`/v3/dataforseo_labs/google/keyword_suggestions/live`)
-   Purpose: Autocomplete-style expansion (cheaper alternative)
-   Usage: Optional first step (configurable via `SEOA_DFS_SUGGESTIONS_FIRST=1`)
-
-**Metrics Phase (2 endpoints):**
-5. **Bulk Keyword Difficulty** (`/v3/dataforseo_labs/google/bulk_keyword_difficulty/live`)
-   Purpose: Cheap initial scoring to filter thousands of candidates
-   Cost: $0.003/keyword
-   Usage: Filter ~3k candidates → top 200 easiest
-
-6. **Keyword Overview** (`/v3/dataforseo_labs/google/keyword_overview/live`)
-   Purpose: Rich metrics (search volume, CPC, difficulty, 12-month trends)
-   Cost: $0.025/keyword
-   Usage: Enrich top 200 candidates with full metrics
-
-**Rankability Phase (1 endpoint):**
-7. **SERP Organic** (`/v3/serp/google/organic/live/regular`)
-   Purpose: Understand current rankings and competition
-   Cost: $0.050/keyword
-   Usage: Top 50 keywords for "SERP-lite" rankability analysis
-
-**Additional Endpoints:**
-8. **Search Volume** (`/v3/keywords_data/google_ads/search_volume/live`)
-   Status: ⚠️ Implemented but not actively used (Overview provides superset)
-
-9. **Keywords For Keywords** (`/v3/keywords_data/google_ads/keywords_for_keywords/live`)
-   Purpose: Expand seed keywords with related phrases from Google Ads data
-   Usage: Alongside suggestions endpoint (LLM seeds → ~1000 variations)
-
-**Cost-Optimized Discovery Funnel:**
+**Keyword Generation Funnel:**
 ```
-Wide Discovery (4 endpoints)
-  ↓ ~3000 candidate keywords
-Bulk Difficulty Filter ($0.003/kw)
-  ↓ ~1000 with difficulty scores
-Sort by Easiest
-  ↓ Top 200
-Full Metrics Overview ($0.025/kw)
-  ↓ 200 with volume/CPC/trends
-SERP Analysis (top 50)
-  ↓ 50 with rankability scores
-Final Prioritization
-  ↓ Top 30 → content calendar
+Seed selection (crawl summary + heuristics)
+  ↓ ≤200 seeds → keyword_ideas/live (limit configurable, default 100)
+Normalize + dedupe keyword_info
+  ↓ persist into keywords (metrics_json payload)
+Optional planner hook
+  ↓ trigger schedule refresh when keyword list changes
 ```
 
-**Total cost per website:** ~$22.50 (70% savings vs calling overview on all candidates)
-
-**Reference data:** `src/common/providers/impl/dataforseo/geo.ts` (auto-generated from official CSV) powers website creation/settings selectors.
+**Mock mode:** `src/common/providers/impl/mock/keyword-generator.ts` returns 100 deterministic keyword ideas using the same schema; enable with `MOCK_KEYWORD_GENERATOR=true` (legacy aliases remain supported).
 
 **Smoke checks:**
 ```bash
-bun test tests/common/dataforseo-client.spec.ts
 curl -H "Authorization: Basic $DATAFORSEO_AUTH" \
      -H 'content-type: application/json' \
-     -d '{"data":[{"keyword":"demo","location_code":2840,"language_name":"English"}]}' \
-     https://api.dataforseo.com/v3/dataforseo_labs/google/keyword_overview/live
+     -d '[{"keywords":["interview"],"location_code":2840,"language_code":"en"}]' \
+     https://api.dataforseo.com/v3/dataforseo_labs/google/keyword_ideas/live
 ```
+
+### 6.2 DataForSEO SERP (Organic Snapshot)
+
+- Endpoint: `/v3/serp/google/organic/live/regular`
+- Purpose: capture top organic results (rank, title, URL, snippet) for each prioritized keyword.
+- Client wrapper: `src/common/providers/impl/dataforseo/serp.ts` (20s timeout, trimmed to topK results, text dump cached with snapshot).
+- Device: desktop by default; mobile supported via optional parameter.
+- Mock: `src/common/providers/impl/mock/serp.ts` (deterministic SERP cards for PrepInterview archetype).
 
 ### 6.2 Other Providers
 
@@ -528,9 +491,9 @@ curl -H "Authorization: Basic $DATAFORSEO_AUTH" \
 - Workers append lineage (`logs/lineage.json`) per node run
 - Job log JSONL includes status transitions
 
-**Provider Stubs:**
+**Provider Credentials:**
 - Providers resolved through `src/common/providers/registry.ts`
-- Stub fallback controlled by `config.providers.allowStubs`
+- External APIs (OpenAI, Exa, DataForSEO) are required; missing credentials fail jobs immediately
 - Metrics & SERP caching use Postgres caches (no file cache)
 - Third-party failures recorded in job logs (DB)
 
@@ -556,7 +519,7 @@ curl -H "Authorization: Basic $DATAFORSEO_AUTH" \
 
 **Queue Storage:**
 - RabbitMQ `seo.jobs` topic exchange
-- Queues: `seo_jobs.crawler` (crawl jobs), `seo_jobs.general` (discovery, generate, publish)
+- Queues: `seo_jobs.crawler` (crawl jobs), `seo_jobs.general` (generateKeywords, generate, publish)
 - Worker queue name set via `SEOA_QUEUE_NAME` per worker type
 
 ---
@@ -566,7 +529,7 @@ curl -H "Authorization: Basic $DATAFORSEO_AUTH" \
 - `POST /api/websites` → `{ website }`, enqueues crawl when queue enabled
 - `GET /api/websites/:id/snapshot` → DB aggregator for dashboard
 - `GET /api/crawl/pages?websiteId` → recent crawl pages from DB
-- `POST /api/keywords/generate` → queue discovery
+- `POST /api/keywords/generate` → queue generateKeywords
 - `POST /api/plan/create` → rebuild plan (articles rows)
 - `POST /api/articles/generate` → queue article generation for a plan item
 - `POST /api/orgs { action: 'switch'|'invite' }` → switch org or emit stub invite email
@@ -622,7 +585,7 @@ curl -H "Authorization: Basic $DATAFORSEO_AUTH" \
 - `SEOA_DFS_TIMEOUT_MS` (default: 20s)
 - `SEOA_DFS_DEBUG=1` (enable debug logging)
 - `SEOA_DFS_SUGGESTIONS_FIRST=1` (use suggestions before For Keywords)
-- `SEOA_PROVIDER_KEYWORD_DISCOVERY=dataforseo` (override discovery provider)
+- `SEOA_PROVIDER_KEYWORD_IDEAS=dataforseo` (override keyword ideas provider)
 
 **Test Overrides:**
 - `E2E_NO_AUTH=1` (bypass auth guards in tests)

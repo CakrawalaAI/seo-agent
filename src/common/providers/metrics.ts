@@ -3,8 +3,8 @@ export type MetricResult = { phrase: string; metrics: { searchVolume?: number; d
 
 export async function enrichMetrics(inputs: MetricInput[], locale: string, location?: string, websiteId?: string): Promise<MetricResult[]> {
   // cache pass
-  const { getMetric, setMetric } = await import('./metric-cache')
-  const { getMetricDb, setMetricDb } = await import('./metric-cache-db')
+  const { getMetric } = await import('./metric-cache')
+  const { getMetricDb } = await import('./metric-cache-db')
   const cached: MetricResult[] = []
   const missing: MetricInput[] = []
   for (const i of inputs) {
@@ -21,47 +21,7 @@ export async function enrichMetrics(inputs: MetricInput[], locale: string, locat
     missing.push(i)
   }
 
-  // If DataForSEO creds available, try live enrichment for missing
-  if (missing.length && process.env.DATAFORSEO_AUTH) {
-    try {
-      const { searchVolume } = await import('./dataforseo')
-      const live = await searchVolume(missing.map((p) => ({ phrase: p.phrase, locale, location })))
-      if (live.length) {
-        for (const r of live) {
-          const data = {
-            searchVolume: r.metrics.searchVolume,
-            cpc: r.metrics.cpc ?? undefined
-          }
-          setMetric(r.phrase, locale, location, data, websiteId)
-          await setMetricDb(r.phrase, data, locale)
-        }
-        const liveResults = live.map((r) => ({ phrase: r.phrase, metrics: { searchVolume: r.metrics.searchVolume, cpc: r.metrics.cpc, asOf: r.metrics.asOf ?? new Date().toISOString() } }))
-        return [...cached, ...liveResults]
-      }
-    } catch {
-      // fallthrough to pseudo
-    }
-  }
-  // No creds or provider failed and stubs disabled → throw
-  const { config } = await import('@common/config')
-  if (!config.providers.allowStubs) {
-    throw new Error('Metrics enrichment failed and stubs disabled')
-  }
-  // Fallback pseudo metrics (only when explicitly allowed)
-  const pseudo = missing.map((i) => ({ phrase: i.phrase, metrics: pseudoMetrics(i.phrase) }))
-  const { setMetric: setCached } = await import('./metric-cache')
-  for (const p of pseudo) {
-    setCached(p.phrase, locale, location, p.metrics, websiteId)
-    await setMetricDb(p.phrase, p.metrics, locale)
-  }
-  return [...cached, ...pseudo]
-}
+  if (!missing.length) return cached
 
-function pseudoMetrics(seed: string) {
-  let hash = 0
-  for (let i = 0; i < seed.length; i++) hash = (hash * 31 + seed.charCodeAt(i)) >>> 0
-  const volume = 100 + (hash % 5000)
-  const difficulty = 10 + (hash % 70)
-  const cpc = Number(((hash % 500) / 100).toFixed(2))
-  return { searchVolume: volume, difficulty, cpc, asOf: new Date().toISOString() }
+  throw new Error('Metrics enrichment provider unavailable (missing external credentials)')
 }

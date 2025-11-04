@@ -2,7 +2,7 @@
 import { createFileRoute } from '@tanstack/react-router'
 import { json } from '@app/api-utils'
 import { hasDatabase, getDb } from '@common/infra/db'
-import { orgs, orgMembers } from '@entities/org/db/schema'
+import { organizations, organizationMembers } from '@entities/org/db/schema'
 import { eq } from 'drizzle-orm'
 import { session } from '@common/infra/session'
 import { getEntitlements as fetchEntitlements } from '@common/infra/entitlements'
@@ -23,7 +23,7 @@ export const Route = createFileRoute('/api/me')({
           })
         }
         const appSess = session.read(request)
-        if (!appSess?.user) return json({ user: null, activeOrg: null, entitlements: null, orgs: [] })
+        if (!appSess?.user) return json({ user: null, activeOrg: null, entitlements: null, organizations: [] })
         const activeProjectId = appSess?.activeWebsiteId ?? appSess?.activeProjectId ?? null
         let activeOrg: { id: string; plan?: string } | null = null
         let entitlements: any = null
@@ -34,10 +34,10 @@ export const Route = createFileRoute('/api/me')({
             const db = getDb()
             const activeId = appSess?.activeOrg?.id
             // @ts-ignore
-            const membs = (await db.select().from(orgMembers).where(eq(orgMembers.userEmail, appSess.user.email)).limit(25)) as any
+            const membs = (await db.select().from(organizationMembers).where(eq(organizationMembers.userEmail, appSess.user.email)).limit(25)) as any
             const ids = new Set<string>(membs.map((m: any) => String(m.orgId)))
             // @ts-ignore
-            const all = (await db.select().from(orgs).limit(50) as any) || []
+            const all = (await db.select().from(organizations).limit(50) as any) || []
             if (all.length) orgList = all.map((o: any) => ({ id: o.id, name: o.name, plan: o.plan }))
             const joined = all.filter((o: any) => ids.has(String(o.id)))
             if (activeId) {
@@ -55,7 +55,7 @@ export const Route = createFileRoute('/api/me')({
             }
           } catch {}
         }
-        return json({ user: { email: appSess.user.email, name: appSess.user.name }, activeOrg, entitlements, usage, orgs: orgList, activeWebsiteId: activeProjectId, activeProjectId })
+        return json({ user: { email: appSess.user.email, name: appSess.user.name }, activeOrg, entitlements, usage, organizations: orgList, activeWebsiteId: activeProjectId, activeProjectId })
       }
     }
   }

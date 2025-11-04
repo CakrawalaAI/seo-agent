@@ -1,5 +1,4 @@
 import { articlesRepo } from '@entities/article/repository'
-import { websiteIntegrationsRepo } from '@entities/integration/repository.website'
 import { connectorRegistry } from '@features/integrations/server/registry'
 import { log } from '@src/common/logger'
 
@@ -9,15 +8,15 @@ import { log } from '@src/common/logger'
  */
 export async function processPublish(payload: { articleId: string; integrationId: string }) {
   const article = await articlesRepo.get(payload.articleId)
-  // websiteIntegrationsRepo has list() only; in practice, publish job should include integration config; quick fetch by ID via raw DB:
+  // fetch integration configuration directly; publish jobs should ideally include the config payload
   const integration = await (async () => {
     try {
       const { getDb, hasDatabase } = await import('@common/infra/db')
-      const { websiteIntegrations } = await import('@entities/integration/db/schema.website')
+      const { integrations } = await import('@entities/integration/db/schema.integrations')
       const { eq } = await import('drizzle-orm')
       if (!hasDatabase()) return null
       const db = getDb()
-      const rows = await db.select().from(websiteIntegrations).where(eq(websiteIntegrations.id, payload.integrationId)).limit(1)
+      const rows = await db.select().from(integrations).where(eq(integrations.id, payload.integrationId)).limit(1)
       return rows?.[0] ?? null
     } catch { return null }
   })()

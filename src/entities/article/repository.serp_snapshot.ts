@@ -1,12 +1,12 @@
 import { hasDatabase, getDb } from '@common/infra/db'
-import { articleSerpSnapshots } from './db/schema.serp_snapshot'
+import { keywordSerp } from './db/schema.serp_snapshot'
 import { eq } from 'drizzle-orm'
 
-export const articleSerpRepo = {
+export const keywordSerpRepo = {
   async get(articleId: string) {
     if (!hasDatabase()) return null
     const db = getDb()
-    const rows = await db.select().from(articleSerpSnapshots).where(eq(articleSerpSnapshots.articleId, articleId)).limit(1)
+    const rows = await db.select().from(keywordSerp).where(eq(keywordSerp.articleId, articleId)).limit(1)
     return rows?.[0] ?? null
   },
   async upsert(input: { articleId: string; phrase: string; language: string; locationCode: number | string; device?: 'desktop'|'mobile'; topK?: number; snapshotJson: any; fetchedAt?: Date }) {
@@ -15,10 +15,10 @@ export const articleSerpRepo = {
     const now = input.fetchedAt ? new Date(input.fetchedAt) : new Date()
     const existing = await this.get(input.articleId)
     if (existing) {
-      await db.update(articleSerpSnapshots).set({ snapshotJson: input.snapshotJson, fetchedAt: now }).where(eq(articleSerpSnapshots.articleId, input.articleId))
+      await db.update(keywordSerp).set({ snapshotJson: input.snapshotJson, fetchedAt: now }).where(eq(keywordSerp.articleId, input.articleId))
       return await this.get(input.articleId)
     }
-    await db.insert(articleSerpSnapshots).values({
+    await db.insert(keywordSerp).values({
       articleId: input.articleId,
       phrase: input.phrase,
       language: input.language,
@@ -31,4 +31,3 @@ export const articleSerpRepo = {
     return await this.get(input.articleId)
   }
 }
-

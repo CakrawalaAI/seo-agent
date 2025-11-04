@@ -2,7 +2,7 @@
 import { createFileRoute } from '@tanstack/react-router'
 import { json, httpError, safeHandler, requireSession, requireWebsiteAccess } from '@app/api-utils'
 import { hasDatabase, getDb } from '@common/infra/db'
-import { websiteIntegrations } from '@entities/integration/db/schema.website'
+import { integrations } from '@entities/integration/db/schema.integrations'
 
 export const Route = createFileRoute('/api/integrations')({
   server: {
@@ -26,7 +26,7 @@ export const Route = createFileRoute('/api/integrations')({
               createdAt: new Date() as any,
               updatedAt: new Date() as any
             } as any
-            await db.insert(websiteIntegrations).values(row).onConflictDoNothing?.()
+            await db.insert(integrations).values(row).onConflictDoNothing?.()
             return json({ id: row.id, websiteId: row.websiteId, type: row.type, status: row.status, configJson: config ?? null }, { status: 201 })
           } catch {}
         }

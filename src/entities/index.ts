@@ -2,7 +2,7 @@ export * from './article/domain/article'
 export * from './article/db/schema'
 export * from './article/db/schema.attachments'
 export * from './keyword/domain/keyword'
-export * from './keyword/db/schema.website_keywords'
+export * from './keyword/db/schema.keywords'
 export * from './crawl/domain/page'
 // plan items are represented by Article rows; no separate domain export
 export * from './integration/domain/integration'

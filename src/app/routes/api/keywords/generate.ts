@@ -21,8 +21,8 @@ export const Route = createFileRoute('/api/keywords/generate')({
         await requireWebsiteAccess(request, String(projectId))
         log.info('[api/keywords/generate] request', { websiteId: String(projectId), locale: String(locale), queueEnabled: queueEnabled() })
         if (queueEnabled()) {
-          const jobId = await publishJob({ type: 'discovery', payload: { websiteId: String(projectId), locale: String(locale), languageCode, locationCode } })
-          recordJobQueued(String(projectId), 'discovery', jobId)
+          const jobId = await publishJob({ type: 'generateKeywords', payload: { websiteId: String(projectId), locale: String(locale), languageCode, locationCode } })
+          recordJobQueued(String(projectId), 'generateKeywords', jobId)
           log.info('[api/keywords/generate] queued', { websiteId: String(projectId), jobId })
           return json({ jobId }, { status: 202 })
         } else {

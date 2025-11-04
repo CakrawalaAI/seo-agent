@@ -1,8 +1,9 @@
 import { clusterKey } from '@common/keyword/cluster'
 import { hasDatabase, getDb } from '@common/infra/db'
-import { websiteKeywords } from '@entities/keyword/db/schema.website_keywords'
+import { keywords } from '@entities/keyword/db/schema.keywords'
 import { articles as articlesTable } from '@entities/article/db/schema'
 import { eq, and, asc, gte, lte, isNotNull, inArray } from 'drizzle-orm'
+import { log } from '@src/common/logger'
 
 export type PlanItem = {
   id: string
@@ -40,35 +41,56 @@ export const planRepo = {
     const windowStart = targetDates[0]
     const windowEnd = targetDates[targetDates.length - 1]
 
-    const existingRows = await db
-      .select({
-        id: articlesTable.id,
-        projectId: (articlesTable as any).websiteId,
-        keywordId: articlesTable.keywordId,
-        scheduledDate: (articlesTable as any).scheduledDate,
-        status: articlesTable.status,
-        outlineJson: articlesTable.outlineJson,
-        bodyHtml: articlesTable.bodyHtml,
-        title: articlesTable.title,
-        language: articlesTable.language,
-        tone: articlesTable.tone,
-        createdAt: articlesTable.createdAt,
-        updatedAt: articlesTable.updatedAt,
-        include: websiteKeywords.include,
-        keywordStatus: (articlesTable as any).status,
-        keywordPhrase: websiteKeywords.phrase,
-        metricsCols: {
-          searchVolume: websiteKeywords.searchVolume,
-          difficulty: websiteKeywords.difficulty,
-          cpc: websiteKeywords.cpc,
-          competition: websiteKeywords.competition,
-          metricsAsOf: websiteKeywords.metricsAsOf
-        }
-      })
-      .from(articlesTable)
-      .leftJoin(websiteKeywords, eq(articlesTable.keywordId, websiteKeywords.id))
-      .where(and(eq((articlesTable as any).websiteId, websiteId), isNotNull((articlesTable as any).scheduledDate), gte((articlesTable as any).scheduledDate as any, windowStart), lte((articlesTable as any).scheduledDate as any, windowEnd)))
-      .orderBy(asc((articlesTable as any).scheduledDate as any), asc(articlesTable.createdAt as any))
+    let existingRows: Array<{
+      id: string
+      projectId: string
+      keywordId: string | null
+      scheduledDate: string | null
+      status: string | null
+      outlineJson?: unknown
+      bodyHtml?: unknown
+      title?: string | null
+      language?: string | null
+      tone?: string | null
+      createdAt?: unknown
+      updatedAt?: unknown
+      include?: unknown
+      keywordPhrase?: string | null
+      metricsCols?: Record<string, unknown> | null
+    }> = []
+    try {
+      existingRows = await db
+        .select({
+          id: articlesTable.id,
+          projectId: (articlesTable as any).websiteId,
+          keywordId: articlesTable.keywordId,
+          scheduledDate: (articlesTable as any).scheduledDate,
+          status: articlesTable.status,
+          outlineJson: articlesTable.outlineJson,
+          bodyHtml: articlesTable.bodyHtml,
+          title: articlesTable.title,
+          language: articlesTable.language,
+          tone: articlesTable.tone,
+          createdAt: articlesTable.createdAt,
+          updatedAt: articlesTable.updatedAt,
+          include: keywords.include,
+          keywordPhrase: keywords.phrase,
+          metricsCols: {
+            searchVolume: keywords.searchVolume,
+            difficulty: keywords.difficulty,
+            cpc: keywords.cpc,
+            competition: keywords.competition,
+            metricsAsOf: keywords.metricsAsOf
+          }
+        })
+        .from(articlesTable)
+        .leftJoin(keywords, eq(articlesTable.keywordId, keywords.id))
+        .where(and(eq((articlesTable as any).websiteId, websiteId), isNotNull((articlesTable as any).scheduledDate), gte((articlesTable as any).scheduledDate as any, windowStart), lte((articlesTable as any).scheduledDate as any, windowEnd)))
+        .orderBy(asc((articlesTable as any).scheduledDate as any), asc(articlesTable.createdAt as any))
+    } catch (error) {
+      log.debug('[planRepo.createPlan] existing rows query failed', { websiteId, error: (error as Error)?.message || String(error) })
+      throw error
+    }
 
     const existingByDate = new Map<string, typeof existingRows>()
     for (const row of existingRows) {
@@ -78,29 +100,72 @@ export const planRepo = {
       existingByDate.set(row.scheduledDate, bucket)
     }
 
-    const rawCandidates = await db
-      .select({
-        id: websiteKeywords.id,
-        phrase: websiteKeywords.phrase,
-        include: websiteKeywords.include,
-        status: (websiteKeywords as any).status,
-        starred: websiteKeywords.starred,
-        metricsCols: {
-          searchVolume: websiteKeywords.searchVolume,
-          difficulty: websiteKeywords.difficulty,
-          cpc: websiteKeywords.cpc,
-          competition: websiteKeywords.competition,
-          metricsAsOf: websiteKeywords.metricsAsOf
-        }
+    if (!keywords.id || !keywords.phrase || !keywords.include) {
+      log.debug('[planRepo.createPlan] keyword schema columns detected', {
+        websiteId,
+        hasId: Boolean(keywords.id),
+        hasPhrase: Boolean(keywords.phrase),
+        hasInclude: Boolean(keywords.include),
+        hasDifficulty: Boolean((keywords as any).difficulty),
+        hasMetricsAsOf: Boolean((keywords as any).metricsAsOf)
       })
-      .from(websiteKeywords)
-      .where(eq(websiteKeywords.websiteId, websiteId))
-      .orderBy(asc(websiteKeywords.phrase))
-      .limit(Math.max(outlineDays * 6, 180))
+    }
 
-    const candidates = rawCandidates
-      .filter((row) => Boolean((row as any).include))
+    let rawCandidates: Array<{
+      id: string
+      phrase: string | null
+      include: unknown
+      starred: unknown
+      metricsCols?: Record<string, unknown> | null
+    }> = []
+    try {
+      rawCandidates = await db
+        .select({
+          id: keywords.id,
+          phrase: keywords.phrase,
+          include: keywords.include,
+          starred: keywords.starred,
+          metricsCols: {
+            searchVolume: keywords.searchVolume,
+            difficulty: keywords.difficulty,
+            cpc: keywords.cpc,
+            competition: keywords.competition,
+            metricsAsOf: keywords.metricsAsOf
+          }
+        })
+        .from(keywords)
+        .where(eq(keywords.websiteId, websiteId))
+        .orderBy(asc(keywords.phrase))
+        .limit(Math.max(outlineDays * 6, 180))
+    } catch (error) {
+      log.debug('[planRepo.createPlan] keyword query failed', { websiteId, error: (error as Error)?.message || String(error) })
+      throw error
+    }
+
+    log.debug('[planRepo.createPlan] fetched keyword candidates', { websiteId, total: rawCandidates.length })
+
+    const safeCluster = (value: unknown) => {
+      if (typeof value !== 'string') return null
+      const trimmed = value.trim()
+      if (!trimmed) return null
+      try {
+        return clusterKey(trimmed)
+      } catch (error) {
+        log.debug('[planRepo.createPlan] cluster key failed', {
+          websiteId,
+          error: (error as Error)?.message || String(error)
+        })
+        return null
+      }
+    }
+
+    const rankedCandidates = rawCandidates
       .map((row) => {
+        const hasPhrase = typeof row.phrase === 'string' && row.phrase.trim().length > 0
+        if (!hasPhrase) {
+          log.debug('[planRepo.createPlan] skip candidate missing phrase', { websiteId, keywordId: row.id })
+          return null
+        }
         const m = (row as any).metricsCols || {}
         const volume = typeof m.searchVolume === 'number' ? Math.max(0, Number(m.searchVolume)) : 0
         const difficulty = typeof m.difficulty === 'number' ? Math.min(100, Math.max(0, Number(m.difficulty))) : 50
@@ -109,9 +174,27 @@ export const planRepo = {
         const difficultyScore = 1 - difficulty / 100
         const rankBonus = rankability !== null ? rankability / 100 : 0.25
         const score = volumeScore * 0.7 + difficultyScore * 0.25 + rankBonus * 0.05 + (row.starred ? 0.2 : 0)
-        return { id: row.id, phrase: row.phrase, score, cluster: clusterKey(row.phrase) }
+        return { id: row.id, phrase: row.phrase!.trim(), include: Boolean((row as any).include), score, cluster: safeCluster(row.phrase) }
       })
+      .filter((row): row is { id: string; phrase: string; include: boolean; score: number; cluster: string | null } => Boolean(row))
       .sort((a, b) => b.score - a.score)
+
+    const primary = rankedCandidates.filter((row) => row.include)
+    const secondary = rankedCandidates.filter((row) => !row.include)
+    let candidates = [...primary]
+    if (candidates.length < outlineDays) {
+      const deficit = outlineDays - candidates.length
+      const extras = secondary.slice(0, Math.max(deficit * 2, deficit))
+      candidates = candidates.concat(extras)
+      log.debug('[planRepo.createPlan] supplementing candidate pool', {
+        websiteId,
+        included: primary.length,
+        supplemented: extras.length,
+        target: outlineDays
+      })
+    }
+
+    log.debug('[planRepo.createPlan] prepared candidates', { websiteId, usable: candidates.length, included: primary.length })
 
     const usedKeywordIds = new Set<string>()
     const usedClusters = new Set<string>()
@@ -123,14 +206,28 @@ export const planRepo = {
     const newRows: Array<{ id: string; websiteId: string; keywordId: string | null; title: string; scheduledDate: string; status: string }> = []
     const removeIds = new Set<string>()
 
+    const queue = [...candidates]
+    const deferred: typeof candidates = []
+    let allowRepeatClusters = false
+
     const nextCandidate = () => {
-      while (candidates.length) {
-        const candidate = candidates.shift()!
+      while (queue.length) {
+        const candidate = queue.shift()!
         if (usedKeywordIds.has(candidate.id)) continue
-        if (candidate.cluster && usedClusters.has(candidate.cluster)) continue
+        const clusterUsed = candidate.cluster && usedClusters.has(candidate.cluster)
+        if (clusterUsed && !allowRepeatClusters) {
+          deferred.push(candidate)
+          continue
+        }
         usedKeywordIds.add(candidate.id)
         if (candidate.cluster) usedClusters.add(candidate.cluster)
         return candidate
+      }
+      if (!allowRepeatClusters && deferred.length) {
+        allowRepeatClusters = true
+        queue.push(...deferred)
+        deferred.length = 0
+        return nextCandidate()
       }
       return null
     }
@@ -161,7 +258,7 @@ export const planRepo = {
       let chosen = options.shift() ?? null
       for (const extra of options) removeIds.add(extra.id)
       if (chosen) {
-        const cluster = chosen.keywordPhrase ? clusterKey(chosen.keywordPhrase) : chosen.title ? clusterKey(chosen.title) : null
+        const cluster = safeCluster(chosen.keywordPhrase) ?? safeCluster(chosen.title)
         if (!isDraftWindow) {
           if (!isIncluded(chosen)) { removeIds.add(chosen.id); chosen = null }
           else if (cluster && usedClusters.has(cluster)) { removeIds.add(chosen.id); chosen = null }
@@ -182,7 +279,7 @@ export const planRepo = {
         continue
       }
       selectedExistingIds.add(chosen.id)
-      const cluster = chosen.keywordPhrase ? clusterKey(chosen.keywordPhrase) : chosen.title ? clusterKey(chosen.title) : null
+      const cluster = safeCluster(chosen.keywordPhrase) ?? safeCluster(chosen.title)
       if (cluster) usedClusters.add(cluster)
       if (chosen.keywordId) usedKeywordIds.add(chosen.keywordId)
       if (!rowHasOutline(chosen)) outlineIds.add(chosen.id)

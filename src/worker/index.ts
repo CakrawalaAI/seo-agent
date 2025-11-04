@@ -5,14 +5,13 @@ import { env } from '@common/infra/env'
 import { recordJobCompleted, recordJobFailed, recordJobRunning } from '@common/infra/jobs'
 import { initConnectors } from '@features/integrations/server/registry'
 import { processCrawl } from './processors/crawler'
-import { processDiscovery } from './processors/discovery'
+import { processGenerateKeywords } from './processors/generate-keywords'
 import { processPlan } from './processors/plan'
 import { processGenerate } from './processors/generate'
 import { processPublish } from './processors/publish'
 import { processEnrich } from './processors/enrich'
 import { processFeedback } from './processors/feedback'
 import { log } from '@src/common/logger'
-import { getDevFlags } from '@common/dev/flags'
 import { getDb, hasDatabase } from '@common/infra/db'
 import { sql } from 'drizzle-orm'
 
@@ -25,8 +24,8 @@ export async function runWorker(options: WorkerOptions = {}) {
   initConnectors()
   log.info('[Worker] CMS connectors initialized')
   try {
-    const flags = getDevFlags()
-    log.info('[discovery] keyword generator mode', { mode: flags.mocks.keywordExpansion ? 'mock' : 'real' })
+    const mockKeyword = String(process.env.MOCK_KEYWORD_GENERATOR || '').trim().toLowerCase() === 'true'
+    log.info('[keywords.generate] mode', { mode: mockKeyword ? 'mock' : 'real' })
   } catch {}
   if (queueEnabled()) {
     const masked = (process.env.RABBITMQ_URL ? (() => { try { const u = new URL(process.env.RABBITMQ_URL); return `amqp://${u.username || 'user'}:****@${u.hostname}${u.port ? ':'+u.port : ''}${u.pathname || '/'}` } catch { return 'amqp://<invalid>' } })() : 'amqp://<missing>')
@@ -96,8 +95,8 @@ export async function runWorker(options: WorkerOptions = {}) {
           case 'crawl':
             await processCrawl(msg.payload as any)
             break
-          case 'discovery':
-            await processDiscovery(msg.payload as any)
+          case 'generateKeywords':
+            await processGenerateKeywords(msg.payload as any)
             break
           // score processor removed in website-first cleanup
           case 'plan':

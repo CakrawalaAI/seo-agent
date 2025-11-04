@@ -1,25 +1,25 @@
 import { hasDatabase, getDb } from '@common/infra/db'
-import { crawlRuns, crawlPages } from '@entities/crawl/db/schema.website'
+import { crawlJobs, crawlPages } from '@entities/crawl/db/schema.website'
 import { websites } from '@entities/website/db/schema'
 import { eq, desc } from 'drizzle-orm'
 
-export const websiteCrawlRepo = {
-  async startRun(websiteId: string): Promise<string | null> {
+export const crawlRepo = {
+  async startJob(websiteId: string): Promise<string | null> {
     if (!hasDatabase()) return null
     const db = getDb()
-    const id = genId('run')
+    const id = genId('job')
     const now = new Date() as any
-    await db.insert(crawlRuns).values({ id, websiteId, startedAt: now, createdAt: now } as any)
+    await db.insert(crawlJobs).values({ id, websiteId, startedAt: now, createdAt: now } as any)
     return id
   },
-  async completeRun(runId: string) {
+  async completeJob(jobId: string) {
     if (!hasDatabase()) return
     const db = getDb()
-    await db.update(crawlRuns).set({ completedAt: new Date() as any }).where(eq(crawlRuns.id, runId))
+    await db.update(crawlJobs).set({ completedAt: new Date() as any }).where(eq(crawlJobs.id, jobId))
   },
   async recordPage(input: {
     websiteId: string
-    runId: string
+    jobId: string
     url: string
     httpStatus?: number | null
     title?: string | null
@@ -34,7 +34,7 @@ export const websiteCrawlRepo = {
       .values({
         id,
         websiteId: input.websiteId,
-        runId: input.runId,
+        jobId: input.jobId,
         url: input.url,
         httpStatus: input.httpStatus ?? null,
         title: input.title ?? null,

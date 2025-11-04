@@ -11,7 +11,7 @@ Flow
 - Render pages (fetch or Playwright when needed).
 - Map: summarize each page → `crawl_pages.page_summary_json`.
 - Reduce: aggregate N highest-signal pages → `websites.summary`.
-- Record run in `crawl_runs` with timing + providers.
+- Record run in `crawl_jobs` with timing + providers.
 
 Notes
 - Only `content_text` is stored (no raw HTML).

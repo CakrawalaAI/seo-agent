@@ -76,7 +76,7 @@ export async function fetchAndParseSitemapUrls(siteUrl: string, hardCap = 100000
   return cleaned
 }
 
-export async function discoverFromSitemap(siteUrl: string, limit = 10): Promise<string[]> {
+export async function collectFromSitemap(siteUrl: string, limit = 10): Promise<string[]> {
   try {
     const root = new URL(siteUrl)
     const sitemapUrl = new URL('/sitemap.xml', `${root.protocol}//${root.host}`).toString()

@@ -1,6 +1,6 @@
 import { jsonb, pgTable, text, timestamp, integer, uniqueIndex, index } from 'drizzle-orm/pg-core'
 
-export const orgs = pgTable('orgs', {
+export const organizations = pgTable('organizations', {
   id: text('id').primaryKey(),
   name: text('name').notNull(),
   plan: text('plan').notNull().default('starter'),
@@ -9,8 +9,8 @@ export const orgs = pgTable('orgs', {
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow()
 })
 
-export const orgMembers = pgTable(
-  'org_members',
+export const organizationMembers = pgTable(
+  'organization_members',
   {
     orgId: text('org_id').notNull(),
     userEmail: text('user_email').notNull(),
@@ -18,6 +18,6 @@ export const orgMembers = pgTable(
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow()
   },
   (t) => ({
-    uniq: uniqueIndex('org_members_org_user_unique').on(t.orgId, t.userEmail)
+    uniq: uniqueIndex('organization_members_org_user_unique').on(t.orgId, t.userEmail)
   })
 )

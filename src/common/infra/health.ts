@@ -12,14 +12,12 @@ export type ProviderStatus = {
 export type HealthReport = {
   ok: boolean
   env: 'development' | 'production' | 'test'
-  stubsAllowed: boolean
   providers: ProviderStatus
   reasons?: string[]
 }
 
 export function computeHealth(): HealthReport {
   const envName = (process.env.NODE_ENV as any) || 'development'
-  const stubsAllowed = Boolean(config.providers.allowStubs)
   const providers: ProviderStatus = {
     databaseUrl: Boolean(process.env.DATABASE_URL),
     rabbitmqUrl: Boolean(process.env.RABBITMQ_URL),
@@ -37,12 +35,9 @@ export function computeHealth(): HealthReport {
     if (!providers.rabbitmqUrl) reasons.push('RABBITMQ_URL missing')
   }
 
-  // Provider requirements when stubs disabled
-  if (!stubsAllowed) {
-    if (!providers.openai) reasons.push('OPENAI_API_KEY missing (stubs disabled)')
-    if (!providers.dataforseo) reasons.push('DATAFORSEO_AUTH missing (stubs disabled)')
-    if (!providers.exa) reasons.push('EXA_API_KEY missing (stubs disabled)')
-  }
+  if (!providers.openai) reasons.push('OPENAI_API_KEY missing')
+  if (!providers.dataforseo) reasons.push('DATAFORSEO_AUTH missing')
+  if (!providers.exa) reasons.push('EXA_API_KEY missing')
 
   // Email requirement when transport = resend
   if (config.email.transport === 'resend' && !providers.resend) {
@@ -52,5 +47,5 @@ export function computeHealth(): HealthReport {
   // Overall ok
   const ok = reasons.length === 0
 
-  return { ok, env: envName as any, stubsAllowed, providers, reasons: reasons.length ? reasons : undefined }
+  return { ok, env: envName as any, providers, reasons: reasons.length ? reasons : undefined }
 }

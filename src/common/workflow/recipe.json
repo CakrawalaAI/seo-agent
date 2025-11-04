@@ -1,11 +1,10 @@
 {
   "nodes": {
-    "crawl": { "onSuccess": ["discovery"] },
-    "discovery": { "onSuccess": ["score"] },
+    "crawl": { "onSuccess": ["generateKeywords"] },
+    "generateKeywords": { "onSuccess": ["score"] },
     "score": { "onSuccess": ["plan"] },
     "plan": { "onSuccess": [] },
     "generate": { "onSuccess": [] },
     "enrich": { "onSuccess": [] }
   }
 }
-

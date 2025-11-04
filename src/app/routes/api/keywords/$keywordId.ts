@@ -3,7 +3,7 @@ import { createFileRoute } from '@tanstack/react-router'
 import { json, httpError, safeHandler, requireSession, requireWebsiteAccess } from '@app/api-utils'
 import { planRepo } from '@entities/article/planner'
 import { hasDatabase, getDb } from '@common/infra/db'
-import { websiteKeywords } from '@entities/keyword/db/schema.website_keywords'
+import { keywords } from '@entities/keyword/db/schema.keywords'
 import { eq } from 'drizzle-orm'
 
 export const Route = createFileRoute('/api/keywords/$keywordId')({
@@ -17,7 +17,7 @@ export const Route = createFileRoute('/api/keywords/$keywordId')({
         if (hasDatabase()) {
           try {
             const db = getDb()
-            const rows = await db.select({ websiteId: websiteKeywords.websiteId }).from(websiteKeywords).where(eq(websiteKeywords.id, params.keywordId)).limit(1)
+            const rows = await db.select({ websiteId: keywords.websiteId }).from(keywords).where(eq(keywords.id, params.keywordId)).limit(1)
             websiteId = rows?.[0]?.websiteId ?? null
           } catch {}
         }
@@ -28,7 +28,7 @@ export const Route = createFileRoute('/api/keywords/$keywordId')({
         if (hasDatabase() && Object.keys(patch).length) {
           try {
             const db = getDb()
-            await db.update(websiteKeywords).set({ ...patch, updatedAt: new Date() as any }).where(eq(websiteKeywords.id, params.keywordId))
+            await db.update(keywords).set({ ...patch, updatedAt: new Date() as any }).where(eq(keywords.id, params.keywordId))
           } catch {}
         }
         if (websiteId && (body?.scope !== undefined || body?.include !== undefined)) {
@@ -51,7 +51,7 @@ export const Route = createFileRoute('/api/keywords/$keywordId')({
         if (hasDatabase()) {
           try {
             const db = getDb()
-            const rows = await db.select({ websiteId: websiteKeywords.websiteId }).from(websiteKeywords).where(eq(websiteKeywords.id, params.keywordId)).limit(1)
+            const rows = await db.select({ websiteId: keywords.websiteId }).from(keywords).where(eq(keywords.id, params.keywordId)).limit(1)
             websiteId = rows?.[0]?.websiteId ?? null
           } catch {}
         }
@@ -59,7 +59,7 @@ export const Route = createFileRoute('/api/keywords/$keywordId')({
         if (hasDatabase()) {
           try {
             const db = getDb()
-            await db.delete(websiteKeywords).where(eq(websiteKeywords.id, params.keywordId))
+            await db.delete(keywords).where(eq(keywords.id, params.keywordId))
           } catch {}
         }
         if (!websiteId) return httpError(404, 'Keyword not found')

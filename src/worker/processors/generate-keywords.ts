@@ -1,42 +1,59 @@
 import { summarizeSite, expandSeeds } from '@common/providers/llm'
 import { websitesRepo } from '@entities/website/repository'
 import { filterSeeds } from '@features/keyword/server/seedFilter'
-import { dfsClient } from '@common/providers/impl/dataforseo/client'
-import { getDevFlags } from '@common/dev/flags'
-import { DATAFORSEO_DEFAULT_LANGUAGE_CODE, DATAFORSEO_DEFAULT_LOCATION_CODE } from '@common/providers/impl/dataforseo/geo'
-import { languageCodeFromLocale, languageNameFromCode, locationCodeFromLocale, locationNameFromCode } from '@common/providers/impl/dataforseo/geo-map'
+import { mockKeywordGenerator } from '@common/providers/impl/mock/keyword-generator'
+import { keywordIdeas as fetchKeywordIdeas } from '@common/providers/impl/dataforseo/keyword-ideas'
+import { keywordConfig } from '@common/dev/flags'
+import {
+  DATAFORSEO_DEFAULT_LANGUAGE_CODE,
+  DATAFORSEO_DEFAULT_LOCATION_CODE,
+  languageCodeFromLocale,
+  languageNameFromCode,
+  locationCodeFromLocale,
+  locationNameFromCode
+} from '@common/providers/impl/dataforseo/geo'
 import { log } from '@src/common/logger'
-import { websiteCrawlRepo } from '@entities/crawl/repository.website'
-import { websiteKeywordsRepo } from '@entities/keyword/repository.website_keywords'
+import { crawlRepo } from '@entities/crawl/repository'
+import { keywordsRepo } from '@entities/keyword/repository'
 
-export async function processDiscovery(payload: { projectId?: string; websiteId?: string; locale?: string; languageCode?: string; locationCode?: number }) {
+export async function processGenerateKeywords(payload: { projectId?: string; websiteId?: string; locale?: string; languageCode?: string; locationCode?: number }) {
   const websiteId = String(payload.websiteId || payload.projectId)
   const locale = payload.locale || 'en-US'
   const website = await websitesRepo.get(websiteId)
-  if (!website) { log.warn('[discovery] website not found', { websiteId }); return }
+  if (!website) { log.warn('[keywords.generate] website not found', { websiteId }); return }
+  log.debug('[keywords.generate] start', { websiteId, locale, defaultLocale: website.defaultLocale })
 
   // 1) Summarize site (from recent crawl pages)
-  const crawlPages = await websiteCrawlRepo.listRecentPages(websiteId, 120)
+  const crawlPages = await crawlRepo.listRecentPages(websiteId, 120)
+  log.debug('[keywords.generate] recent crawl pages', { websiteId, count: crawlPages.length })
   const pages = crawlPages.slice(0, 50).map((p) => ({ url: p.url, title: (p.title as string | undefined) || undefined, text: (p as any).content || '' }))
   const summary = await summarizeSite(pages)
+  log.debug('[keywords.generate] site summary', { websiteId, topicClusters: summary.topicClusters?.length ?? 0 })
   try { await websitesRepo.patch(websiteId, { summary: summary.businessSummary || null, status: 'crawled' }) } catch {}
 
   // 2) Seeds via LLM (10)
-  const devFlags = getDevFlags()
-  const maxLlmSeeds = Math.max(1, devFlags.discovery.llmSeedsMax)
+  const maxLlmSeeds = Math.max(1, keywordConfig.llmSeedsMax)
   const seedsLlm = (await expandSeeds(summary.topicClusters || [], locale)).slice(0, maxLlmSeeds)
   const seedInputs = new Set<string>(seedsLlm.map((s) => s.toLowerCase()))
-  const seedBatch = Array.from(seedInputs).slice(0, Math.max(1, devFlags.discovery.seedLimit))
-  if (!seedBatch.length) throw new Error('No discovery seeds available after preprocessing')
+  const seedBatch = Array.from(seedInputs).slice(0, Math.max(1, keywordConfig.seedLimit))
+  log.debug('[keywords.generate] seeds prepared', { websiteId, llmSeeds: seedsLlm.length, uniqueSeeds: seedBatch.length, seeds: seedBatch })
+  if (!seedBatch.length) throw new Error('No keyword seeds available after preprocessing')
 
   // 3) One call: keyword_ideas/live (no SERP info)
   const dfsLanguage = payload.languageCode || languageCodeFromLocale(website?.defaultLocale || payload.locale) || DATAFORSEO_DEFAULT_LANGUAGE_CODE
   const dfsLocation = Number(payload.locationCode || locationCodeFromLocale(website?.defaultLocale || payload.locale) || DATAFORSEO_DEFAULT_LOCATION_CODE)
-  const ideasLimit = Math.min(30, Math.max(1, devFlags.discovery.keywordLimit))
-  const ideas = await dfsClient.keywordIdeasDetailed({ keywords: seedBatch, languageCode: dfsLanguage, locationCode: dfsLocation, limit: ideasLimit })
-  if (!ideas.length) throw new Error('DataForSEO returned no keyword ideas')
+  const ideasLimit = Math.min(30, Math.max(1, keywordConfig.keywordLimit))
+  const useMockKeywords = String(process.env.MOCK_KEYWORD_GENERATOR || '').trim().toLowerCase() === 'true'
+  log.debug('[keywords.generate] requesting keyword ideas', { websiteId, provider: useMockKeywords ? 'mock' : 'dataforseo', dfsLanguage, dfsLocation, limit: ideasLimit, seeds: seedBatch })
+  const ideas = useMockKeywords
+    ? await mockKeywordGenerator.keywordIdeasDetailed({ keywords: seedBatch, languageCode: dfsLanguage, locationCode: dfsLocation, limit: ideasLimit })
+    : await fetchKeywordIdeas({ keywords: seedBatch, languageCode: dfsLanguage, locationCode: dfsLocation, limit: ideasLimit })
+  if (!ideas.length) throw new Error('No keyword ideas returned')
+  log.debug('[keywords.generate] ideas received', { websiteId, total: ideas.length, keywords: ideas.map((idea) => idea.keyword) })
 
-  // 4) Persist into website_keywords
+  const providerName = useMockKeywords ? 'mock.keyword_ideas' : 'dataforseo.labs.keyword_ideas'
+
+  // 4) Persist into keywords
   const norm = (s: string) => s.trim().toLowerCase().replace(/\s+/g, ' ')
   const langName = languageNameFromCode(dfsLanguage)
   const locationName = locationNameFromCode(dfsLocation)
@@ -49,14 +66,15 @@ export async function processDiscovery(payload: { projectId?: string; websiteId?
     const props = row.keyword_properties || {}
     const vol = Number(info?.search_volume ?? 0) || 0
     const kd = typeof props?.keyword_difficulty === 'number' ? Number(props.keyword_difficulty) : Number.NaN
-    return { phrase, vol, kd, row }
+    const kdScore = Number.isFinite(kd) ? kd : 70
+    return { phrase, vol, kdScore, row }
   }).filter((x) => x.phrase)
-  const candidates = withMetrics.filter((x) => Number.isFinite(x.kd) && x.kd < 70)
-    .sort((a, b) => (a.kd - b.kd) || (b.vol - a.vol))
-    .slice(0, Math.min(20, withMetrics.length))
-  const includeSet = new Set(candidates.map((c) => c.phrase.toLowerCase()))
+    .sort((a, b) => (a.kdScore - b.kdScore) || (b.vol - a.vol))
+  const includeCount = Math.min(ideasLimit, withMetrics.length)
+  const includeSet = new Set(withMetrics.slice(0, includeCount).map((c) => c.phrase.toLowerCase()))
 
   const filtered = filterSeeds(ideas.map((i) => String(i.keyword || '')), summary)
+  log.debug('[keywords.generate] ideas after filter', { websiteId, total: filtered.length, keywords: filtered })
   let inserted = 0
   const limit = ideasLimit
   for (const phrase of filtered) {
@@ -69,7 +87,8 @@ export async function processDiscovery(payload: { projectId?: string; websiteId?
       ? info.monthly_searches.map((m: any) => ({ month: `${m?.year ?? ''}-${String(m?.month ?? 1).padStart(2, '0')}`, searchVolume: Number(m?.search_volume ?? 0) }))
           .filter((x: any) => x.month && Number.isFinite(x.searchVolume))
       : null
-    await websiteKeywordsRepo.upsert({
+    log.debug('[keywords.generate] inserting keyword', { websiteId, keyword: phrase, include: includeSet.has(phrase.toLowerCase()) })
+    await keywordsRepo.upsert({
       websiteId,
       phrase,
       phraseNorm: norm(phrase),
@@ -77,7 +96,7 @@ export async function processDiscovery(payload: { projectId?: string; websiteId?
       languageName: langName,
       locationCode: dfsLocation,
       locationName,
-      provider: 'dataforseo.labs.keyword_ideas',
+      provider: providerName,
       include: includeSet.has(phrase.toLowerCase()),
       searchVolume: Number(info?.search_volume ?? 0) || 0,
       cpc: typeof info?.cpc === 'number' ? Number(info.cpc) : null,
@@ -90,5 +109,7 @@ export async function processDiscovery(payload: { projectId?: string; websiteId?
     })
     inserted++
   }
+  log.debug('[keywords.generate] persisted keywords', { websiteId, inserted, includeCount: includeSet.size })
   try { await websitesRepo.patch(websiteId, { status: 'keyword_generated' }) } catch {}
+  log.debug('[keywords.generate] completed', { websiteId })
 }

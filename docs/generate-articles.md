@@ -5,7 +5,7 @@ Roles
 - Scheduler (daily): maintains a 3‑day buffer of full drafts and publishes due items. It does not create plan items.
 
 Planner
-- Input: `website_keywords` where `include=true`.
+- Input: `keywords` where `include=true`.
 - Strategy: round‑robin by cluster with scoring (volume, difficulty, starred bias).
 - Writes: one row per day (`scheduled_date`) into `articles` (no separate plan entity).
 - API: `POST /api/plan-items { websiteId, days=30 }` enqueues/executes planning.
@@ -14,7 +14,7 @@ Scheduler (daily)
 - Cadence: every 24h (config `SEOA_SCHEDULER_INTERVAL_MS`).
 - Generate: For `scheduled_date` in [today..today+2] with `status=queued`, queue `generate`.
 - Promote: After generate → set `status=scheduled` (keep `scheduled_date`).
-- Publish: If `status=scheduled` and `scheduled_date<=today` and a connected `website_integrations` target exists → queue `publish`.
+- Publish: If `status=scheduled` and `scheduled_date<=today` and a connected `integrations` target exists → queue `publish`.
 - First‑run: if no prior scheduled/published items and today has a queued item → generate then publish immediately.
 
 Enrichment
@@ -23,7 +23,7 @@ Enrichment
   - `allowYoutube` (default true)
   - `maxImages` (default 2, max 4)
 - SERP snapshot caching:
-  - In-DB per article: `article_serp_snapshots` (single row per article)
+  - In-DB per article: `keyword_serp` (single row per article)
   - Filesystem cache: `.data/serp-cache` (TTL per config)
 
 Environment

@@ -2,10 +2,10 @@
 import { createFileRoute } from '@tanstack/react-router'
 import { json, httpError, requireSession, requireWebsiteAccess } from '@app/api-utils'
 import { websitesRepo } from '@entities/website/repository'
-import { websiteKeywords } from '@entities/keyword/db/schema.website_keywords'
+import { keywords } from '@entities/keyword/db/schema.keywords'
 import { getDb, hasDatabase } from '@common/infra/db'
 import { eq } from 'drizzle-orm'
-import { websiteIntegrations } from '@entities/integration/db/schema.website'
+import { integrations } from '@entities/integration/db/schema.integrations'
 import { articles } from '@entities/article/db/schema'
 import { buildIntegrationViews } from '@integrations/shared/catalog'
 
@@ -25,8 +25,8 @@ export const Route = createFileRoute('/api/websites/$websiteId/snapshot')({
         if (hasDatabase()) {
           const db = getDb()
           try {
-            keywords = await db.select().from(websiteKeywords).where(eq(websiteKeywords.websiteId, params.websiteId)).limit(100)
-            integrations = await db.select().from(websiteIntegrations).where(eq(websiteIntegrations.websiteId, params.websiteId)).limit(20)
+            keywords = await db.select().from(keywords).where(eq(keywords.websiteId, params.websiteId)).limit(100)
+            integrations = await db.select().from(integrations).where(eq(integrations.websiteId, params.websiteId)).limit(20)
             articlesList = await db.select().from(articles).where(eq((articles as any).websiteId, params.websiteId)).limit(120)
             // Build computed views for client UX using catalog manifests
             integrationViews = buildIntegrationViews(

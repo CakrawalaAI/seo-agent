@@ -8,7 +8,7 @@ CREATE TABLE "article_attachments" (
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
-CREATE TABLE "article_serp_snapshots" (
+CREATE TABLE "keyword_serp" (
 	"article_id" text PRIMARY KEY NOT NULL,
 	"phrase" text NOT NULL,
 	"language" text NOT NULL,
@@ -65,7 +65,7 @@ CREATE TABLE "users" (
 CREATE TABLE "crawl_pages" (
 	"id" text PRIMARY KEY NOT NULL,
 	"website_id" text NOT NULL,
-	"run_id" text NOT NULL,
+	"job_id" text NOT NULL,
 	"url" text NOT NULL,
 	"http_status" integer,
 	"title" text,
@@ -74,7 +74,7 @@ CREATE TABLE "crawl_pages" (
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
-CREATE TABLE "crawl_runs" (
+CREATE TABLE "crawl_jobs" (
 	"id" text PRIMARY KEY NOT NULL,
 	"website_id" text NOT NULL,
 	"providers_json" jsonb DEFAULT 'null'::jsonb,
@@ -83,7 +83,7 @@ CREATE TABLE "crawl_runs" (
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
-CREATE TABLE "website_integrations" (
+CREATE TABLE "integrations" (
 	"id" text PRIMARY KEY NOT NULL,
 	"website_id" text NOT NULL,
 	"type" text NOT NULL,
@@ -93,7 +93,7 @@ CREATE TABLE "website_integrations" (
 	"updated_at" timestamp with time zone DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
-CREATE TABLE "website_keywords" (
+CREATE TABLE "keywords" (
 	"id" text PRIMARY KEY NOT NULL,
 	"website_id" text NOT NULL,
 	"phrase" text NOT NULL,
@@ -117,14 +117,14 @@ CREATE TABLE "website_keywords" (
 	"updated_at" timestamp with time zone DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
-CREATE TABLE "org_members" (
+CREATE TABLE "organization_members" (
 	"org_id" text NOT NULL,
 	"user_email" text NOT NULL,
 	"role" text DEFAULT 'member' NOT NULL,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
-CREATE TABLE "orgs" (
+CREATE TABLE "organizations" (
 	"id" text PRIMARY KEY NOT NULL,
 	"name" text NOT NULL,
 	"plan" text DEFAULT 'starter' NOT NULL,
@@ -133,7 +133,7 @@ CREATE TABLE "orgs" (
 	"updated_at" timestamp with time zone DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
-CREATE TABLE "subscription_entitlements" (
+CREATE TABLE "subscriptions" (
 	"polar_subscription_id" text PRIMARY KEY NOT NULL,
 	"user_id" text NOT NULL,
 	"org_id" text,
@@ -168,29 +168,29 @@ CREATE TABLE "websites" (
 );
 --> statement-breakpoint
 ALTER TABLE "article_attachments" ADD CONSTRAINT "article_attachments_article_id_articles_id_fk" FOREIGN KEY ("article_id") REFERENCES "public"."articles"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "article_serp_snapshots" ADD CONSTRAINT "article_serp_snapshots_article_id_articles_id_fk" FOREIGN KEY ("article_id") REFERENCES "public"."articles"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "keyword_serp" ADD CONSTRAINT "keyword_serp_article_id_articles_id_fk" FOREIGN KEY ("article_id") REFERENCES "public"."articles"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "articles" ADD CONSTRAINT "articles_website_id_websites_id_fk" FOREIGN KEY ("website_id") REFERENCES "public"."websites"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "articles" ADD CONSTRAINT "articles_keyword_id_website_keywords_id_fk" FOREIGN KEY ("keyword_id") REFERENCES "public"."website_keywords"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "articles" ADD CONSTRAINT "articles_keyword_id_keywords_id_fk" FOREIGN KEY ("keyword_id") REFERENCES "public"."keywords"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "user_auth_providers" ADD CONSTRAINT "user_auth_providers_user_id_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."users"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "crawl_pages" ADD CONSTRAINT "crawl_pages_website_id_websites_id_fk" FOREIGN KEY ("website_id") REFERENCES "public"."websites"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "crawl_pages" ADD CONSTRAINT "crawl_pages_run_id_crawl_runs_id_fk" FOREIGN KEY ("run_id") REFERENCES "public"."crawl_runs"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "crawl_runs" ADD CONSTRAINT "crawl_runs_website_id_websites_id_fk" FOREIGN KEY ("website_id") REFERENCES "public"."websites"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "website_integrations" ADD CONSTRAINT "website_integrations_website_id_websites_id_fk" FOREIGN KEY ("website_id") REFERENCES "public"."websites"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "website_keywords" ADD CONSTRAINT "website_keywords_website_id_websites_id_fk" FOREIGN KEY ("website_id") REFERENCES "public"."websites"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "subscription_entitlements" ADD CONSTRAINT "subscription_entitlements_user_id_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."users"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "subscription_entitlements" ADD CONSTRAINT "subscription_entitlements_org_id_orgs_id_fk" FOREIGN KEY ("org_id") REFERENCES "public"."orgs"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "websites" ADD CONSTRAINT "websites_org_id_orgs_id_fk" FOREIGN KEY ("org_id") REFERENCES "public"."orgs"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "crawl_pages" ADD CONSTRAINT "crawl_pages_job_id_crawl_jobs_id_fk" FOREIGN KEY ("job_id") REFERENCES "public"."crawl_jobs"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "crawl_jobs" ADD CONSTRAINT "crawl_jobs_website_id_websites_id_fk" FOREIGN KEY ("website_id") REFERENCES "public"."websites"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "integrations" ADD CONSTRAINT "integrations_website_id_websites_id_fk" FOREIGN KEY ("website_id") REFERENCES "public"."websites"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "keywords" ADD CONSTRAINT "keywords_website_id_websites_id_fk" FOREIGN KEY ("website_id") REFERENCES "public"."websites"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "subscriptions" ADD CONSTRAINT "subscriptions_user_id_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."users"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "subscriptions" ADD CONSTRAINT "subscriptions_org_id_organizations_id_fk" FOREIGN KEY ("org_id") REFERENCES "public"."organizations"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "websites" ADD CONSTRAINT "websites_org_id_organizations_id_fk" FOREIGN KEY ("org_id") REFERENCES "public"."organizations"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 CREATE INDEX "idx_articles_website_date" ON "articles" USING btree ("website_id","scheduled_date");--> statement-breakpoint
 CREATE UNIQUE INDEX "user_auth_providers_unique" ON "user_auth_providers" USING btree ("provider_id","provider_account_id");--> statement-breakpoint
 CREATE UNIQUE INDEX "users_email_unique" ON "users" USING btree ("email");--> statement-breakpoint
-CREATE INDEX "idx_crawl_pages_site_run" ON "crawl_pages" USING btree ("website_id","run_id");--> statement-breakpoint
+CREATE INDEX "idx_crawl_pages_site_job" ON "crawl_pages" USING btree ("website_id","job_id");--> statement-breakpoint
 CREATE INDEX "idx_crawl_pages_site_url" ON "crawl_pages" USING btree ("website_id","url");--> statement-breakpoint
-CREATE INDEX "idx_crawl_runs_site" ON "crawl_runs" USING btree ("website_id");--> statement-breakpoint
-CREATE INDEX "idx_website_integrations_site" ON "website_integrations" USING btree ("website_id");--> statement-breakpoint
-CREATE UNIQUE INDEX "uniq_website_kw_geo_lang" ON "website_keywords" USING btree ("website_id","phrase_norm","language_code","location_code");--> statement-breakpoint
-CREATE UNIQUE INDEX "org_members_org_user_unique" ON "org_members" USING btree ("org_id","user_email");--> statement-breakpoint
-CREATE UNIQUE INDEX "subscription_entitlements_user_unique" ON "subscription_entitlements" USING btree ("user_id");--> statement-breakpoint
-CREATE INDEX "subscription_entitlements_org_idx" ON "subscription_entitlements" USING btree ("org_id");--> statement-breakpoint
-CREATE INDEX "subscription_entitlements_user_idx" ON "subscription_entitlements" USING btree ("user_id");--> statement-breakpoint
+CREATE INDEX "idx_crawl_jobs_site" ON "crawl_jobs" USING btree ("website_id");--> statement-breakpoint
+CREATE INDEX "idx_integrations_site" ON "integrations" USING btree ("website_id");--> statement-breakpoint
+CREATE UNIQUE INDEX "uniq_keywords_geo_lang" ON "keywords" USING btree ("website_id","phrase_norm","language_code","location_code");--> statement-breakpoint
+CREATE UNIQUE INDEX "organization_members_org_user_unique" ON "organization_members" USING btree ("org_id","user_email");--> statement-breakpoint
+CREATE UNIQUE INDEX "subscriptions_user_unique" ON "subscriptions" USING btree ("user_id");--> statement-breakpoint
+CREATE INDEX "subscriptions_org_idx" ON "subscriptions" USING btree ("org_id");--> statement-breakpoint
+CREATE INDEX "subscriptions_user_idx" ON "subscriptions" USING btree ("user_id");--> statement-breakpoint
 CREATE INDEX "idx_websites_org" ON "websites" USING btree ("org_id");--> statement-breakpoint
 CREATE INDEX "idx_websites_url" ON "websites" USING btree ("url");

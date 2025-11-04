@@ -1,4 +1,4 @@
-import { getLlmProvider, getExpandProvider, getMetricsProvider, getSerpProvider } from '../src/common/providers/registry'
+import { getLlmProvider, getSerpProvider, getKeywordIdeasProvider } from '../src/common/providers/registry'
 
 async function main() {
   console.log('OPENAI_API_KEY', process.env.OPENAI_API_KEY ? 'set' : 'missing')
@@ -15,22 +15,13 @@ async function main() {
     console.error('LLM error', (e as Error)?.message)
   }
 
-  // DataForSEO expand
+  // DataForSEO keyword ideas
   try {
-    const exp = getExpandProvider()
-    const out = await exp.expand({ phrases: ['seo automation'], language: 'en-US', locationCode: 2840, limit: 10 })
-    console.log('DFS.expand.count', out.length)
+    const ideasProvider = getKeywordIdeasProvider()
+    const ideas = await ideasProvider.keywordIdeas({ seeds: ['seo automation'], language: 'en', locationCode: 2840, limit: 5 })
+    console.log('DFS.keywordIdeas.count', ideas.length)
   } catch (e) {
-    console.error('DFS expand error', (e as Error)?.message)
-  }
-
-  // DataForSEO metrics
-  try {
-    const metrics = getMetricsProvider()
-    const m = await metrics.ensureMonthly({ phrase: 'seo automation', language: 'en-US' }, 2840, '2025-10')
-    console.log('DFS.metrics.searchVolume', m.searchVolume)
-  } catch (e) {
-    console.error('DFS metrics error', (e as Error)?.message)
+    console.error('DFS keyword ideas error', (e as Error)?.message)
   }
 
   // DataForSEO SERP

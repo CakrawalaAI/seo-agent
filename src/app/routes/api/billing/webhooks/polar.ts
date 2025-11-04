@@ -1,7 +1,7 @@
 import { createFileRoute } from '@tanstack/react-router'
 import { httpError, json } from '@app/api-utils'
 import { db } from '@common/infra/db'
-import { orgs } from '@entities/org/db/schema'
+import { organizations } from '@entities/org/db/schema'
 import { upsertSubscriptionEntitlement } from '@entities/subscription/service'
 import { eq } from 'drizzle-orm'
 import { log } from '@src/common/logger'
@@ -16,65 +16,70 @@ import { log } from '@src/common/logger'
  * - subscription.canceled → downgrade to free
  * - order.paid → detect billing cycle renewal
  */
+export async function handlePolarWebhook(request: Request): Promise<Response> {
+  const secret = process.env.POLAR_WEBHOOK_SECRET
+  if (!secret) {
+    log.error('[Polar Webhook] POLAR_WEBHOOK_SECRET not configured')
+    return httpError(500, 'Server configuration error')
+  }
+
+  // Verify signature
+  const signature = request.headers.get('x-polar-signature')
+  const body = await request.text()
+
+  if (!verifyWebhookSignature(body, signature, secret)) {
+    log.error('[Polar Webhook] Invalid signature')
+    return httpError(401, 'Invalid signature')
+  }
+
+  // Parse event
+  let event: any
+  try {
+    event = JSON.parse(body)
+  } catch {
+    return httpError(400, 'Invalid JSON')
+  }
+
+  const eventType = event.type
+  const data = event.data
+
+  log.info('[Polar Webhook] Received event:', eventType, {
+    subscriptionId: data?.id,
+    customData: data?.metadata || data?.custom_data
+  })
+
+  const orgId = data?.metadata?.referenceId || data?.metadata?.orgId || data?.custom_data?.orgId
+  const userIdHint = data?.metadata?.userId || data?.metadata?.user_id || data?.custom_data?.userId
+
+  if (!orgId) {
+    log.warn('[Polar Webhook] No orgId in webhook payload, attempting best-effort sync')
+  }
+
+  // Route to handler based on event type
+  switch (eventType) {
+    case 'subscription.created':
+    case 'subscription.updated':
+    case 'subscription.canceled':
+    case 'subscription.active':
+    case 'subscription.uncanceled':
+    case 'subscription.revoked':
+      await persistSubscriptionState(data, { orgId, userId: userIdHint })
+      break
+    case 'order.paid':
+      await handleOrderPaid(orgId, userIdHint, data)
+      break
+
+    default:
+      log.info('[Polar Webhook] Unhandled event type:', eventType)
+  }
+
+  return json({ received: true })
+}
+
 export const Route = createFileRoute('/api/billing/webhooks/polar')({
   server: {
     handlers: {
-      POST: async ({ request }) => {
-        const secret = process.env.POLAR_WEBHOOK_SECRET
-        if (!secret) {
-          log.error('[Polar Webhook] POLAR_WEBHOOK_SECRET not configured')
-          return httpError(500, 'Server configuration error')
-        }
-
-        // Verify signature
-        const signature = request.headers.get('x-polar-signature')
-        const body = await request.text()
-
-        if (!verifyWebhookSignature(body, signature, secret)) {
-          log.error('[Polar Webhook] Invalid signature')
-          return httpError(401, 'Invalid signature')
-        }
-
-        // Parse event
-        let event: any
-        try {
-          event = JSON.parse(body)
-        } catch {
-          return httpError(400, 'Invalid JSON')
-        }
-
-        const eventType = event.type
-        const data = event.data
-
-        log.info('[Polar Webhook] Received event:', eventType, {
-          subscriptionId: data?.id,
-          customData: data?.metadata || data?.custom_data
-        })
-
-        const orgId = data?.metadata?.referenceId || data?.metadata?.orgId || data?.custom_data?.orgId
-        const userIdHint = data?.metadata?.userId || data?.metadata?.user_id || data?.custom_data?.userId
-
-        if (!orgId) {
-          log.warn('[Polar Webhook] No orgId in webhook payload, attempting best-effort sync')
-        }
-
-        // Route to handler based on event type
-        switch (eventType) {
-          case 'subscription.created':
-          case 'subscription.updated':
-          case 'subscription.canceled':
-            await persistSubscriptionState(data, { orgId, userId: userIdHint })
-            break
-          case 'order.paid':
-            await handleOrderPaid(orgId, userIdHint, data)
-            break
-
-          default:
-            log.info('[Polar Webhook] Unhandled event type:', eventType)
-        }
-
-        return json({ received: true })
-      }
+      POST: async ({ request }) => handlePolarWebhook(request)
     }
   }
 })
@@ -150,7 +155,7 @@ async function persistSubscriptionState(subscription: any, context: Subscription
     const activeUntil = subscription?.current_period_end || subscription?.ends_at || null
     const trialEndsAt = subscription?.trial_end || null
     await db
-      .update(orgs)
+      .update(organizations)
       .set({
         plan,
         entitlementsJson: {
@@ -162,7 +167,7 @@ async function persistSubscriptionState(subscription: any, context: Subscription
         },
         updatedAt: new Date()
       })
-      .where(eq(orgs.id, orgId))
+      .where(eq(organizations.id, orgId))
 
     log.info('[Polar Webhook] Persisted subscription state', {
       subscriptionId,

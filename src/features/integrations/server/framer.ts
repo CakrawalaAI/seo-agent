@@ -1,7 +1,6 @@
 import type { Article } from '@entities/article/domain/article'
 import type { IntegrationConfig } from '@entities/integration/domain/integration'
 import type { CMSConnector, PublishResult } from './interface'
-import { config } from '@common/config'
 import { buildPortableArticle } from './interface'
 import { log } from '@src/common/logger'
 
@@ -46,15 +45,7 @@ class FramerConnector implements CMSConnector {
     // 2. Use Framer plugin/extension API (if they release one)
     // 3. Push to Framer CMS via undocumented API (not recommended)
 
-    if (!config.providers.allowStubs) {
-      throw new Error('Framer connector not implemented; enable stubs in dev or use webhook/webflow')
-    }
-    log.warn('[Framer] Connector not yet implemented, returning stub')
-    return {
-      externalId: `framer_stub_${article.id}`,
-      url: `https://${framerConfig.siteId}.framer.website/${portable.slug}`,
-      metadata: { note: 'Framer has no public API; use webhook receiver' }
-    }
+    throw new Error('Framer connector not implemented')
   }
 
   async test(config: IntegrationConfig): Promise<boolean> {

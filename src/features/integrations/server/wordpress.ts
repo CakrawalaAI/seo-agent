@@ -1,7 +1,6 @@
 import type { Article } from '@entities/article/domain/article'
 import type { IntegrationConfig } from '@entities/integration/domain/integration'
 import type { CMSConnector, PublishResult } from './interface'
-import { config } from '@common/config'
 import { buildPortableArticle } from './interface'
 import { log } from '@src/common/logger'
 
@@ -66,15 +65,7 @@ class WordPressConnector implements CMSConnector {
     //   body: JSON.stringify(payload)
     // })
 
-    if (!config.providers.allowStubs) {
-      throw new Error('WordPress connector not implemented; enable stubs in dev or use webhook/webflow')
-    }
-    log.warn('[WordPress] Connector not yet implemented, returning stub')
-    return {
-      externalId: `wp_stub_${article.id}`,
-      url: `${wpConfig.siteUrl}/${portable.slug}`,
-      metadata: { status: 'draft (stub)' }
-    }
+    throw new Error('WordPress connector not implemented')
   }
 
   async test(config: IntegrationConfig): Promise<boolean> {

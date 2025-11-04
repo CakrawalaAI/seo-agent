@@ -1,6 +1,4 @@
 import type { LlmProvider } from '../../interfaces/llm'
-import { config } from '@common/config'
-import { log } from '@src/common/logger'
 import type { ArticleOutlineSection } from '@entities/article/domain/article'
 import { buildPickTopFromSitemapPrompt, buildWebsiteSummaryPrompt } from '@common/prompts/summarize-website'
 
@@ -8,13 +6,7 @@ export const openAiLlm: LlmProvider = {
   async summarize(pages) {
     const key = process.env.OPENAI_API_KEY
     const sample = pages.slice(0, 5)
-    if (!key) {
-      const allowStubs = Boolean(config.providers.allowStubs)
-      if (!allowStubs) throw new Error('OPENAI_API_KEY missing and stubs disabled')
-      try { log.warn('[OpenAI] Missing API key; using stub summary once') } catch {}
-      const clusters = sample.map((p) => p.url.split('/')[3] || 'topic').slice(0, 5)
-      return { businessSummary: 'Auto summary (stub)', topicClusters: Array.from(new Set(clusters)) }
-    }
+    if (!key) throw new Error('OPENAI_API_KEY missing')
     const { OpenAI } = await import('openai')
     const client = new OpenAI({ apiKey: key, timeout: 20000 })
     const prompt = `Summarize the business and propose 5 topic clusters. Return JSON {businessSummary,topicClusters}.\n` +
@@ -28,17 +20,7 @@ export const openAiLlm: LlmProvider = {
   async rankRepresentatives(siteUrl: string, candidates: string[], maxN: number): Promise<string[]> {
     const key = process.env.OPENAI_API_KEY
     const n = Math.max(1, Math.min(50, maxN || 10))
-    if (!key) {
-      // Heuristic: prefer homepage, /about, /pricing, /blog, then first N
-      const set = new Set<string>()
-      const push = (p: string) => { try { set.add(new URL(p, siteUrl).toString()) } catch {} }
-      push('/')
-      push('/about')
-      push('/pricing')
-      push('/blog')
-      for (const u of candidates) { if (set.size >= n) break; set.add(u) }
-      return Array.from(set).slice(0, n)
-    }
+    if (!key) throw new Error('OPENAI_API_KEY missing')
     const { OpenAI } = await import('openai')
     const client = new OpenAI({ apiKey: key, timeout: 30000 })
     const list = candidates.slice(0, 200).map((u, i) => `${i + 1}. ${u}`).join('\n')
@@ -55,12 +37,7 @@ export const openAiLlm: LlmProvider = {
 
   async draftOutline(keyword: string, locale: string): Promise<{ title: string; outline: ArticleOutlineSection[] }> {
     const key = process.env.OPENAI_API_KEY
-    if (!key) {
-      const allowStubs = Boolean(config.providers.allowStubs)
-      if (!allowStubs) throw new Error('OPENAI_API_KEY missing and stubs disabled')
-      try { log.warn('[OpenAI] Missing API key; using stub outline once') } catch {}
-      return { title: keyword[0]?.toUpperCase() + keyword.slice(1), outline: [{ heading: `Intro to ${keyword}` }] as any }
-    }
+    if (!key) throw new Error('OPENAI_API_KEY missing')
     const { OpenAI } = await import('openai')
     const client = new OpenAI({ apiKey: key })
     const prompt = `Write a compelling SEO title and outline for an article targeting "${keyword}" in ${locale}. Return JSON {title, outline:[{heading:"..."}]}`
@@ -71,12 +48,7 @@ export const openAiLlm: LlmProvider = {
 
   async generateBody(args) {
     const key = process.env.OPENAI_API_KEY
-    if (!key) {
-      const allowStubs = Boolean(config.providers.allowStubs)
-      if (!allowStubs) throw new Error('OPENAI_API_KEY missing and stubs disabled')
-      try { log.warn('[OpenAI] Missing API key; using stub body once') } catch {}
-      return { bodyHtml: `<article><h1>${args.title}</h1><p>Draft body (stub).</p></article>` }
-    }
+    if (!key) throw new Error('OPENAI_API_KEY missing')
     const { OpenAI } = await import('openai')
     const client = new OpenAI({ apiKey: key })
     const citeList = (args.citations || []).map((c, i) => `${i + 1}. ${c.title || ''} — ${c.url} — ${(c.snippet || '').slice(0,140)}`).join('\n')
@@ -91,12 +63,7 @@ export const openAiLlm: LlmProvider = {
 
   async factCheck({ title, bodyPreview, citations }) {
     const key = process.env.OPENAI_API_KEY
-    if (!key) {
-      const allowStubs = Boolean(config.providers.allowStubs)
-      if (!allowStubs) throw new Error('OPENAI_API_KEY missing and stubs disabled')
-      try { log.warn('[OpenAI] Missing API key; fact-check stub once') } catch {}
-      return { score: 0, notes: 'no-api-key' }
-    }
+    if (!key) throw new Error('OPENAI_API_KEY missing')
     try {
       const { OpenAI } = await import('openai')
       const client = new OpenAI({ apiKey: key })
@@ -120,7 +87,7 @@ export const openAiLlm: LlmProvider = {
       .map((s) => s.trim())
       .filter(Boolean)
       .slice(0, n)
-    if (!key) return fallback()
+    if (!key) throw new Error('OPENAI_API_KEY missing')
     const { OpenAI } = await import('openai')
     const client = new OpenAI({ apiKey: key })
     const model = 'gpt-5-2025-08-07'

@@ -5,11 +5,11 @@ import { db } from '@common/infra/db'
 import { getRedis, redisEnabled } from '@common/infra/redis'
 import { log } from '@src/common/logger'
 
-import { subscriptionEntitlements } from './db/schema'
+import { subscriptions } from './db/schema'
 import type { EntitlementCacheValue, SubscriptionEntitlement } from './domain/entitlement'
 
-type SubscriptionEntitlementRow = InferSelectModel<typeof subscriptionEntitlements>
-type SubscriptionEntitlementInsert = InferInsertModel<typeof subscriptionEntitlements>
+type SubscriptionEntitlementRow = InferSelectModel<typeof subscriptions>
+type SubscriptionEntitlementInsert = InferInsertModel<typeof subscriptions>
 
 const DEFAULT_CACHE_TTL_SECONDS = Math.max(900, Number(process.env.ENTITLEMENT_CACHE_TTL_SECONDS || '3600'))
 const CACHE_PREFIX = 'entitlement:user:'
@@ -128,8 +128,8 @@ export async function getSubscriptionEntitlementByUser(userId: string): Promise<
 export async function getSubscriptionEntitlementByOrg(orgId: string): Promise<SubscriptionEntitlement | null> {
   const row = await db
     .select()
-    .from(subscriptionEntitlements)
-    .where(eq(subscriptionEntitlements.orgId, orgId))
+    .from(subscriptions)
+    .where(eq(subscriptions.orgId, orgId))
     .limit(1)
     .then((rows) => rows[0])
 
@@ -141,8 +141,8 @@ export async function getSubscriptionEntitlementByOrg(orgId: string): Promise<Su
 async function fetchEntitlementRowByUser(userId: string): Promise<SubscriptionEntitlementRow | undefined> {
   const rows = await db
     .select()
-    .from(subscriptionEntitlements)
-    .where(eq(subscriptionEntitlements.userId, userId))
+    .from(subscriptions)
+    .where(eq(subscriptions.userId, userId))
     .limit(1)
   return rows[0]
 }
@@ -150,8 +150,8 @@ async function fetchEntitlementRowByUser(userId: string): Promise<SubscriptionEn
 async function fetchEntitlementRowBySubscription(subscriptionId: string): Promise<SubscriptionEntitlementRow | undefined> {
   const rows = await db
     .select()
-    .from(subscriptionEntitlements)
-    .where(eq(subscriptionEntitlements.polarSubscriptionId, subscriptionId))
+    .from(subscriptions)
+    .where(eq(subscriptions.polarSubscriptionId, subscriptionId))
     .limit(1)
   return rows[0]
 }
@@ -211,10 +211,10 @@ export async function upsertSubscriptionEntitlement(input: UpsertEntitlementInpu
   const payload = buildInsertPayload(input)
 
   await db
-    .insert(subscriptionEntitlements)
+    .insert(subscriptions)
     .values(payload)
     .onConflictDoUpdate({
-      target: subscriptionEntitlements.polarSubscriptionId,
+      target: subscriptions.polarSubscriptionId,
       set: {
         ...payload,
         updatedAt: new Date()
@@ -242,11 +242,11 @@ export async function clearSubscriptionEntitlement(subscriptionId: string) {
   const row = await fetchEntitlementRowBySubscription(subscriptionId)
   if (!row) return
   await db
-    .delete(subscriptionEntitlements)
+    .delete(subscriptions)
     .where(
       and(
-        eq(subscriptionEntitlements.polarSubscriptionId, subscriptionId),
-        eq(subscriptionEntitlements.userId, row.userId)
+        eq(subscriptions.polarSubscriptionId, subscriptionId),
+        eq(subscriptions.userId, row.userId)
       )
     )
   await invalidateEntitlementCache(row.userId)

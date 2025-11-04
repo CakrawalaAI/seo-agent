@@ -1,2 +1,2 @@
 export * from './domain/integration'
-export * from './db/schema.website'
+export * from './db/schema.integrations'

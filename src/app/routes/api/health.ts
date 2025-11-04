@@ -18,7 +18,6 @@ export const Route = createFileRoute('/api/health')({
           version: VERSION,
           timestamp: new Date().toISOString(),
           env: health.env,
-          stubsAllowed: health.stubsAllowed,
           providers: health.providers,
           reasons: health.reasons ?? []
         })

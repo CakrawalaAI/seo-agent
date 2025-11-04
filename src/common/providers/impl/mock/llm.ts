@@ -1,5 +1,6 @@
 import type { LlmProvider } from '../../interfaces/llm'
 import type { ArticleOutlineSection } from '@entities/article/domain/article'
+import { log } from '@src/common/logger'
 
 /**
  * Mock LLM provider for PrepInterview.ai
@@ -246,7 +247,7 @@ function generateSectionContent(heading: string, topic: string): string {
  */
 export const mockLlmProvider: LlmProvider = {
   async summarize(pages) {
-    console.info('[MockLLM] Using mock site summary (dev mock enabled)')
+    log.debug('[MockLLM] Using mock site summary (dev mock enabled)')
 
     // Return PrepInterview business summary regardless of input
     return {
@@ -256,7 +257,7 @@ export const mockLlmProvider: LlmProvider = {
   },
 
   async pickTopFromSitemapString(siteUrl: string, listString: string, maxN: number): Promise<string[]> {
-    console.info('[MockLLM] pickTopFromSitemapString (mock)')
+    log.debug('[MockLLM] pickTopFromSitemapString (mock)')
     return listString
       .split(/\r?\n/)
       .map((s) => s.trim())
@@ -265,7 +266,7 @@ export const mockLlmProvider: LlmProvider = {
   },
 
   async rankRepresentatives(siteUrl: string, candidates: string[], maxN: number): Promise<string[]> {
-    console.info('[MockLLM] Using mock representative selection')
+    log.debug('[MockLLM] Using mock representative selection')
 
     // Return typical important pages for a SaaS product
     const preferred = [
@@ -304,7 +305,7 @@ export const mockLlmProvider: LlmProvider = {
   },
 
   async draftOutline(keyword: string, locale: string) {
-    console.info('[MockLLM] Using mock outline generation for:', keyword)
+    log.debug('[MockLLM] Using mock outline generation', { keyword })
 
     const topic = detectTopic(keyword)
     const outline = generateOutline(keyword, topic)
@@ -324,7 +325,7 @@ export const mockLlmProvider: LlmProvider = {
   },
 
   async generateBody(args) {
-    console.info('[MockLLM] Using mock body generation for:', args.title)
+    log.debug('[MockLLM] Using mock body generation', { title: args.title })
 
     // Extract keyword from title or use title itself
     const keyword = args.title.toLowerCase()
@@ -335,12 +336,12 @@ export const mockLlmProvider: LlmProvider = {
   },
 
   async summarizeWebsiteDump(siteUrl: string, dumpString: string): Promise<string> {
-    console.info('[MockLLM] summarizeWebsiteDump (mock)')
+    log.debug('[MockLLM] summarizeWebsiteDump (mock)')
     return PREPINTERVIEW_BUSINESS_SUMMARY
   },
 
   async factCheck(args) {
-    console.info('[MockLLM] Using mock fact-check')
+    log.debug('[MockLLM] Using mock fact-check')
 
     // Mock always returns a good score since we're using curated content
     return {
@@ -354,7 +355,7 @@ export const mockLlmProvider: LlmProvider = {
  * Generate seed keywords for mock LLM
  */
 export function mockExpandSeeds(clusters: string[], locale: string = 'en-US'): string[] {
-  console.info('[MockLLM] Using mock seed expansion for clusters:', clusters.length)
+  log.debug('[MockLLM] Using mock seed expansion for clusters:', { clusterCount: clusters.length })
 
   // Return PrepInterview keywords that are relevant to the clusters
   // In a real scenario, we'd filter based on cluster relevance

@@ -4,7 +4,7 @@ import { json, httpError, safeHandler, requireSession } from '@app/api-utils'
 import { session } from '@common/infra/session'
 import { sendEmail } from '@common/infra/email'
 import { hasDatabase, getDb } from '@common/infra/db'
-import { orgs, orgMembers } from '@entities/org/db/schema'
+import { organizations, organizationMembers } from '@entities/org/db/schema'
 import { eq } from 'drizzle-orm'
 import { log } from '@src/common/logger'
 
@@ -18,9 +18,9 @@ export const Route = createFileRoute('/api/orgs')({
             const db = getDb()
             if (!sess.user?.email) return json({ items: [] })
             // @ts-ignore
-            const rows = await db.select().from(orgs).limit(500)
+            const rows = await db.select().from(organizations).limit(500)
             // @ts-ignore
-            const mems = await db.select().from(orgMembers).where(eq(orgMembers.userEmail, sess.user.email)).limit(500)
+            const mems = await db.select().from(organizationMembers).where(eq(organizationMembers.userEmail, sess.user.email)).limit(500)
             const allowed = new Set<string>(mems.map((m: any) => String(m.orgId)))
             const items = rows.filter((o: any) => allowed.has(String(o.id)))
             return json({ items })
@@ -52,11 +52,16 @@ export const Route = createFileRoute('/api/orgs')({
             try {
               const db = getDb()
               await db
-                .insert(orgMembers)
+                .insert(organizationMembers)
                 .values({ orgId, userEmail: normalizedEmail, role })
-                .onConflictDoUpdate({ target: [orgMembers.orgId, orgMembers.userEmail], set: { role } as any })
+                .onConflictDoUpdate({ target: [organizationMembers.orgId, organizationMembers.userEmail], set: { role } as any })
             } catch (error) {
-              log.error('Invite insert failed', error)
+              const message = (error as Error)?.message || ''
+              if (message.includes('organization_members')) {
+                log.debug('Invite insert skipped (organization_members table missing)', { orgId, email: normalizedEmail })
+              } else {
+                log.error('Invite insert failed', error)
+              }
             }
           }
           const token = `stub_${Date.now().toString(36)}`

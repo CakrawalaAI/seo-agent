@@ -6,9 +6,9 @@ type Recipe = { nodes: Record<string, { onSuccess?: string[] }> }
 
 const DEFAULT_RECIPE: Recipe = {
   nodes: {
-    crawl: { onSuccess: ['discovery'] },
-    // Per-website model: discovery → plan
-    discovery: { onSuccess: ['plan'] },
+    crawl: { onSuccess: ['generateKeywords'] },
+    // Per-website model: generateKeywords → plan
+    generateKeywords: { onSuccess: ['plan'] },
     plan: { onSuccess: [] },
     generate: { onSuccess: [] },
     enrich: { onSuccess: [] }

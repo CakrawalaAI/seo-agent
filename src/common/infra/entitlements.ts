@@ -1,5 +1,5 @@
 import { db } from './db'
-import { orgs } from '@entities/org/db/schema'
+import { organizations } from '@entities/org/db/schema'
 import { getSubscriptionEntitlementByOrg } from '@entities/subscription/service'
 import { eq } from 'drizzle-orm'
 
@@ -161,7 +161,7 @@ function normalizeEntitlements(
 }
 
 async function readOrgEntitlements(orgId: string): Promise<Entitlements | null> {
-  const rows = await db.select().from(orgs).where(eq(orgs.id, orgId)).limit(1)
+  const rows = await db.select().from(organizations).where(eq(organizations.id, orgId)).limit(1)
   if (rows.length === 0) return null
   const ent = rows[0].entitlementsJson as Entitlements | null
   return ent ?? { monthlyPostCredits: 1 }

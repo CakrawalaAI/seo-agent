@@ -25,16 +25,17 @@ async function main() {
     process.exit(1)
   }
 
-  // Poll snapshot for discovery/plan progress
+  // Poll snapshot for keyword generation / plan progress
   const deadline = Date.now() + Math.max(60_000, Number(process.env.SMOKE_TIMEOUT_MS || '180000'))
   let last: any = null
   while (Date.now() < deadline) {
     const snapRes = await fetch(new URL(`/api/websites/${projectId}/snapshot`, base).toString())
     last = await snapRes.json().catch(() => ({}))
-    const hasSummary = Boolean(last?.latestDiscovery?.summaryJson)
+    const hasSummary = Boolean(last?.website?.summary)
+    const keywordCount = Array.isArray(last?.keywords) ? last.keywords.length : 0
     const planCount = Array.isArray(last?.planItems) ? last.planItems.length : 0
-    if (hasSummary || planCount > 0) {
-      console.log(JSON.stringify({ ok: true, projectId, hasSummary, planCount }, null, 2))
+    if (hasSummary || keywordCount > 0 || planCount > 0) {
+      console.log(JSON.stringify({ ok: true, projectId, hasSummary, keywordCount, planCount }, null, 2))
       process.exit(0)
     }
     await sleep(3000)

@@ -1,5 +1,5 @@
 import { pgTable, text, timestamp, index, jsonb } from 'drizzle-orm/pg-core'
-import { orgs } from '../../org/db/schema'
+import { organizations } from '../../org/db/schema'
 
 export const websites = pgTable(
   'websites',
@@ -7,7 +7,7 @@ export const websites = pgTable(
     id: text('id').primaryKey(),
     orgId: text('org_id')
       .notNull()
-      .references(() => orgs.id, { onDelete: 'cascade' }),
+      .references(() => organizations.id, { onDelete: 'cascade' }),
     url: text('url').notNull(),
     defaultLocale: text('default_locale').notNull().default('en-US'),
     summary: text('summary'),

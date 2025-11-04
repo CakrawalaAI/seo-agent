@@ -13,35 +13,19 @@ function createFakeQC() {
 }
 
 describe('onboarding loader', () => {
-  beforeEach(() => {
-    vi.restoreAllMocks()
-    globalThis.fetch = vi.fn(async () =>
-      new Response(JSON.stringify({ items: [], project: { id: 'proj_1', name: 'X', defaultLocale: 'en-US' } }), {
-        headers: { 'content-type': 'application/json' }
-      })
-    ) as any
-  })
   afterEach(() => {
     vi.restoreAllMocks()
   })
 
-  it('redirects to ensure when only site is provided', async () => {
+  it('returns null when only site is provided (handled client-side)', async () => {
     const { qc } = createFakeQC()
-    let thrown: any = null
-    try {
-      await onboardingLoader({ context: { queryClient: qc as any }, search: { site: 'https://example.com' } } as any)
-    } catch (e) {
-      thrown = e
-    }
-    expect(thrown).toBeTruthy()
+    await expect(onboardingLoader({ context: { queryClient: qc as any }, search: { site: 'https://example.com' } } as any)).resolves.toBeNull()
+    expect(qc.ensureQueryData).not.toHaveBeenCalled()
   })
 
-  it('primes project + snapshot when projectId is present', async () => {
+  it('no longer primes project snapshot server-side', async () => {
     const { qc, calls } = createFakeQC()
     await onboardingLoader({ context: { queryClient: qc as any }, search: { projectId: 'proj_9', project: 'example-com' } } as any)
-    const keys = calls.map((c) => JSON.stringify(c.key)).join('\n')
-    expect(keys).toContain('projectSnapshot')
-    expect(keys).toContain('"project","proj_9"')
+    expect(calls).toHaveLength(0)
   })
 })
-

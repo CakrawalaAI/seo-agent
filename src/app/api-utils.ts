@@ -42,7 +42,7 @@ export const safeHandler = (
 // Auth helpers (cookie-based session)
 import { hasDatabase, getDb } from '@common/infra/db'
 import { websites } from '@entities/website/db/schema'
-import { orgMembers, orgs } from '@entities/org/db/schema'
+import { organizationMembers, organizations } from '@entities/org/db/schema'
 import { eq } from 'drizzle-orm'
 import { session } from '@common/infra/session'
 
@@ -60,10 +60,10 @@ export async function requireSession(request: Request) {
     try {
       const db = getDb()
       // @ts-ignore
-      const membs = (await db.select().from(orgMembers).where(eq(orgMembers.userEmail, user.email)).limit(25)) as any
+      const membs = (await db.select().from(organizationMembers).where(eq(organizationMembers.userEmail, user.email)).limit(25)) as any
       const ids = new Set<string>(membs.map((m: any) => String(m.orgId)))
       // @ts-ignore
-      const rows = (await db.select().from(orgs).limit(100)) as any
+      const rows = (await db.select().from(organizations).limit(100)) as any
       if (activeId) {
         const found = rows.find((o: any) => String(o.id) === String(activeId))
         if (found) activeOrg = { id: found.id, plan: found.plan }
@@ -99,17 +99,17 @@ export async function requireWebsiteAccess(request: Request, websiteId: string) 
   }
   // DB-only repo: rely on DB for ownership
   if (projectOrg && projectOrg !== activeOrgId) throw httpError(403, 'Forbidden')
-  // membership check if DB has org_members
+  // membership check if DB has organization_members
   if (hasDatabase() && sess.user?.email && activeOrgId) {
     try {
       const db = getDb()
       // @ts-ignore
-      const rows = await (db.select().from(orgMembers).where((orgMembers as any).orgId.eq(activeOrgId)).limit(1) as any)
+      const rows = await (db.select().from(organizationMembers).where((organizationMembers as any).orgId.eq(activeOrgId)).limit(1) as any)
       if (Array.isArray(rows) && rows.length === 0) {
-        // if no org_members at all, skip enforcement
+        // if no organization_members at all, skip enforcement
       } else {
         // @ts-ignore
-        const r2 = await (db.select().from(orgMembers).where((orgMembers as any).orgId.eq(activeOrgId)).where((orgMembers as any).userEmail.eq(sess.user.email)).limit(1) as any)
+        const r2 = await (db.select().from(organizationMembers).where((organizationMembers as any).orgId.eq(activeOrgId)).where((organizationMembers as any).userEmail.eq(sess.user.email)).limit(1) as any)
         if (!r2?.[0]) throw httpError(403, 'Forbidden')
       }
     } catch {}

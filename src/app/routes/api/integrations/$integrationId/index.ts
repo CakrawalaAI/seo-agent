@@ -2,7 +2,7 @@
 import { createFileRoute } from '@tanstack/react-router'
 import { json, httpError, safeHandler, requireSession } from '@app/api-utils'
 import { hasDatabase, getDb } from '@common/infra/db'
-import { websiteIntegrations } from '@entities/integration/db/schema.website'
+import { integrations } from '@entities/integration/db/schema.integrations'
 import { eq } from 'drizzle-orm'
 
 export const Route = createFileRoute('/api/integrations/$integrationId/')({
@@ -14,17 +14,17 @@ export const Route = createFileRoute('/api/integrations/$integrationId/')({
         if (!hasDatabase()) return httpError(404, 'Integration not found')
         const db = getDb()
         await db
-          .update(websiteIntegrations)
+          .update(integrations)
           .set({
             status: body?.status,
             configJson: body?.config ? JSON.stringify(body.config) : null,
             updatedAt: new Date() as any
           })
-          .where(eq(websiteIntegrations.id, params.integrationId))
+          .where(eq(integrations.id, params.integrationId))
         const [row] = await db
           .select()
-          .from(websiteIntegrations)
-          .where(eq(websiteIntegrations.id, params.integrationId))
+          .from(integrations)
+          .where(eq(integrations.id, params.integrationId))
           .limit(1)
         if (!row) return httpError(404, 'Integration not found')
         return json(row)
@@ -33,7 +33,7 @@ export const Route = createFileRoute('/api/integrations/$integrationId/')({
         await requireSession(request)
         if (!hasDatabase()) return httpError(404, 'Integration not found')
         const db = getDb()
-        await db.delete(websiteIntegrations).where(eq(websiteIntegrations.id, params.integrationId))
+        await db.delete(integrations).where(eq(integrations.id, params.integrationId))
         return new Response(null, { status: 204 })
       })
     }

@@ -1,7 +1,7 @@
 import { pgTable, text, timestamp, jsonb } from 'drizzle-orm/pg-core'
 import { articles } from './schema'
 
-export const articleSerpSnapshots = pgTable('article_serp_snapshots', {
+export const keywordSerp = pgTable('keyword_serp', {
   articleId: text('article_id')
     .primaryKey()
     .references(() => articles.id, { onDelete: 'cascade' }),
@@ -13,4 +13,3 @@ export const articleSerpSnapshots = pgTable('article_serp_snapshots', {
   fetchedAt: timestamp('fetched_at', { withTimezone: true }).notNull().defaultNow(),
   snapshotJson: jsonb('snapshot_json').$type<Record<string, unknown> | null>().default(null)
 })
-

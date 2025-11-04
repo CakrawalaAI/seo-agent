@@ -2,7 +2,7 @@ import { hasDatabase, getDb } from '@common/infra/db'
 import { queueEnabled, publishJob } from '@common/infra/queue'
 import { recordJobQueued } from '@common/infra/jobs'
 import { websitesRepo } from '@entities/website/repository'
-import { orgs } from '@entities/org/db/schema'
+import { organizations } from '@entities/org/db/schema'
 import { websites } from '@entities/website/db/schema'
 import { eq } from 'drizzle-orm'
 import { normalizeSiteInput } from '../shared/url'
@@ -62,10 +62,10 @@ async function ensureOrgExists(orgId: string) {
   if (!hasDatabase()) return
   try {
     const db = getDb()
-    const rows = await db.select().from(orgs).where(eq(orgs.id as any, orgId)).limit(1) as any
+    const rows = await db.select().from(organizations).where(eq(organizations.id as any, orgId)).limit(1) as any
     if (rows && rows[0]) return
     const name = `${orgId.split('_')[0] || 'org'}'s Org`
-    await db.insert(orgs).values({ id: orgId, name, plan: 'starter', entitlementsJson: null as any }).onConflictDoNothing?.()
+    await db.insert(organizations).values({ id: orgId, name, plan: 'starter', entitlementsJson: null as any }).onConflictDoNothing?.()
     log.info('[onboarding] created missing org', { orgId })
   } catch (error) {
     log.error('[onboarding] ensureOrgExists failed', { orgId, error: (error as Error)?.message || String(error) })

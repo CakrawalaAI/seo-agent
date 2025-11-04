@@ -1,8 +1,8 @@
 import { hasDatabase, getDb } from '@common/infra/db'
-import { websiteKeywords } from './db/schema.website_keywords'
+import { keywords } from './db/schema.keywords'
 import { and, eq } from 'drizzle-orm'
 
-export const websiteKeywordsRepo = {
+export const keywordsRepo = {
   async upsert(input: {
     websiteId: string
     phrase: string
@@ -31,7 +31,7 @@ export const websiteKeywordsRepo = {
     try {
       // @ts-ignore drizzle may support onConflictDoUpdate
       await db
-        .insert(websiteKeywords)
+        .insert(keywords)
         .values({
           id,
           websiteId: input.websiteId,
@@ -55,7 +55,7 @@ export const websiteKeywordsRepo = {
           updatedAt: now
         } as any)
         .onConflictDoUpdate?.({
-          target: [websiteKeywords.websiteId, websiteKeywords.phraseNorm, websiteKeywords.languageCode, websiteKeywords.locationCode],
+          target: [keywords.websiteId, keywords.phraseNorm, keywords.languageCode, keywords.locationCode],
           set: {
             provider,
             // do not touch include on updates; preserve user choice
@@ -74,16 +74,16 @@ export const websiteKeywordsRepo = {
     } catch {
       // Fallback: delete existing then insert
       await db
-        .delete(websiteKeywords)
+        .delete(keywords)
         .where(
           and(
-            eq(websiteKeywords.websiteId, input.websiteId),
-            eq(websiteKeywords.phraseNorm, input.phraseNorm),
-            eq(websiteKeywords.languageCode, input.languageCode),
-            eq(websiteKeywords.locationCode, input.locationCode as any)
+            eq(keywords.websiteId, input.websiteId),
+            eq(keywords.phraseNorm, input.phraseNorm),
+            eq(keywords.languageCode, input.languageCode),
+            eq(keywords.locationCode, input.locationCode as any)
           )
         )
-      await db.insert(websiteKeywords).values({
+      await db.insert(keywords).values({
         id,
         websiteId: input.websiteId,
         phrase: input.phrase,
@@ -114,13 +114,13 @@ export const websiteKeywordsRepo = {
     const db = getDb()
     const rows = await db
       .select()
-      .from(websiteKeywords)
+      .from(keywords)
       .where(
         and(
-          eq(websiteKeywords.websiteId, websiteId),
-          eq(websiteKeywords.phraseNorm, phraseNorm),
-          eq(websiteKeywords.languageCode, languageCode),
-          eq(websiteKeywords.locationCode, locationCode as any)
+          eq(keywords.websiteId, websiteId),
+          eq(keywords.phraseNorm, phraseNorm),
+          eq(keywords.languageCode, languageCode),
+          eq(keywords.locationCode, locationCode as any)
         )
       )
       .limit(1)
@@ -130,7 +130,7 @@ export const websiteKeywordsRepo = {
   async list(websiteId: string, limit = 200) {
     if (!hasDatabase()) return []
     const db = getDb()
-    return await db.select().from(websiteKeywords).where(eq(websiteKeywords.websiteId, websiteId)).limit(limit)
+    return await db.select().from(keywords).where(eq(keywords.websiteId, websiteId)).limit(limit)
   }
 }
 

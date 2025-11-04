@@ -1,27 +1,5 @@
 /// <reference types="vite/client" />
 
-type DevFlags = {
-  /** Atomic mock flags for composable testing */
-  mocks: {
-    crawl: boolean
-    llm: boolean
-    keywordExpansion: boolean
-    metrics: boolean
-    serp: boolean
-  }
-  /** Discovery pipeline configuration */
-  discovery: {
-    /** legacy removed: mockMode */
-    mockMode: boolean
-    llmSeedsMax: number
-    seedLimit: number
-    keywordLimit: number
-  }
-  ui: {
-    devPanel: boolean
-  }
-}
-
 function readEnv(key: string): string | undefined {
   if (typeof process !== 'undefined' && process.env && process.env[key] !== undefined) {
     return process.env[key]
@@ -32,15 +10,6 @@ function readEnv(key: string): string | undefined {
   return typeof value === 'string' ? value : undefined
 }
 
-function readBoolean(key: string, defaultValue = false): boolean {
-  const raw = readEnv(key)
-  if (raw === undefined) return defaultValue
-  const normalized = raw.trim().toLowerCase()
-  if (['1', 'true', 'yes', 'on'].includes(normalized)) return true
-  if (['0', 'false', 'no', 'off'].includes(normalized)) return false
-  return defaultValue
-}
-
 function readNumber(key: string, defaultValue: number): number {
   const raw = readEnv(key)
   if (raw === undefined) return defaultValue
@@ -48,28 +17,8 @@ function readNumber(key: string, defaultValue: number): number {
   return Number.isFinite(parsed) ? parsed : defaultValue
 }
 
-const legacyMockMode = false
-
-const cachedFlags: DevFlags = {
-  mocks: {
-    // Single supported flag: MOCK_KEYWORD_GENERATOR
-    crawl: false,
-    llm: false,
-    keywordExpansion: readBoolean('MOCK_KEYWORD_GENERATOR', false),
-    metrics: false,
-    serp: false
-  },
-  discovery: {
-    mockMode: false,
-    llmSeedsMax: 10,
-    seedLimit: 20,
-    keywordLimit: 100
-  },
-  ui: {
-    devPanel: false
-  }
-}
-
-export function getDevFlags(): DevFlags {
-  return cachedFlags
+export const keywordConfig = {
+  llmSeedsMax: Math.max(1, readNumber('KEYWORD_LLM_SEEDS_MAX', 10)),
+  seedLimit: Math.max(1, readNumber('KEYWORD_SEED_LIMIT', 20)),
+  keywordLimit: Math.max(1, readNumber('KEYWORD_IDEA_LIMIT', 100))
 }

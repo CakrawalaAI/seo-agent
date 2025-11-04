@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useMutation } from '@tanstack/react-query'
-import { ArrowRight, Loader2 } from 'lucide-react'
+import { Loader2 } from 'lucide-react'
 import { useForm } from '@tanstack/react-form'
 import { Button } from '@src/common/ui/button'
 import { Input } from '@src/common/ui/input'
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@src/common/ui/form'
 import { toast } from 'sonner'
 import { log } from '@src/common/logger'
+import { GoogleMark } from '@src/common/ui/icons/google'
 import { trackOnboardingEvent } from './telemetry'
 
 type OnboardingResponse =
@@ -28,10 +29,29 @@ function prepareSiteUrl(raw: string): string {
 
 const LOCAL_STORAGE_KEY = 'seo-agent.onboarding.siteUrl'
 
-export function OnboardingForm() {
+type OnboardingFormProps = {
+  isAuthed?: boolean
+  hasWebsites?: boolean
+  redirectIfAuthenticated?: boolean
+}
+
+export function OnboardingForm({
+  isAuthed = false,
+  hasWebsites = false,
+  redirectIfAuthenticated = false
+}: OnboardingFormProps = {}) {
+  if (isAuthed && hasWebsites) {
+    return null
+  }
+
   const [flowId] = useState(() => {
-    try { return crypto.randomUUID() } catch { return Math.random().toString(36).slice(2) }
+    try {
+      return crypto.randomUUID()
+    } catch {
+      return Math.random().toString(36).slice(2)
+    }
   })
+
   const initialSiteUrl = useMemo(() => {
     if (typeof window === 'undefined') return ''
     try {
@@ -40,10 +60,50 @@ export function OnboardingForm() {
       return ''
     }
   }, [])
+
   const [externalError, setExternalError] = useState<string | null>(null)
+
+  const form = useForm({
+    defaultValues: { siteUrl: initialSiteUrl },
+    validators: {
+      onSubmit: ({ value }) => (!prepareSiteUrl(value.siteUrl) ? 'Enter your website URL to continue' : undefined)
+    },
+    onSubmitInvalid: () => {
+      setExternalError(null)
+    },
+    onSubmit: async ({ value, formApi }) => {
+      if (submitMutation.isPending) return
+      if (redirectIfAuthenticated && isAuthed) {
+        window.location.href = '/dashboard'
+        return
+      }
+      const prepared = prepareSiteUrl(value.siteUrl)
+      if (!prepared) {
+        setExternalError('Enter your website URL to continue')
+        return
+      }
+      if (import.meta.env.DEV) {
+        log.debug('[onboarding.form] normalized site', { prepared })
+      }
+      setExternalError(null)
+      formApi.setFieldValue('siteUrl', prepared, { touch: true })
+      if (typeof window !== 'undefined') {
+        try {
+          window.localStorage.setItem(LOCAL_STORAGE_KEY, prepared)
+        } catch {
+          /* noop */
+        }
+      }
+      await submitMutation.mutateAsync(prepared)
+    }
+  })
 
   const submitMutation = useMutation<OnboardingResponse, Error, string>({
     mutationFn: async (prepared) => {
+      if (redirectIfAuthenticated && isAuthed) {
+        window.location.href = '/dashboard'
+        return { status: 'existing', websiteId: '', websiteSlug: '', crawlJobId: null, redirect: '/dashboard' }
+      }
       trackOnboardingEvent('onboarding_form_submit', { siteUrl: prepared })
       log.debug('[onboarding.form] submit_click', { flowId, raw: form.store.state.values.siteUrl, prepared })
       const response = await fetch('/api/onboarding', {
@@ -56,13 +116,22 @@ export function OnboardingForm() {
         try {
           const payload = await response.json()
           if (payload?.message) message = String(payload.message)
-        } catch {}
+        } catch {
+          /* noop */
+        }
         throw new Error(message)
       }
       return (await response.json()) as OnboardingResponse
     },
     onSuccess: (result) => {
-      log.debug('[onboarding.form] submit_success', { flowId, status: result.status, redirect: (result as any)?.redirect })
+      if (redirectIfAuthenticated && isAuthed) {
+        return
+      }
+      log.debug('[onboarding.form] submit_success', {
+        flowId,
+        status: result.status,
+        redirect: (result as any)?.redirect
+      })
       if (result.status === 'created' || result.status === 'existing') {
         trackOnboardingEvent('onboarding_website_created', {
           websiteId: (result as any).websiteId,
@@ -86,35 +155,6 @@ export function OnboardingForm() {
     }
   })
 
-  const form = useForm({
-    defaultValues: { siteUrl: initialSiteUrl },
-    validators: {
-      onSubmit: ({ value }) => (!prepareSiteUrl(value.siteUrl) ? 'Enter your website URL to continue' : undefined)
-    },
-    onSubmitInvalid: () => {
-      setExternalError(null)
-    },
-    onSubmit: async ({ value, formApi }) => {
-      if (submitMutation.isPending) return
-      const prepared = prepareSiteUrl(value.siteUrl)
-      if (!prepared) {
-        setExternalError('Enter your website URL to continue')
-        return
-      }
-      if (import.meta.env.DEV) {
-        console.info('[onboarding.form] normalized site', { prepared })
-      }
-      setExternalError(null)
-      formApi.setFieldValue('siteUrl', prepared, { touch: true })
-      if (typeof window !== 'undefined') {
-        try {
-          window.localStorage.setItem(LOCAL_STORAGE_KEY, prepared)
-        } catch {}
-      }
-      await submitMutation.mutateAsync(prepared)
-    }
-  })
-
   const siteUrlValue = form.useStore((state) => state.values.siteUrl)
   const isFormSubmitting = form.useStore((state) => state.isSubmitting)
   useEffect(() => {
@@ -125,6 +165,10 @@ export function OnboardingForm() {
   }, [siteUrlValue])
 
   const isSubmitting = submitMutation.isPending || isFormSubmitting
+  const buttonLabel =
+    redirectIfAuthenticated && isAuthed ? 'Go to Dashboard' : 'Continue with Google'
+  const showGoogleIcon = buttonLabel !== 'Go to Dashboard'
+  const inputDisabled = isSubmitting || (redirectIfAuthenticated && isAuthed)
 
   return (
     <Form form={form}>
@@ -156,7 +200,7 @@ export function OnboardingForm() {
                     if (externalError) setExternalError(null)
                   }}
                   onBlur={() => field.handleBlur()}
-                  disabled={isSubmitting}
+                  disabled={inputDisabled}
                   className="h-12 w-full rounded-lg border border-primary/40 bg-background px-4 text-base shadow-none focus-visible:ring-2 focus-visible:ring-primary"
                 />
               </FormControl>
@@ -168,7 +212,11 @@ export function OnboardingForm() {
           type="submit"
           disabled={isSubmitting}
           onClick={() => form.handleSubmit()}
-          className="inline-flex h-12 min-w-[220px] items-center justify-center gap-2 rounded-lg bg-primary px-5 text-sm font-semibold text-primary-foreground shadow-sm transition hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2"
+          className={`inline-flex h-12 min-w-[220px] items-center justify-center gap-2 rounded-lg ${
+            redirectIfAuthenticated && isAuthed
+              ? 'bg-primary px-5 text-sm font-semibold text-primary-foreground shadow-sm transition hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2'
+              : 'border border-input bg-background px-5 text-sm font-semibold text-foreground shadow-sm transition hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2'
+          }`}
         >
           {isSubmitting ? (
             <>
@@ -177,8 +225,8 @@ export function OnboardingForm() {
             </>
           ) : (
             <>
-              Continue with Google
-              <ArrowRight className="h-4 w-4" />
+              {showGoogleIcon && <GoogleMark className="h-5 w-5" />}
+              {buttonLabel}
             </>
           )}
         </Button>

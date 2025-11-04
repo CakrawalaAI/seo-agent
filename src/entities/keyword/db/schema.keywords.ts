@@ -1,8 +1,8 @@
 import { pgTable, text, integer, jsonb, timestamp, uniqueIndex, boolean } from 'drizzle-orm/pg-core'
 import { websites } from '@entities/website/db/schema'
 
-export const websiteKeywords = pgTable(
-  'website_keywords',
+export const keywords = pgTable(
+  'keywords',
   {
     id: text('id').primaryKey(),
     websiteId: text('website_id')
@@ -29,5 +29,5 @@ export const websiteKeywords = pgTable(
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow()
   },
-  (t) => ({ uniq: uniqueIndex('uniq_website_kw_geo_lang').on(t.websiteId, t.phraseNorm, t.languageCode, t.locationCode) })
+  (t) => ({ uniq: uniqueIndex('uniq_keywords_geo_lang').on(t.websiteId, t.phraseNorm, t.languageCode, t.locationCode) })
 )

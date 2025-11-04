@@ -64,10 +64,10 @@ const MOCK_DASHBOARD: DashboardData = {
     queueDepth: 2,
     planItems: MOCK_PLAN_ITEMS,
     keywords: MOCK_KEYWORDS,
-    latestDiscovery: {
+    latestKeywordGeneration: {
       startedAt: new Date(Date.now() - 3600_000 * 6).toISOString(),
       completedAt: new Date(Date.now() - 3600_000 * 2).toISOString(),
-      providersUsed: ['crawl', 'serp'],
+      providersUsed: ['crawl', 'keywordIdeas'],
       seedCount: 42,
       keywordCount: 215
     }
@@ -144,7 +144,7 @@ export function Page(): JSX.Element {
           </EmptyHeader>
         </Empty>
         <div className="max-w-3xl">
-          <OnboardingForm />
+          <OnboardingForm isAuthed redirectIfAuthenticated={false} />
         </div>
       </div>
     )
@@ -282,7 +282,7 @@ function buildProjectStatus({
   const steps = [
     {
       label: 'Input website',
-      description: project?.url ? `Tracking ${project.url}` : 'Connect a site to begin discovery.',
+      description: project?.url ? `Tracking ${project.url}` : 'Connect a site to begin generating keywords.',
       completed: Boolean(project?.url),
       action: null
     },

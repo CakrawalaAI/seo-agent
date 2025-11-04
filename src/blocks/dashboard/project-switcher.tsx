@@ -28,7 +28,7 @@ export function WebsiteSwitcher() {
       </Label>
       {items.length > 0 ? (
         <Select
-          value={id || undefined}
+          value={id ?? ''}
           onValueChange={(v) => {
             if (v === '__create__') {
               try { navigate({ to: '/dashboard' }) } catch {}
