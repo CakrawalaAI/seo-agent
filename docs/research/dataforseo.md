@@ -125,6 +125,7 @@ Mock output characteristics:
        https://api.dataforseo.com/v3/dataforseo_labs/google/keyword_ideas/live
   ```
 - Worker validation: `bun run worker` with `MOCK_KEYWORD_GENERATOR=true` should log `keyword generate mode` as mock and finish without hitting the real API.
+- Cost levers: set `MAX_SEED_KEYWORDS` (seed batch, ≤200 enforced) and `MAX_KEYWORDS_GENERATE` (result limit, ≤1000) to tune spend; defaults keep runs at 10 outputs for testing.
 
 ## Troubleshooting Cheatsheet
 

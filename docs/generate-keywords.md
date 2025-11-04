@@ -4,6 +4,7 @@ SEO Agent — Generate Keywords (Per‑Website Only)
 - Provider call: DataForSEO Labs `keyword_ideas` endpoint (`src/common/providers/impl/dataforseo/keyword-ideas.ts`).
   - Only this endpoint is used; no “related”/“keywords_for_site” fallbacks.
   - Request payload: `{ keywords, location_code, language_code, limit }`.
+- Cost guardrails: control input/output counts via `MAX_SEED_KEYWORDS` and `MAX_KEYWORDS_GENERATE` env vars (defaults 10/10); sanitizer still enforces DataForSEO hard cap of 200 seeds.
 - Output: rows in `keywords` with metrics in columns (no global cache).
 
 Storage (keywords)
