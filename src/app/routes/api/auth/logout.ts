@@ -8,7 +8,7 @@ export const Route = createFileRoute('/api/auth/logout')({
     handlers: {
       GET: safeHandler(() => {
         const headers = new Headers()
-        headers.set('Location', '/login')
+        headers.set('Location', '/')
         headers.append('Set-Cookie', session.clear())
         headers.append('Set-Cookie', clearTempCookie())
         // Clear legacy Better Auth cookies if present

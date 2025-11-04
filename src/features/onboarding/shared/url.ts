@@ -44,7 +44,7 @@ export function deriveProjectName(host: string): string {
     .join(' ')
     .replace(/[^a-z0-9]+/gi, ' ')
     .trim()
-  if (!base) return 'New Project'
+  if (!base) return 'New Website'
   const words = base.split(/\s+/g)
   return words.map((word) => word.charAt(0).toUpperCase() + word.slice(1)).join(' ')
 }

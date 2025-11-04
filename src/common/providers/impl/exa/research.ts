@@ -1,5 +1,6 @@
 import type { ResearchProvider, ResearchResult } from '../../interfaces/research'
 import { config } from '@common/config'
+import { log } from '@src/common/logger'
 
 export const exaResearch: ResearchProvider = {
   async search(q: string, opts?: { topK?: number; site?: string }): Promise<ResearchResult[]> {
@@ -8,7 +9,7 @@ export const exaResearch: ResearchProvider = {
     if (!key) {
       const allowStubs = Boolean(config.providers.allowStubs)
       if (!allowStubs) throw new Error('EXA_API_KEY missing and stubs disabled')
-      try { console.warn('[EXA] Missing API key; using stub results once') } catch {}
+      try { log.warn('[EXA] Missing API key; using stub results once') } catch {}
       return []
     }
     try {

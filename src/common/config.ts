@@ -29,6 +29,8 @@ export type AppConfig = {
     respectRobots: boolean
     // Depth beyond the selected URLs to expand same-host links (0 = only selected pages)
     expandDepth: number
+    // Limit number of child links enqueued per page during BFS
+    maxBreadth: number
   }
   email: {
     // 'stub' logs to console; 'resend' sends via Resend API
@@ -64,7 +66,9 @@ export const config: AppConfig = {
     maxRepresentatives: 100,
     respectRobots: false,
     // dev default: expand one hop beyond representatives
-    expandDepth: 0
+    expandDepth: 0,
+    // Limit number of child links enqueued per page during BFS
+    maxBreadth: 20
   },
   email: {
     transport: 'stub',

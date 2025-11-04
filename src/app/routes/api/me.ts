@@ -24,7 +24,7 @@ export const Route = createFileRoute('/api/me')({
         }
         const appSess = session.read(request)
         if (!appSess?.user) return json({ user: null, activeOrg: null, entitlements: null, orgs: [] })
-        const activeProjectId = appSess?.activeProjectId ?? null
+        const activeProjectId = appSess?.activeWebsiteId ?? appSess?.activeProjectId ?? null
         let activeOrg: { id: string; plan?: string } | null = null
         let entitlements: any = null
         let usage: { postsUsed?: number; monthlyPostCredits?: number; cycleStart?: string | null } | null = null
@@ -55,7 +55,7 @@ export const Route = createFileRoute('/api/me')({
             }
           } catch {}
         }
-        return json({ user: { email: appSess.user.email, name: appSess.user.name }, activeOrg, entitlements, usage, orgs: orgList, activeProjectId })
+        return json({ user: { email: appSess.user.email, name: appSess.user.name }, activeOrg, entitlements, usage, orgs: orgList, activeWebsiteId: activeProjectId, activeProjectId })
       }
     }
   }

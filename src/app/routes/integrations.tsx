@@ -10,10 +10,10 @@ export const Route = createFileRoute('/integrations')({
       })
       const data = res.ok ? await res.json() : null
       if (!data?.user) {
-        throw redirect({ to: '/login', search: { redirect: location.href || '/integrations' } })
+        throw redirect({ to: '/' })
       }
     } catch {
-      throw redirect({ to: '/login', search: { redirect: '/integrations' } })
+      throw redirect({ to: '/' })
     }
   },
   component: Page

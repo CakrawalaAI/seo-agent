@@ -1,6 +1,7 @@
 import { drizzle } from 'drizzle-orm/postgres-js'
 import postgres from 'postgres'
 import { schema } from './schema'
+import { log } from '@src/common/logger'
 
 type GlobalDbCache = typeof globalThis & {
   __seoAgentDb?: ReturnType<typeof drizzle>
@@ -39,7 +40,7 @@ function ensureDbInstance(): ReturnType<typeof drizzle> {
   const url = resolveDatabaseUrl()
 
   try {
-    console.info('[db] connecting', { url: maskDatabaseUrl(url) })
+    log.info('[db] connecting', { url: maskDatabaseUrl(url) })
   } catch {}
 
   const client = globalDb.__seoAgentPg ?? postgres(url, { prepare: true, max: 1 })
@@ -51,14 +52,14 @@ function ensureDbInstance(): ReturnType<typeof drizzle> {
       try {
         globalDb.__seoAgentPg?.end?.()
       } catch (error) {
-        console.warn('[db] failed to close postgres client', error)
+        log.warn('[db] failed to close postgres client', error)
       }
     })
   }
 
   const db = drizzle(client, { schema })
   globalDb.__seoAgentDb = db
-  console.info('[db] drizzle ready')
+  log.info('[db] drizzle ready')
   return db
 }
 

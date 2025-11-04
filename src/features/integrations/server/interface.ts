@@ -87,13 +87,51 @@ export function buildPortableArticle(article: Article): PortableArticle {
     text: s.heading
   }))
 
+  // Extract lightweight media from HTML for connectors that support explicit media fields
+  const media = (() => {
+    const html = String(article.bodyHtml || '')
+    const images: Array<{ src: string; alt?: string; caption?: string }> = []
+    const youtube: Array<{ id: string; title?: string }> = []
+    try {
+      // img tags
+      const imgRe = /<img\b[^>]*src=["']([^"'>]+)["'][^>]*>/gi
+      let m: RegExpExecArray | null
+      while ((m = imgRe.exec(html))) {
+        const tag = m[0]
+        const src = m[1]
+        const altMatch = tag.match(/alt=["']([^"']*)["']/i)
+        const alt = altMatch ? altMatch[1] : undefined
+        // naive figcaption lookup near the tag
+        const start = Math.max(0, m.index - 120)
+        const end = Math.min(html.length, m.index + tag.length + 240)
+        const snippet = html.slice(start, end)
+        const capMatch = snippet.match(/<figcaption[^>]*>([\s\S]*?)<\/figcaption>/i)
+        const caption = capMatch ? capMatch[1].replace(/<[^>]+>/g, ' ').trim() : undefined
+        images.push({ src, alt, caption })
+        if (images.length >= 4) break
+      }
+      // YouTube iframes
+      const ytRe = /<iframe\b[^>]*src=["'][^"']*(?:youtube\.com|youtu\.be)[^"']*["'][^>]*><\/iframe>/gi
+      const idRe = /(?:v=|\/embed\/|youtu\.be\/)([A-Za-z0-9_-]{6,})/
+      let y: RegExpExecArray | null
+      while ((y = ytRe.exec(html))) {
+        const srcMatch = y[0].match(/src=["']([^"']+)["']/i)
+        const src = srcMatch ? srcMatch[1] : ''
+        const idM = src.match(idRe)
+        const id = idM ? idM[1] : ''
+        if (id) youtube.push({ id })
+        if (youtube.length >= 2) break
+      }
+    } catch {}
+    return images.length || youtube.length ? { images, youtube } : undefined
+  })()
+
   return {
     title: article.title ?? '',
     excerpt: extractExcerpt(article.bodyHtml),
     bodyHtml: article.bodyHtml ?? '',
     outline,
-    // Domain Article currently has no media fields
-    media: undefined,
+    media,
     seo: {
       metaTitle: article.title ?? undefined,
       metaDescription: article.title ? `${article.title.slice(0, 150)}...` : undefined,

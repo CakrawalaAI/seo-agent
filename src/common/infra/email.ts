@@ -1,4 +1,5 @@
 import { config } from '@common/config'
+import { log } from '@src/common/logger'
 
 export type Email = { to: string; subject: string; html?: string; text?: string }
 
@@ -22,7 +23,7 @@ export async function sendEmail(msg: Email): Promise<boolean> {
   }
   // stub
   lastSent = msg
-  try { console.info('[email:stub]', JSON.stringify(msg)) } catch {}
+  try { log.info('[email:stub]', JSON.stringify(msg)) } catch {}
   return true
 }
 

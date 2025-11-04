@@ -1,7 +1,8 @@
 import { createFileRoute } from '@tanstack/react-router'
-import { json, httpError, safeHandler, requireSession, requireProjectAccess } from '@app/api-utils'
+import { json, httpError, safeHandler, requireSession, requireWebsiteAccess } from '@app/api-utils'
+import { log } from '@src/common/logger'
 import { articlesRepo } from '@entities/article/repository'
-import { integrationsRepo } from '@entities/integration/repository'
+import { websiteIntegrationsRepo } from '@entities/integration/repository.website'
 import { connectorRegistry } from '@features/integrations/server/registry'
 import { queueEnabled, publishJob } from '@common/infra/queue'
 import { recordJobQueued } from '@common/infra/jobs'
@@ -19,14 +20,24 @@ export const Route = createFileRoute('/api/articles/$articleId/publish')({
         const article = await articlesRepo.get(params.articleId)
         if (!article) return httpError(404, 'Article not found')
 
-        await requireProjectAccess(request, String(article.projectId))
+        await requireWebsiteAccess(request, String((article as any).websiteId))
 
-        const integration = await integrationsRepo.get(String(integrationId))
+        const integration = await (async () => {
+          try {
+            const { getDb, hasDatabase } = await import('@common/infra/db')
+            const { websiteIntegrations } = await import('@entities/integration/db/schema.website')
+            const { eq } = await import('drizzle-orm')
+            if (!hasDatabase()) return null
+            const db = getDb()
+            const rows = await db.select().from(websiteIntegrations).where(eq(websiteIntegrations.id, String(integrationId))).limit(1)
+            return rows?.[0] ?? null
+          } catch { return null }
+        })()
         if (!integration) return httpError(404, 'Integration not found')
 
-        console.info('[API /articles/:id/publish] Request:', {
+        log.info('[API /articles/:id/publish] Request:', {
           articleId: article.id,
-          projectId: article.projectId,
+          websiteId: (article as any).websiteId,
           integrationId,
           queueEnabled: queueEnabled()
         })
@@ -37,13 +48,13 @@ export const Route = createFileRoute('/api/articles/$articleId/publish')({
             type: 'publish',
             payload: { articleId: article.id, integrationId }
           })
-          recordJobQueued(article.projectId, 'publish', jobId)
-          console.info('[API /articles/:id/publish] Queued:', { jobId })
+          recordJobQueued(String((article as any).websiteId), 'publish', jobId)
+          log.info('[API /articles/:id/publish] Queued:', { jobId })
           return json({ jobId })
         }
 
         // Synchronous publish (fallback if no queue)
-        const result = await connectorRegistry.publish(integration.type, article, integration.configJson ?? {})
+        const result = await connectorRegistry.publish((integration as any).type, article, (integration as any).configJson ?? {})
 
         if (!result) {
           return httpError(500, 'Publishing failed')
@@ -57,7 +68,7 @@ export const Route = createFileRoute('/api/articles/$articleId/publish')({
           publishDate: new Date().toISOString()
         })
 
-        console.warn('[API /articles/:id/publish] Published synchronously (queue disabled)', {
+        log.warn('[API /articles/:id/publish] Published synchronously (queue disabled)', {
           articleId: article.id
         })
 

@@ -7,7 +7,7 @@ export const Route = createFileRoute('/dashboard')({
   beforeLoad: async ({ location }) => {
     const user = await getCurrentUserFn()
     if (!user) {
-      throw redirect({ to: '/login', search: { redirect: location.href } })
+      throw redirect({ to: '/' })
     }
   },
   loader,

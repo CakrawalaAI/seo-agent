@@ -1,14 +1,14 @@
 export type MetricInput = { phrase: string; locale?: string }
 export type MetricResult = { phrase: string; metrics: { searchVolume?: number; difficulty?: number; cpc?: number; asOf?: string } }
 
-export async function enrichMetrics(inputs: MetricInput[], locale: string, location?: string, projectId?: string): Promise<MetricResult[]> {
+export async function enrichMetrics(inputs: MetricInput[], locale: string, location?: string, websiteId?: string): Promise<MetricResult[]> {
   // cache pass
   const { getMetric, setMetric } = await import('./metric-cache')
   const { getMetricDb, setMetricDb } = await import('./metric-cache-db')
   const cached: MetricResult[] = []
   const missing: MetricInput[] = []
   for (const i of inputs) {
-    const mem = getMetric(i.phrase, locale, location, projectId)
+    const mem = getMetric(i.phrase, locale, location, websiteId)
     if (mem) {
       cached.push({ phrase: i.phrase, metrics: { ...mem, asOf: new Date().toISOString() } })
       continue
@@ -32,7 +32,7 @@ export async function enrichMetrics(inputs: MetricInput[], locale: string, locat
             searchVolume: r.metrics.searchVolume,
             cpc: r.metrics.cpc ?? undefined
           }
-          setMetric(r.phrase, locale, location, data, projectId)
+          setMetric(r.phrase, locale, location, data, websiteId)
           await setMetricDb(r.phrase, data, locale)
         }
         const liveResults = live.map((r) => ({ phrase: r.phrase, metrics: { searchVolume: r.metrics.searchVolume, cpc: r.metrics.cpc, asOf: r.metrics.asOf ?? new Date().toISOString() } }))
@@ -51,7 +51,7 @@ export async function enrichMetrics(inputs: MetricInput[], locale: string, locat
   const pseudo = missing.map((i) => ({ phrase: i.phrase, metrics: pseudoMetrics(i.phrase) }))
   const { setMetric: setCached } = await import('./metric-cache')
   for (const p of pseudo) {
-    setCached(p.phrase, locale, location, p.metrics, projectId)
+    setCached(p.phrase, locale, location, p.metrics, websiteId)
     await setMetricDb(p.phrase, p.metrics, locale)
   }
   return [...cached, ...pseudo]

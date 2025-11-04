@@ -1,6 +1,7 @@
 import { Polar } from '@polar-sh/sdk'
 import type { Product } from '@polar-sh/sdk/models/components/product'
 import type { ProductPriceFixed } from '@polar-sh/sdk/models/components/productpricefixed'
+import { log } from '@src/common/logger'
 
 export type PricingPlan = {
   productId: string
@@ -22,7 +23,7 @@ const FALLBACK_DATA: HomeLoaderData = {
   monthly: {
     productId: '6f466012-8cb3-4f5b-815d-3d4e9b7be9d8',
     name: 'SEO Agent Business Subscription',
-    description: 'Automated SEO engine for one organization, project, and website.',
+    description: 'Automated SEO engine for one organization and website.',
     priceCents: 9900,
     currency: 'USD',
     billingInterval: 'monthly',
@@ -72,7 +73,7 @@ export async function loader(): Promise<HomeLoaderData> {
       source: 'polar'
     }
   } catch (error) {
-    console.warn('[home.loader] Polar SDK error', { message: (error as Error)?.message })
+    log.warn('[home.loader] Polar SDK error', { message: (error as Error)?.message })
     return FALLBACK_DATA
   }
 }
@@ -85,13 +86,13 @@ async function fetchProduct(polar: Polar, productId: string, interval: 'monthly'
       : null
 
     if (!price) {
-      console.warn('[home.loader] Price record missing', { productId })
+      log.warn('[home.loader] Price record missing', { productId })
       return null
     }
 
     const priceCents = Number(price.priceAmount ?? 0)
     if (!Number.isFinite(priceCents) || priceCents <= 0) {
-      console.warn('[home.loader] Invalid price amount', { productId, priceAmount: price.priceAmount })
+      log.warn('[home.loader] Invalid price amount', { productId, priceAmount: price.priceAmount })
       return null
     }
 
@@ -111,7 +112,7 @@ async function fetchProduct(polar: Polar, productId: string, interval: 'monthly'
       trialDays
     }
   } catch (error) {
-    console.warn('[home.loader] Failed to fetch product', { productId, message: (error as Error)?.message })
+    log.warn('[home.loader] Failed to fetch product', { productId, message: (error as Error)?.message })
     return null
   }
 }

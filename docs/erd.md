@@ -1,15 +1,15 @@
-# SEO Agent – Logical Data Model (v2025-11)
+# SEO Agent — Logical Data Model (Websites, v2025‑11)
 
-SEO Agent now keeps the operational state for crawling, queues, and enrichment in bundle files under `.data/bundle/{projectId}/**`. The relational database is intentionally small and only stores durable state that must survive worker restarts.
+All artifacts persist in Postgres (stateless workers). No filesystem bundles.
 
-## Principles
-- **Stateless workers:** crawler/queue processors append JSON bundles; legacy crawl/job tables are gone.
-- **Multi-tenant:** organizations own projects; membership links via email.
-- **Global keyword canon:** deduplicated phrases across all projects.
-- **Articles = plan:** scheduling metadata and drafts share the `articles` table.
-- **Attachment-friendly:** rich media stored in `article_attachments` with CASCADE delete.
+Principles
+- Single entity: websites own keywords, articles, integrations.
+- Multi‑tenant: organizations own websites.
+- Global keyword canon: dedupe phrases; per‑website pointers reference canon + cached metrics.
+- Articles = plan: schedule rows and drafts share `articles`.
+- Minimal: remove score/cluster and evaluation gate from docs.
 
-## Table Inventory
+Table Inventory
 ```
 users ─┐
        │  user_auth_providers (OAuth accounts)
@@ -17,17 +17,14 @@ orgs ──┼──────┐
        │      │
        │      └── org_members (email-based membership)
        │
-projects ──┬──────── article_attachments
+websites ──┬──────── website_integrations
            │
-           ├──── project_integrations (webhook/webflow, etc.)
+           ├──── crawl_runs / crawl_pages (per‑page text + summaries)
            │
            ├──── articles (plan + drafts + published)
+           │       └── article_attachments
            │
-           └──── keywords ──┐
-                           │
-keyword_canon ◄─────────────┘
-   │
-   └── metric_cache (global provider snapshot)
+           └──── website_keywords (per‑site)
 ```
 
 ### users
@@ -43,48 +40,42 @@ keyword_canon ◄─────────────┘
 OAuth connections (Google). Unique by `(provider_id, provider_account_id)`.
 
 ### orgs & org_members
-- `orgs`: `plan` and optional entitlements JSON.
-- `org_members`: `(org_id, user_email)` unique; `role` (`owner`, `admin`, `member`).
+- `orgs`: plan and entitlements JSON (subscription source of truth)
+- `org_members`: `(org_id, user_email)` unique; `role` (`owner`,`admin`,`member`)
 
-### projects
-| Column | Type | Default |
+### websites
+| Column | Type | Notes/Default |
 | --- | --- | --- |
 | `id` | text PK |
-| `org_id` | FK → orgs.id (CASCADE) |
-| `name` | text |
-| `site_url` | text |
-| `default_locale` | text | `'en-US'`
-| `status` | text | `'draft'` → `'crawling'` → `'crawled'` → `'keywords_ready'` → `'active'` → `'error'`
-| `auto_publish_policy` | text | `'buffered'`/`'immediate'`/`'manual'`
-| `buffer_days` | integer | `3`
-| `serp_device` | text | `'desktop'`
-| `serp_location_code` | integer | `2840` (US)
-| `metrics_location_code` | integer | `2840`
+| `org_id` | text FK → orgs.id (CASCADE) |
+| `url` | text | canonical website URL (input artifact) |
+| `default_locale` | text | `'en-US'` |
+| `summary` | text | business context from crawl top‑N (output artifact) |
+| `settings_json` | jsonb | content policy (e.g., `{allowYoutube:true,maxImages:2}`) |
+| `status` | text enum | `'crawled'` → `'keyword_generated'` → `'articles_scheduled'` |
 | `created_at`, `updated_at` | timestamptz |
 
-### project_integrations
-Per-project CMS connections. CASCADE deletes via `project_id`.
+### website_integrations
+Per‑website CMS connections. CASCADE via `website_id`.
 
-### keyword_canon & keywords
-- `keyword_canon`: `(phrase_norm, language_code)` unique; global dedupe.
-- `keywords`: per-project junction. Columns: `id`, `project_id`, `canon_id`, `status` (`recommended`/`excluded`/`planned`), `starred`, timestamps.
+### website_keywords (per‑website)
+- `website_keywords`: `id`, `website_id` FK, `phrase`, `phrase_norm`, `language_code/name`, `location_code/name`, `provider`, `include` (boolean), `starred` (int), metrics columns (`search_volume`,`difficulty`,`cpc`,`competition`,`vol_12m_json`), `metrics_as_of`, timestamps.
 
-### metric_cache
-1:1 with `keyword_canon` (unique on `canon_id`). Stores provider payload JSON + TTL seconds.
+### crawl_runs / crawl_pages
+- `crawl_runs`: `id`, `website_id` FK, `providers_json`, `started_at`, `completed_at`, `created_at`.
+- `crawl_pages`: page rows with `url`, `http_status`, `title`, `meta_json`, `headings_json`, `content_text`, `page_summary_json`, `created_at`.
 
-### articles
-Merged plan + content.
+### articles (plan + content)
 | Column | Notes |
 | --- | --- |
-| `id` | text PK (plan ids reused when promoting plan item to draft) |
-| `project_id` | FK CASCADE |
-| `keyword_id` | optional FK (SET NULL) |
-| `planned_date` | ISO `YYYY-MM-DD` |
+| `id` | text PK (reused as plan id) |
+| `website_id` | FK CASCADE |
+| `keyword_id` | optional FK → `website_keywords.id` (SET NULL) |
+| `scheduled_date` | ISO `YYYY‑MM‑DD` |
 | `title`, `outline_json` | plan metadata |
 | `body_html` | generated content |
-| `language`, `tone` | optional metadata |
-| `status` | `'draft'` (outline only) → `'generating'` → `'ready'` → `'published'` / `'failed'` |
-| `generation_date`, `publish_date`, `url` | dates/links |
+| `status` | `'queued'` → `'scheduled'` → `'published'` |
+| `publish_date`, `url` | links + timestamps |
 | `created_at`, `updated_at` | timestamptz |
 
 ### article_attachments
@@ -96,15 +87,21 @@ Merged plan + content.
 | `url`, `caption`, `order` | Attachment metadata |
 | `created_at` | timestamptz |
 
-## Ephemeral Bundle Layout
-Workers write to `.data/bundle/{projectId}/{timestamp}/`:
-- `crawl/pages.jsonl` – per-page JSON dumps (`CrawlPage`).
-- `crawl/link-graph.json` – derived nodes/edges for visualization.
-- `keywords/*.jsonl` – seed, candidate, prioritized keyword lists.
-- `logs/jobs.jsonl` – queue log (queued/running/completed/failed).
-- `articles/drafts/{articleId}.html/json` – generated outputs.
+## Filesystem
+None. All crawl pages, summaries, keyword caches, and article drafts persist in Postgres. Operational logs are ephemeral (no DB table yet).
 
-These files feed API responses (`/api/projects/:id/snapshot`, `/api/crawl/pages`, `/api/projects/:id/link-graph`) without DB writes.
+## Process Contracts (inputs → outputs)
+- Crawl: input `websites.url` → output `websites.summary`, `crawl_runs` + `crawl_pages`.
+- Generate Keywords (real or mock): input `websites.summary` (+ headings) → output `website_keywords` with metrics. Users toggle `include`.
+- Plan/Schedule: input `website_keywords(include=true)` → output `articles` rows (30‑day runway or full subscription period; round‑robin; deletions leave days empty).
+- Generate Articles: input `articles(status=queued)` within global 3‑day buffer → output `articles(status=scheduled, body_html)`.
+- Publish: input `articles(status=scheduled, scheduled_date<=today)` + integration → output `articles(status=published, url)`.
 
-## Removed Tables
-Legacy tables removed in this revision: `crawl_pages`, `link_graph`, `jobs`, `serp_snapshot`, `plan_items`, `blobs`, `sessions`, `verifications`, `org_usage`. References should be routed through bundle stores or service abstractions.
+## Subscription/Entitlement (intent)
+- Planner ensures one article per day across active subscription period.
+- Daily generator maintains a 3‑day buffer of full drafts.
+- Deletion does not auto‑fill; user can regenerate.
+
+## Removed/Legacy
+- Replace all `projects*` references with `websites*` in docs.
+- No filesystem bundle. All state in DB.

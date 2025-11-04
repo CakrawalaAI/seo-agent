@@ -1,52 +1,53 @@
-import type { Job } from '@entities/job/domain/job'
+// Minimal job JSONL logging for local dev; no types required
 import { appendJsonl, latestRunDir } from '@common/bundle/store'
 import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { log } from '@src/common/logger'
 
 const LOG_FILE = 'logs/jobs.jsonl'
 
-function writeEvent(projectId: string, event: Partial<Job> & { id: string; status: string }) {
-  const entry = { ...event, projectId, at: new Date().toISOString() }
+function writeEvent(websiteId: string, event: any & { id: string; status: string }) {
+  const entry = { ...event, websiteId, at: new Date().toISOString() }
   try {
-    appendJsonl(projectId, LOG_FILE, entry)
+    appendJsonl(websiteId, LOG_FILE, entry)
   } catch (err) {
-    console.warn('[jobs] log write failed', { projectId, id: event.id, error: (err as Error)?.message || String(err) })
+    log.warn('[jobs] log write failed', { websiteId, id: event.id, error: (err as Error)?.message || String(err) })
   }
 }
 
-export async function recordJobQueued(projectId: string, type: string, id: string) {
-  writeEvent(projectId, { id, type, status: 'queued' })
+export async function recordJobQueued(websiteId: string, type: string, id: string) {
+  writeEvent(websiteId, { id, type, status: 'queued' })
 }
 
-export async function recordJobRunning(projectId: string, id: string) {
-  writeEvent(projectId, { id, projectId, status: 'running' })
+export async function recordJobRunning(websiteId: string, id: string) {
+  writeEvent(websiteId, { id, websiteId, status: 'running' })
 }
 
-export async function recordJobCompleted(projectId: string, id: string, result?: Record<string, unknown>) {
-  writeEvent(projectId, { id, projectId, status: 'completed', resultJson: result ?? null })
+export async function recordJobCompleted(websiteId: string, id: string, result?: Record<string, unknown>) {
+  writeEvent(websiteId, { id, websiteId, status: 'completed', resultJson: result ?? null })
 }
 
-export async function recordJobFailed(projectId: string, id: string, error?: Record<string, unknown>) {
-  writeEvent(projectId, { id, projectId, status: 'failed', errorJson: error ?? null })
+export async function recordJobFailed(websiteId: string, id: string, error?: Record<string, unknown>) {
+  writeEvent(websiteId, { id, websiteId, status: 'failed', errorJson: error ?? null })
 }
 
-export async function listJobs(projectId: string, limit = 25): Promise<Job[]> {
+export async function listJobs(websiteId: string, limit = 25): Promise<any[]> {
   try {
-    const base = latestRunDir(projectId)
+    const base = latestRunDir(websiteId)
     const file = join(base, LOG_FILE)
     if (!existsSync(file)) return []
     const lines = readFileSync(file, 'utf-8').trim().split('\n').filter(Boolean)
-    const parsed = lines.slice(-limit).map((line) => JSON.parse(line) as Job)
+    const parsed = lines.slice(-limit).map((line) => JSON.parse(line) as any)
     return parsed.reverse()
   } catch (err) {
-    console.warn('[jobs] list failed', { projectId, error: (err as Error)?.message || String(err) })
+    log.warn('[jobs] list failed', { websiteId, error: (err as Error)?.message || String(err) })
     return []
   }
 }
 
-export async function getJob(id: string, projectId?: string): Promise<Job | null> {
-  if (projectId) {
-    const jobs = await listJobs(projectId, 200)
+export async function getJob(id: string, websiteId?: string): Promise<any | null> {
+  if (websiteId) {
+    const jobs = await listJobs(websiteId, 200)
     const found = jobs.find((j) => j.id === id)
     if (found) return found
   }

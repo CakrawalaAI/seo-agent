@@ -10,8 +10,9 @@ import {
   formatCalendarDay,
   formatMonthTitle,
   resolvePlanStatus
-} from '@features/projects/shared/helpers'
-import type { Article, PlanItem } from '@entities'
+} from '@src/common/ui/format'
+import type { Article } from '@entities'
+import type { PlanItem } from '@entities/article/planner'
 
 type PlanTabProps = {
   projectId: string
@@ -39,7 +40,7 @@ export function PlanTab({
   queueDepth
 }: PlanTabProps) {
   const calendarCells = useMemo(() => buildCalendarCells(planItems), [planItems])
-  const monthHeading = planItems.length > 0 ? formatMonthTitle(planItems[0].plannedDate) : null
+  const monthHeading = planItems.length > 0 ? formatMonthTitle((planItems[0] as any).scheduledDate) : null
   const [generationCountdown, setGenerationCountdown] = useState(computeNextGenerationCountdown())
 
   useEffect(() => {
@@ -109,7 +110,7 @@ export function PlanTab({
                     <p className="text-[11px] text-muted-foreground">No assignments</p>
                   ) : (
                     cell.items.map((item) => {
-                      const status = resolvePlanStatus(item, articlesByPlanId)
+                      const status = resolvePlanStatus(item as any, articlesByPlanId as any)
                       const relatedArticle = articlesByPlanId.get(item.id)
                       const isActive = planEditState.status !== 'idle' && planEditState.item?.id === item.id
                       const isSubmitting = planEditState.status === 'submitting' && planEditState.item?.id === item.id
@@ -145,13 +146,7 @@ export function PlanTab({
                                 {isSubmitting ? 'Saving…' : 'Reschedule'}
                               </Button>
                               {relatedArticle ? (
-                                <Link
-                                  to="/projects/$projectId/articles/$articleId"
-                                  params={{ projectId, articleId: relatedArticle.id }}
-                                  className="font-medium text-primary hover:underline"
-                                >
-                                  View draft
-                                </Link>
+                                <span className="text-muted-foreground">Draft ready</span>
                               ) : null}
                             </div>
                             {errorMessage ? (

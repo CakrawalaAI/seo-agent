@@ -18,9 +18,6 @@ export type JobMessage = {
     | 'plan'
     | 'generate'
     | 'publish'
-    | 'metrics'
-    | 'serp'
-    | 'competitors'
     | 'enrich'
     | 'feedback'
   payload: Record<string, unknown>
@@ -70,7 +67,7 @@ export async function getChannel(): Promise<any> {
   try { conn.on('close', () => { try { log.warn('[queue] connection closed') } catch {}; chan = null; conn = null }) } catch {}
   chan = await conn.createChannel()
   try { chan.on?.('error', (e: any) => { try { log.error('[queue] channel error', { message: e?.message || String(e) }) } catch {} }) } catch {}
-  // Topic exchange for routing by type.projectId
+  // Topic exchange for routing by type.websiteId
   await chan.assertExchange(EXCHANGE_NAME, 'topic', { durable: true })
   await chan.assertExchange(DLX_NAME, 'topic', { durable: true })
   await chan.assertQueue(QUEUE_NAME, { durable: true, arguments: { 'x-dead-letter-exchange': DLX_NAME } })
@@ -88,8 +85,8 @@ export async function publishJob(message: JobMessage): Promise<string> {
     const jobId = `job_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`
     const envelope = { id: jobId, retries: 0, ...message }
     const opts: any = { persistent: true }
-    const projectId = String((message.payload as any)?.projectId || 'unknown')
-    const routingKey = `${message.type}.${projectId}`
+    const websiteId = String((message.payload as any)?.websiteId || (message.payload as any)?.projectId || 'unknown')
+    const routingKey = `${message.type}.${websiteId}`
     const ok = ch.publish(EXCHANGE_NAME, routingKey, Buffer.from(JSON.stringify(envelope)), opts)
     const { log } = await import('@src/common/logger')
     log.info(`[queue] published`, { id: jobId, type: message.type, routingKey, persisted: ok })
@@ -114,7 +111,7 @@ export async function consumeJobs(
     if (!msg) return
     try {
       const parsed = JSON.parse(msg.content.toString()) as JobMessage & { id: string }
-      log.info('[queue] message received', { id: parsed.id, type: parsed.type, projectId: (parsed.payload as any)?.projectId })
+      log.info('[queue] message received', { id: parsed.id, type: parsed.type, websiteId: (parsed.payload as any)?.websiteId || (parsed.payload as any)?.projectId })
       await handler(parsed)
       ch.ack(msg)
       log.info('[queue] message acked', { id: parsed.id })
@@ -135,20 +132,4 @@ export async function closeQueue() {
 }
 
 // Housekeeping for metric cache (DB)
-import { hasDatabase, getDb } from './db'
-import { metricCache } from '@entities/metrics/db/schema'
-import { sql } from 'drizzle-orm'
-
-export async function cleanupMetricCache() {
-  if (!hasDatabase()) return false
-  try {
-    const db = getDb()
-    // TTL-based cleanup: fetched_at + (ttl_seconds)::interval < now()
-    // Use INTERVAL '1 second' * ttl_seconds to avoid casts
-    // @ts-ignore
-    await db.execute(sql`delete from ${metricCache} where fetched_at + (interval '1 second' * ${metricCache}.ttl_seconds) < now()`)
-    return true
-  } catch {
-    return false
-  }
-}
+export async function cleanupMetricCache() { return false }

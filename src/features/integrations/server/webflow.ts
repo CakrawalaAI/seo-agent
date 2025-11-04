@@ -2,6 +2,7 @@ import type { Article } from '@entities/article/domain/article'
 import type { IntegrationConfig } from '@entities/integration/domain/integration'
 import type { CMSConnector, PublishResult } from './interface'
 import { buildPortableArticle, slugify } from './interface'
+import { log } from '@src/common/logger'
 
 /**
  * Webflow connector configuration.
@@ -39,7 +40,7 @@ class WebflowConnector implements CMSConnector {
     const wfConfig = config as WebflowConfig
 
     if (!wfConfig.apiToken || !wfConfig.siteId || !wfConfig.collectionId) {
-      console.error('[Webflow] Missing required config: apiToken, siteId, collectionId')
+      log.error('[Webflow] Missing required config: apiToken, siteId, collectionId')
       return null
     }
 
@@ -77,7 +78,7 @@ class WebflowConnector implements CMSConnector {
 
       if (!createRes.ok) {
         const error = await createRes.text()
-        console.error(`[Webflow] Create failed (${createRes.status}):`, error)
+        log.error(`[Webflow] Create failed (${createRes.status}):`, error)
         return null
       }
 
@@ -103,7 +104,7 @@ class WebflowConnector implements CMSConnector {
         })
 
         if (!publishRes.ok) {
-          console.warn(`[Webflow] Publish failed (${publishRes.status}), item created as draft`)
+          log.warn(`[Webflow] Publish failed (${publishRes.status}), item created as draft`)
         }
       }
 
@@ -121,7 +122,7 @@ class WebflowConnector implements CMSConnector {
         }
       }
     } catch (error) {
-      console.error('[Webflow] Publish failed:', error)
+      log.error('[Webflow] Publish failed:', error)
       return null
     }
   }

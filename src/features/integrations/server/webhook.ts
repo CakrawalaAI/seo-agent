@@ -2,6 +2,7 @@ import type { Article } from '@entities/article/domain/article'
 import type { IntegrationConfig } from '@entities/integration/domain/integration'
 import type { CMSConnector, PublishResult, PortableArticle } from './interface'
 import { buildPortableArticle } from './interface'
+import { log } from '@src/common/logger'
 
 /**
  * Webhook connector implementation.
@@ -16,7 +17,7 @@ class WebhookConnector implements CMSConnector {
     const secret = config.secret as string | undefined
 
     if (!targetUrl) {
-      console.error('[Webhook] targetUrl is required in config')
+      log.error('[Webhook] targetUrl is required in config')
       return null
     }
 
@@ -41,7 +42,7 @@ class WebhookConnector implements CMSConnector {
       })
 
       if (!res.ok) {
-        console.error(`[Webhook] HTTP ${res.status}: ${res.statusText}`)
+        log.error(`[Webhook] HTTP ${res.status}: ${res.statusText}`)
         return null
       }
 
@@ -51,7 +52,7 @@ class WebhookConnector implements CMSConnector {
         url: data.url ?? undefined
       }
     } catch (error) {
-      console.error('[Webhook] Publish failed:', error)
+      log.error('[Webhook] Publish failed:', error)
       return null
     }
   }
@@ -95,7 +96,7 @@ class WebhookConnector implements CMSConnector {
       hmac.update(body)
       return `sha256=${hmac.digest('hex')}`
     } catch (error) {
-      console.error('[Webhook] HMAC signing failed:', error)
+      log.error('[Webhook] HMAC signing failed:', error)
       return ''
     }
   }

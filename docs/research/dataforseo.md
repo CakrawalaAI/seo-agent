@@ -12,18 +12,20 @@ DataForSEO provides keyword research, SERP analysis, and SEO metrics APIs used t
 
 ## Credentials
 
-From `.envrc`:
+**⚠️ REDACTED - Use your own DataForSEO credentials**
+
+From `.envrc` (example format):
 ```bash
-DATAFORSEO_LOGIN="corporate@cakrawala.ai"
-DATAFORSEO_PASSWORD="66262d8bcddcc80d"
-DATAFORSEO_AUTH="Y29ycG9yYXRlQGNha3Jhd2FsYS5haTo2NjI2MmQ4YmNkZGNjODBk"
+DATAFORSEO_LOGIN="your-email@example.com"
+DATAFORSEO_PASSWORD="your-password-here"
+DATAFORSEO_AUTH="$(printf '%s:%s' "$DATAFORSEO_LOGIN" "$DATAFORSEO_PASSWORD" | base64)"
 ```
 
 ## Business Context
 
 **SEO Agent Workflow**:
 ```
-Project URL → Crawl Site → Discover Keywords → Enrich Metrics →
+Website URL → Crawl Site → Discover Keywords → Enrich Metrics →
 Score/Prioritize → 30-Day Calendar → Generate Articles → Publish to CMS
 ```
 
@@ -46,7 +48,7 @@ Final Prioritization
   ↓ Top 30 → content calendar
 ```
 
-**Total cost per project**: ~$22.50
+**Total cost per website**: ~$22.50
 
 **Cost savings**: ~70% vs calling overview on all candidates [²](#implementation-files)
 
@@ -683,9 +685,8 @@ rankability = computeRankability(lite)
 **SERP-Lite**: Lightweight version for bulk analysis (top 10 only, cached aggressively)
 
 **Caching Strategy**:
-- Global cache (not project-specific)
-- 30-day TTL
-- Stored in `metric_cache` table + bundle files
+ - SERP snapshots cached to filesystem `.data/serp-cache` (14-day TTL)
+ - Keyword metrics persisted on each row in `website_keywords` (per-website)
 
 **Limits**: Max 200 results via `depth` parameter [¹¹](#endpoint-9-serp-organic)
 
@@ -795,62 +796,42 @@ SEOA_PROVIDER_KEYWORD_DISCOVERY="dataforseo"       # Override discovery provider
 
 ---
 
-## Database Models
+## Database Model (keywords)
 
-**keyword_canon** (global dedupe):
+**website_keywords** (per-website):
 ```sql
-CREATE TABLE keyword_canon (
-  id SERIAL PRIMARY KEY,
+CREATE TABLE website_keywords (
+  id TEXT PRIMARY KEY,
+  website_id TEXT NOT NULL REFERENCES websites(id) ON DELETE CASCADE,
+  phrase TEXT NOT NULL,
   phrase_norm TEXT NOT NULL,
-  language_code VARCHAR(10) NOT NULL,
-  UNIQUE(phrase_norm, language_code)
-);
-```
-
-**keywords** (per-project):
-```sql
-CREATE TABLE keywords (
-  id SERIAL PRIMARY KEY,
-  canon_id INTEGER REFERENCES keyword_canon(id),
-  project_id INTEGER REFERENCES projects(id),
-  status VARCHAR(20),  -- recommended/excluded/planned
-  starred BOOLEAN
-);
-```
-
-**metric_cache** (1:1 with canon):
-```sql
-CREATE TABLE metric_cache (
-  canon_id INTEGER PRIMARY KEY REFERENCES keyword_canon(id),
-  metrics_json JSONB,
-  ttl_seconds INTEGER DEFAULT 2592000  -- 30 days
+  language_code TEXT NOT NULL,
+  language_name TEXT NOT NULL,
+  location_code INTEGER NOT NULL,
+  location_name TEXT NOT NULL,
+  provider TEXT NOT NULL DEFAULT 'dataforseo.labs.keyword_ideas',
+  include BOOLEAN NOT NULL DEFAULT FALSE,
+  starred INTEGER NOT NULL DEFAULT 0,
+  search_volume INTEGER,
+  cpc TEXT,
+  competition TEXT,
+  difficulty INTEGER,
+  vol_12m_json JSONB,
+  impressions_json JSONB,
+  raw_json JSONB,
+  metrics_as_of TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE(website_id, phrase_norm, language_code, location_code)
 );
 ```
 
 ---
 
-## Bundle Storage
+## Storage Strategy
 
-DataForSEO responses cached in `.data/bundle/{projectId}/`:
-
-```
-keywords/
-  seeds.jsonl                    # LLM-generated seeds
-  candidates.raw.jsonl           # Pre-metric candidates
-  candidates.enriched.jsonl      # Post-metric candidates
-
-serp/
-  {hash}.json                    # SERP snapshots (global, not per-project)
-
-metrics/
-  costs.jsonl                    # API call tracking
-```
-
-**Why bundle over DB?**
-- API responses too large for relational storage
-- Workers append-only (no DB locks)
-- Audit trail preserved
-- Easy to replay/debug
+- Keywords/metrics stored in Postgres table `website_keywords`.
+- SERP snapshots cached to `.data/serp-cache/{hash}.json` with TTL.
 
 ---
 
@@ -903,7 +884,7 @@ metrics/
 | Keywords For Keywords | $0.005 | 1000 (expansion) |
 | Keyword Suggestions | $0.005 | Variable |
 
-**Total per project**: ~$22.50 for full discovery workflow
+**Total per website**: ~$22.50 for full discovery workflow
 
 ---
 

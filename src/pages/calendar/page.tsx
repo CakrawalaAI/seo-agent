@@ -1,9 +1,9 @@
 import { useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { useActiveProject } from '@common/state/active-project'
+import { useActiveWebsite } from '@common/state/active-website'
 import { useMockData } from '@common/dev/mock-data-context'
-import { getPlanItems } from '@entities/project/service'
-import type { PlanItem } from '@entities'
+import { getPlanItems } from '@entities/website/service'
+import type { PlanItem } from '@entities/article/planner'
 import { Button } from '@src/common/ui/button'
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from '@src/common/ui/empty'
 
@@ -12,29 +12,32 @@ type CalendarEvent = { id: string; date: string; title: string; status: NonNulla
 const MOCK_PLAN: PlanItem[] = [
   {
     id: 'plan-m-1',
-    projectId: 'proj_mock',
+    websiteId: 'proj_mock',
+    keywordId: null,
     title: 'Launch Mock Interview Landing Page',
-    plannedDate: new Date().toISOString(),
+    scheduledDate: new Date().toISOString(),
     status: 'scheduled'
   },
   {
     id: 'plan-m-2',
-    projectId: 'proj_mock',
+    websiteId: 'proj_mock',
+    keywordId: null,
     title: 'Publish STAR Method Cheat Sheet',
-    plannedDate: new Date(Date.now() + 86_400_000 * 2).toISOString(),
+    scheduledDate: new Date(Date.now() + 86_400_000 * 2).toISOString(),
     status: 'queued'
   },
   {
     id: 'plan-m-3',
-    projectId: 'proj_mock',
+    websiteId: 'proj_mock',
+    keywordId: null,
     title: 'Promote Interview Practice Templates',
-    plannedDate: new Date(Date.now() - 86_400_000 * 3).toISOString(),
+    scheduledDate: new Date(Date.now() - 86_400_000 * 3).toISOString(),
     status: 'published'
   }
 ]
 
 export function Page(): JSX.Element {
-  const { id: projectId } = useActiveProject()
+  const { id: projectId } = useActiveWebsite()
   const { enabled: mockEnabled } = useMockData()
   const [month, setMonth] = useState(() => new Date())
 
@@ -49,10 +52,10 @@ export function Page(): JSX.Element {
 
   const events = useMemo<CalendarEvent[]>(() => {
     return planItems
-      .filter((item) => Boolean(item.plannedDate))
+      .filter((item) => Boolean((item as any).scheduledDate))
       .map((item) => ({
         id: item.id,
-        date: item.plannedDate,
+        date: (item as any).scheduledDate,
         title: item.title,
         status: (item.status ?? 'queued') as NonNullable<PlanItem['status']>
       }))
@@ -63,12 +66,12 @@ export function Page(): JSX.Element {
       <div className="mx-auto flex w-full max-w-5xl flex-col gap-6">
         <header className="space-y-1">
           <h1 className="text-2xl font-semibold">Calendar</h1>
-          <p className="text-sm text-muted-foreground">Schedule titles for the selected project.</p>
+          <p className="text-sm text-muted-foreground">Schedule titles for the selected website.</p>
         </header>
         <Empty>
           <EmptyHeader>
-            <EmptyTitle>No project selected</EmptyTitle>
-            <EmptyDescription>Choose a project to see its publishing schedule.</EmptyDescription>
+            <EmptyTitle>No website selected</EmptyTitle>
+            <EmptyDescription>Choose a website to see its publishing schedule.</EmptyDescription>
           </EmptyHeader>
         </Empty>
       </div>

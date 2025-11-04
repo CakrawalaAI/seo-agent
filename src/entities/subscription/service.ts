@@ -3,6 +3,7 @@ import type { InferInsertModel, InferSelectModel } from 'drizzle-orm'
 
 import { db } from '@common/infra/db'
 import { getRedis, redisEnabled } from '@common/infra/redis'
+import { log } from '@src/common/logger'
 
 import { subscriptionEntitlements } from './db/schema'
 import type { EntitlementCacheValue, SubscriptionEntitlement } from './domain/entitlement'
@@ -66,7 +67,7 @@ async function writeCache(row: SubscriptionEntitlementRow, ttlSeconds?: number) 
   try {
     await client.set(cacheKey(row.userId), JSON.stringify(computeCacheValue(row)), 'EX', ttlSeconds ?? DEFAULT_CACHE_TTL_SECONDS)
   } catch (error) {
-    console.error('[entitlements] cache write failed', { message: (error as Error)?.message ?? String(error) })
+    log.error('[entitlements] cache write failed', { message: (error as Error)?.message ?? String(error) })
   }
 }
 
@@ -75,7 +76,7 @@ export async function invalidateEntitlementCache(userId: string) {
   try {
     await getRedis().del(cacheKey(userId))
   } catch (error) {
-    console.error('[entitlements] cache delete failed', { message: (error as Error)?.message ?? String(error) })
+    log.error('[entitlements] cache delete failed', { message: (error as Error)?.message ?? String(error) })
   }
 }
 
@@ -86,7 +87,7 @@ async function readCache(userId: string): Promise<EntitlementCacheValue | null> 
     if (!raw) return null
     return JSON.parse(raw) as EntitlementCacheValue
   } catch (error) {
-    console.error('[entitlements] cache read failed', { message: (error as Error)?.message ?? String(error) })
+    log.error('[entitlements] cache read failed', { message: (error as Error)?.message ?? String(error) })
     return null
   }
 }

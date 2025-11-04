@@ -1,10 +1,10 @@
 // @ts-nocheck
 import { createFileRoute } from '@tanstack/react-router'
-import { json, httpError, safeHandler, requireSession, requireProjectAccess } from '@app/api-utils'
-import { keywordsRepo } from '@entities/keyword/repository'
-import { planRepo } from '@entities/plan/repository'
+import { json, httpError, safeHandler, requireSession, requireWebsiteAccess } from '@app/api-utils'
+import { planRepo } from '@entities/article/planner'
 import { hasDatabase, getDb } from '@common/infra/db'
-import { keywords } from '@entities/keyword/db/schema'
+import { websiteKeywords } from '@entities/keyword/db/schema.website_keywords'
+import { eq } from 'drizzle-orm'
 
 export const Route = createFileRoute('/api/keywords/$keywordId')({
   server: {
@@ -13,66 +13,56 @@ export const Route = createFileRoute('/api/keywords/$keywordId')({
         await requireSession(request)
         const body = await request.json().catch(() => ({}))
         // we need projectId to check RBAC; read from DB
-        let projId: string | null = null
+        let websiteId: string | null = null
         if (hasDatabase()) {
           try {
             const db = getDb()
-            // @ts-ignore
-            const rows = await (db.select({ projectId: (keywords as any).projectId }).from(keywords).where((keywords as any).id.eq(params.keywordId)).limit(1) as any)
-            projId = rows?.[0]?.projectId ?? null
+            const rows = await db.select({ websiteId: websiteKeywords.websiteId }).from(websiteKeywords).where(eq(websiteKeywords.id, params.keywordId)).limit(1)
+            websiteId = rows?.[0]?.websiteId ?? null
           } catch {}
         }
-        if (projId) await requireProjectAccess(request, projId)
+        if (websiteId) await requireWebsiteAccess(request, websiteId)
         const patch: any = {}
-        if (body?.status !== undefined) patch.status = body.status
-        if (body?.starred !== undefined) patch.starred = Boolean(body.starred)
-        if (body?.scope !== undefined) patch.scope = body.scope
+        if (body?.starred !== undefined) patch.starred = Boolean(body.starred) ? 1 : 0
+        if (body?.include !== undefined) patch.include = Boolean(body.include)
         if (hasDatabase() && Object.keys(patch).length) {
           try {
             const db = getDb()
-            await db
-              .update(keywords)
-              .set({ ...patch, updatedAt: new Date() as any })
-              // @ts-ignore
-              .where((keywords as any).id.eq(params.keywordId))
+            await db.update(websiteKeywords).set({ ...patch, updatedAt: new Date() as any }).where(eq(websiteKeywords.id, params.keywordId))
           } catch {}
         }
-        const updated = await keywordsRepo.update(params.keywordId, patch)
-        if (projId && body?.scope !== undefined) {
+        if (websiteId && (body?.scope !== undefined || body?.include !== undefined)) {
           try {
             const { publishJob, queueEnabled } = await import('@common/infra/queue')
             const days = 30
             if (queueEnabled()) {
-              await publishJob({ type: 'plan', payload: { projectId: projId, days } })
+              await publishJob({ type: 'plan', payload: { projectId: websiteId, days } })
             } else {
-              await planRepo.createPlan(projId, days)
+              await planRepo.createPlan(websiteId, days)
             }
           } catch {}
         }
-        if (!updated && !projId) return httpError(404, 'Keyword not found')
-        return json(updated ?? { id: params.keywordId })
+        if (!websiteId) return httpError(404, 'Keyword not found')
+        return json({ id: params.keywordId, websiteId, ...patch })
       }),
       DELETE: safeHandler(async ({ params, request }) => {
         await requireSession(request)
-        let projId: string | null = null
+        let websiteId: string | null = null
         if (hasDatabase()) {
           try {
             const db = getDb()
-            // @ts-ignore
-            const rows = await (db.select({ projectId: (keywords as any).projectId }).from(keywords).where((keywords as any).id.eq(params.keywordId)).limit(1) as any)
-            projId = rows?.[0]?.projectId ?? null
+            const rows = await db.select({ websiteId: websiteKeywords.websiteId }).from(websiteKeywords).where(eq(websiteKeywords.id, params.keywordId)).limit(1)
+            websiteId = rows?.[0]?.websiteId ?? null
           } catch {}
         }
-        if (projId) await requireProjectAccess(request, projId)
+        if (websiteId) await requireWebsiteAccess(request, websiteId)
         if (hasDatabase()) {
           try {
             const db = getDb()
-            // @ts-ignore
-            await db.delete(keywords).where((keywords as any).id.eq(params.keywordId))
+            await db.delete(websiteKeywords).where(eq(websiteKeywords.id, params.keywordId))
           } catch {}
         }
-        const ok = await keywordsRepo.remove(params.keywordId)
-        if (!ok && !projId) return httpError(404, 'Keyword not found')
+        if (!websiteId) return httpError(404, 'Keyword not found')
         return new Response(null, { status: 204 })
       })
     }

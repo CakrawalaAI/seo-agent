@@ -1,18 +1,18 @@
 import { useMemo, useState } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { useNavigate, useRouterState } from '@tanstack/react-router'
-import { useActiveProject } from '@common/state/active-project'
+import { useActiveWebsite } from '@common/state/active-website'
 import { useMockData } from '@common/dev/mock-data-context'
-import { getProjectSnapshot, updateIntegration } from '@entities/project/service'
-import type { IntegrationStatus, ProjectIntegration } from '@entities'
+import { getWebsiteSnapshot } from '@entities/website/service'
+import type { IntegrationStatus, WebsiteIntegration } from '@entities'
 import { integrationManifests, buildIntegrationViews } from '@integrations/shared/catalog'
-import type { ProjectIntegrationView } from '@integrations/shared/types'
-import { extractErrorMessage } from '@features/projects/shared/helpers'
+import type { WebsiteIntegrationView } from '@integrations/shared/types'
+import { extractErrorMessage } from '@src/common/ui/format'
 import { Button } from '@src/common/ui/button'
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from '@src/common/ui/empty'
 import { cn } from '@src/common/ui/cn'
 
-const MOCK_INTEGRATIONS: ProjectIntegration[] = []
+const MOCK_INTEGRATIONS: WebsiteIntegration[] = []
 
 export type IntegrationsManagerProps = {
   projectId?: string | null
@@ -21,7 +21,7 @@ export type IntegrationsManagerProps = {
 }
 
 export function IntegrationsManager({ projectId: propProjectId, variant = 'page', className }: IntegrationsManagerProps) {
-  const { id: activeProjectId } = useActiveProject()
+  const { id: activeProjectId } = useActiveWebsite()
   const { enabled: mockEnabled } = useMockData()
   const navigate = useNavigate()
   const routerState = useRouterState({ select: (s) => s.location.search })
@@ -42,18 +42,18 @@ export function IntegrationsManager({ projectId: propProjectId, variant = 'page'
 
   const snapshotQuery = useQuery({
     queryKey: ['integrations.snapshot', projectId],
-    queryFn: () => getProjectSnapshot(projectId!, { cache: 'no-store' }),
+    queryFn: () => getWebsiteSnapshot(projectId!, { cache: 'no-store' }),
     enabled: Boolean(projectId && !mockEnabled),
     refetchInterval: 45_000
   })
 
-  const integrations = useMemo<ProjectIntegration[]>(
+  const integrations = useMemo<WebsiteIntegration[]>(
     () => (mockEnabled ? MOCK_INTEGRATIONS : snapshotQuery.data?.integrations ?? []),
     [mockEnabled, snapshotQuery.data?.integrations]
   )
 
-  const integrationViews = useMemo(
-    () => snapshotQuery.data?.integrationViews ?? buildIntegrationViews(integrations),
+  const integrationViews = useMemo<WebsiteIntegrationView[]>(
+    () => snapshotQuery.data?.integrationViews ?? (buildIntegrationViews(integrations) as WebsiteIntegrationView[]),
     [snapshotQuery.data?.integrationViews, integrations]
   )
 
@@ -61,12 +61,14 @@ export function IntegrationsManager({ projectId: propProjectId, variant = 'page'
     () =>
       integrationManifests
         .map((manifest) => integrationViews.find((view) => view.manifest.type === manifest.type))
-        .filter((view): view is ProjectIntegrationView => Boolean(view)),
+        .filter((view): view is WebsiteIntegrationView => Boolean(view)),
     [integrationViews]
   )
 
   const disconnectMutation = useMutation({
-    mutationFn: (integrationId: string) => updateIntegration(integrationId, { status: 'disconnected' as IntegrationStatus }),
+    mutationFn: async (integrationId: string) => {
+      await fetch(`/api/integrations/${integrationId}`, { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ status: 'disconnected' }) })
+    },
     onSuccess: () => {
       setBanner({ tone: 'success', text: 'Integration disconnected.' })
       snapshotQuery.refetch().catch(() => undefined)
@@ -81,8 +83,8 @@ export function IntegrationsManager({ projectId: propProjectId, variant = 'page'
       <div className={cn(variant === 'page' ? 'mx-auto flex w-full max-w-4xl flex-col gap-6' : 'flex w-full flex-col gap-4', className)}>
         <Empty>
           <EmptyHeader>
-            <EmptyTitle>No project selected</EmptyTitle>
-            <EmptyDescription>Choose a project to enable publishing destinations.</EmptyDescription>
+            <EmptyTitle>No website selected</EmptyTitle>
+            <EmptyDescription>Choose a website to enable publishing destinations.</EmptyDescription>
           </EmptyHeader>
         </Empty>
       </div>
@@ -155,7 +157,7 @@ export function IntegrationsManager({ projectId: propProjectId, variant = 'page'
 }
 
 type RowActionProps = {
-  view: ProjectIntegrationView
+  view: WebsiteIntegrationView
   canMutate: boolean
   navigate: ReturnType<typeof useNavigate>
   currentSearch: Record<string, unknown>

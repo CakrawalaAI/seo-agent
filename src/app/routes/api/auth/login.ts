@@ -1,6 +1,7 @@
 import { createFileRoute } from '@tanstack/react-router'
 import { safeHandler, httpError } from '@app/api-utils'
 import { getBaseUrl, sanitizeRedirect, buildGoogleAuthUrl, GoogleOAuthConfigError } from '@common/auth/google'
+import { log } from '@src/common/logger'
 
 export const Route = createFileRoute('/api/auth/login')({
   server: {
@@ -16,18 +17,12 @@ export const Route = createFileRoute('/api/auth/login')({
           cookie = result.cookie
         } catch (error) {
           if (error instanceof GoogleOAuthConfigError) {
-            console.error('[auth/login] missing Google OAuth client configuration')
+            log.error('[auth/login] missing Google OAuth client configuration')
             return httpError(500, 'Google OAuth not configured')
           }
           throw error
         }
-        if ((process.env.SEOA_AUTH_DEBUG || '') === '1') {
-          console.info('[auth/login]', {
-            baseUrl: getBaseUrl(request),
-            redirectTo,
-            authUrl
-          })
-        }
+        // Debug logging removed (no flag); rely on standard logs if needed
         return new Response(null, { status: 302, headers: { Location: authUrl, 'Set-Cookie': cookie } })
       }),
     },

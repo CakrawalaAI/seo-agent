@@ -1,7 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
-import { loader as projectsIndexLoader } from '../src/pages/projects/index/loader'
-import { loader as articleLoader } from '../src/pages/projects/$projectId/articles/$articleId/loader'
+import { loader as onboardingLoader } from '../src/pages/onboarding/loader'
 
 function createFakeQC() {
   const calls: Array<{ key: unknown; fn: Function }> = []
@@ -25,19 +24,11 @@ describe('route loaders', () => {
   afterEach(() => {
     vi.restoreAllMocks()
   })
-  it('projects/index primes session and project list', async () => {
+  it('onboarding loader primes session and website lookup', async () => {
     const { qc, calls } = createFakeQC()
-    await projectsIndexLoader({ context: { queryClient: qc as any } } as any)
+    await onboardingLoader({ context: { queryClient: qc as any }, search: { websiteId: 'site_1' } } as any)
     const keys = calls.map((c) => JSON.stringify(c.key))
     expect(keys.some((k) => k.includes('me'))).toBe(true)
-    expect(keys.some((k) => k.includes('projects'))).toBe(true)
-  })
-
-  it('article editor primes article + snapshot', async () => {
-    const { qc, calls } = createFakeQC()
-    await articleLoader({ context: { queryClient: qc as any }, params: { projectId: 'proj_1', articleId: 'art_1' } } as any)
-    const joined = calls.map((c) => JSON.stringify(c.key)).join('\n')
-    expect(joined).toContain('article')
-    expect(joined).toContain('projectSnapshot')
+    expect(keys.some((k) => k.includes('websites'))).toBe(true)
   })
 })

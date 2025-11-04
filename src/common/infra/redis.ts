@@ -28,14 +28,14 @@ export function getRedis(): Redis {
   if (!globalRedis.__seoAgentRedisRegistered) {
     globalRedis.__seoAgentRedisRegistered = true
     client.on('error', (err) => {
-      console.error('[redis] error', { message: err?.message || String(err) })
+      import('@src/common/logger').then(({ log }) => log.error('[redis] error', { message: err?.message || String(err) })).catch(() => {})
     })
     client.on('connect', () => {
       const masked = maskRedisUrl(url)
-      console.info('[redis] connected', { url: masked })
+      import('@src/common/logger').then(({ log }) => log.info('[redis] connected', { url: masked })).catch(() => {})
     })
     client.on('close', () => {
-      console.warn('[redis] connection closed')
+      import('@src/common/logger').then(({ log }) => log.warn('[redis] connection closed')).catch(() => {})
       globalRedis.__seoAgentRedis = undefined
     })
   }

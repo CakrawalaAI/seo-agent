@@ -5,8 +5,8 @@ describe('compile: API route modules', () => {
     process.env.E2E_NO_AUTH = '1'
   })
 
-  it('imports /api/projects route (server handlers) without errors', async () => {
-    const mod = await import('@app/routes/api/projects')
+  it('imports /api/websites route (server handlers) without errors', async () => {
+    const mod = await import('@app/routes/api/websites')
     expect(mod).toBeTruthy()
     expect((mod as any).Route).toBeTruthy()
   })

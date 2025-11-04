@@ -1,1 +1,1 @@
-export { OnboardingStartForm } from './start-form'
+export { OnboardingForm } from './onboarding-form'

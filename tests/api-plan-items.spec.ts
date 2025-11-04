@@ -5,7 +5,7 @@ describe('plan items API', () => {
     const res = await fetch('http://localhost:5173/api/plan-items/plan_x', {
       method: 'PUT',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ plannedDate: 'bad' })
+      body: JSON.stringify({ scheduledDate: 'bad' })
     }).catch(() => null)
     // server might not be running; skip
     if (!res) return expect(true).toBe(true)

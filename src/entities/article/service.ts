@@ -1,10 +1,5 @@
 import { fetchJson, patchJson, postJson } from '@common/http/json'
-import type {
-  Article,
-  ArticleOutlineSection,
-  ProjectSnapshot,
-  PublishArticleResult
-} from '@entities'
+import type { Article, ArticleOutlineSection, PublishArticleResult } from '@entities'
 
 export type UpdateArticlePayload = {
   title: string
@@ -18,8 +13,8 @@ export function getArticle(articleId: string) {
   return fetchJson<Article>(`/api/articles/${articleId}`)
 }
 
-export function getProjectSnapshot(projectId: string) {
-  return fetchJson<ProjectSnapshot>(`/api/projects/${projectId}/snapshot`)
+export function getWebsiteSnapshot(websiteId: string) {
+  return fetchJson<any>(`/api/websites/${websiteId}/snapshot`)
 }
 
 export function updateArticle(articleId: string, payload: UpdateArticlePayload) {

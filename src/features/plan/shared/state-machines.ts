@@ -15,7 +15,7 @@ export const createIdlePlanEditState = (): PlanEditState => ({ status: 'idle' })
 export const openPlanEditor = (item: any): PlanEditState => ({
   status: 'editing',
   item,
-  date: item?.plannedDate ?? ''
+  date: (item as any)?.scheduledDate ?? ''
 })
 
 export const updatePlanEditorDate = (state: PlanEditState, value: string): PlanEditState => {
@@ -37,10 +37,10 @@ export const closePlanEditor = (state: PlanEditState): PlanEditState => {
 
 export const submitPlanEditor = (
   state: PlanEditState,
-  payload: { planItemId: string; plannedDate: string }
+  payload: { planItemId: string; scheduledDate: string }
 ): PlanEditState => {
   if ((state.status === 'editing' || state.status === 'error') && state.item?.id === payload.planItemId) {
-    return { status: 'submitting', item: state.item, date: payload.plannedDate }
+    return { status: 'submitting', item: state.item, date: payload.scheduledDate }
   }
   return state
 }

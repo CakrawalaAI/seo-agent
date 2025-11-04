@@ -6,6 +6,7 @@ import { sendEmail } from '@common/infra/email'
 import { hasDatabase, getDb } from '@common/infra/db'
 import { orgs, orgMembers } from '@entities/org/db/schema'
 import { eq } from 'drizzle-orm'
+import { log } from '@src/common/logger'
 
 export const Route = createFileRoute('/api/orgs')({
   server: {
@@ -55,7 +56,7 @@ export const Route = createFileRoute('/api/orgs')({
                 .values({ orgId, userEmail: normalizedEmail, role })
                 .onConflictDoUpdate({ target: [orgMembers.orgId, orgMembers.userEmail], set: { role } as any })
             } catch (error) {
-              console.error('Invite insert failed', error)
+              log.error('Invite insert failed', error)
             }
           }
           const token = `stub_${Date.now().toString(36)}`

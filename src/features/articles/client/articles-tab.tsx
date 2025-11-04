@@ -12,18 +12,15 @@ import {
 import { Link } from '@tanstack/react-router'
 
 import type { PublishState } from '@features/plan/shared/state-machines'
-import {
-  badgeClassForTone,
-  formatDateTime,
-  formatIntegrationLabel
-} from '@features/projects/shared/helpers'
-import type { Article, PlanItem, ProjectIntegration } from '@entities'
+import { badgeClassForTone, formatDateTime } from '@src/common/ui/format'
+import type { Article, WebsiteIntegration } from '@entities'
+import type { PlanItem } from '@entities/article/planner'
 
 type ArticlesTabProps = {
   projectId: string
   articles: Article[]
   planItemMap: Map<string, PlanItem>
-  integrations: ProjectIntegration[]
+  integrations: WebsiteIntegration[]
   onPublish: (articleId: string, integrationId: string) => void
   publishState: PublishState
   onRefresh: () => void
@@ -129,7 +126,7 @@ export function ArticlesTab({
                       {article.title}
                     </TableCell>
                     <TableCell className="px-4 py-3 text-sm text-muted-foreground">
-                      {planItem ? planItem.plannedDate : '—'}
+                      {planItem ? (planItem as any).scheduledDate : '—'}
                     </TableCell>
                     <TableCell className="px-4 py-3">
                       <span
@@ -145,13 +142,7 @@ export function ArticlesTab({
                     </TableCell>
                     <TableCell className="px-4 py-3">
                       <div className="flex flex-wrap items-center gap-2">
-                        <Link
-                          to="/projects/$projectId/articles/$articleId"
-                          params={{ projectId, articleId: article.id }}
-                          className="text-xs font-medium text-primary hover:underline"
-                        >
-                          Edit
-                        </Link>
+                        <span className="text-xs text-muted-foreground">Edit in CMS</span>
                         <Select
                           value={chosenIntegration || undefined}
                           onValueChange={(v) =>
@@ -165,7 +156,7 @@ export function ArticlesTab({
                           <SelectContent>
                             {connected.map((integration) => (
                               <SelectItem key={integration.id} value={integration.id}>
-                                {integration.type} · {formatIntegrationLabel(integration)}
+                                {integration.type}
                               </SelectItem>
                             ))}
                           </SelectContent>

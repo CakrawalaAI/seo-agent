@@ -1,9 +1,10 @@
 import { useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { useActiveProject } from '@common/state/active-project'
+import { useActiveWebsite } from '@common/state/active-website'
 import { useMockData } from '@common/dev/mock-data-context'
-import { getPlanItems, getProjectArticles } from '@entities/project/service'
-import type { Article, PlanItem } from '@entities'
+import { getPlanItems, getWebsiteArticles } from '@entities/website/service'
+import type { Article } from '@entities'
+import type { PlanItem } from '@entities/article/planner'
 import { Button } from '@src/common/ui/button'
 import { Badge } from '@src/common/ui/badge'
 import { Table, TableBody, TableCaption, TableCell, TableHead, TableHeader, TableRow } from '@src/common/ui/table'
@@ -20,18 +21,18 @@ type TimelineItem = {
 const MOCK_ARTICLES: Article[] = [
   {
     id: 'art-m-1',
-    projectId: 'proj_mock',
+    websiteId: 'proj_mock',
     title: 'How To Ace Behavioral Interviews',
-    plannedDate: new Date(Date.now() - 86_400_000 * 2).toISOString(),
+    scheduledDate: new Date(Date.now() - 86_400_000 * 2).toISOString(),
     publishDate: new Date(Date.now() - 86_400_000).toISOString(),
     status: 'published',
     url: 'https://prepinterview.ai/blog/behavioral-interview'
   },
   {
     id: 'art-m-2',
-    projectId: 'proj_mock',
+    websiteId: 'proj_mock',
     title: 'STAR Method Templates For Product Leaders',
-    plannedDate: new Date().toISOString(),
+    scheduledDate: new Date().toISOString(),
     status: 'scheduled'
   }
 ]
@@ -39,20 +40,21 @@ const MOCK_ARTICLES: Article[] = [
 const MOCK_PLAN: PlanItem[] = [
   {
     id: 'art-m-3',
-    projectId: 'proj_mock',
+    websiteId: 'proj_mock',
+    keywordId: null,
     title: 'Interview Debrief Checklist',
-    plannedDate: new Date(Date.now() + 86_400_000 * 3).toISOString(),
+    scheduledDate: new Date(Date.now() + 86_400_000 * 3).toISOString(),
     status: 'queued'
   }
 ]
 
 export function Page(): JSX.Element {
-  const { id: projectId } = useActiveProject()
+  const { id: projectId } = useActiveWebsite()
   const { enabled: mockEnabled } = useMockData()
 
   const articlesQuery = useQuery({
     queryKey: ['articles.list', projectId],
-    queryFn: async () => (await getProjectArticles(projectId!, 200)).items,
+    queryFn: async () => (await getWebsiteArticles(projectId!, 200)).items,
     enabled: Boolean(projectId && !mockEnabled),
     refetchInterval: 60_000
   })
@@ -78,8 +80,8 @@ export function Page(): JSX.Element {
         </header>
         <Empty>
           <EmptyHeader>
-            <EmptyTitle>No project selected</EmptyTitle>
-            <EmptyDescription>Choose a project from the sidebar to load its article queue.</EmptyDescription>
+            <EmptyTitle>No website selected</EmptyTitle>
+            <EmptyDescription>Choose a website from the sidebar to load its article queue.</EmptyDescription>
           </EmptyHeader>
         </Empty>
       </div>
@@ -174,7 +176,7 @@ function buildTimeline(articles: Article[], plan: PlanItem[]): TimelineItem[] {
   const combined: TimelineItem[] = []
 
   for (const article of articles) {
-    const date = article.publishDate ?? article.plannedDate ?? article.createdAt ?? new Date().toISOString()
+    const date = article.publishDate ?? (article as any).scheduledDate ?? article.createdAt ?? new Date().toISOString()
     combined.push({
       id: `article-${article.id}`,
       title: article.title ?? 'Untitled article',
@@ -189,7 +191,7 @@ function buildTimeline(articles: Article[], plan: PlanItem[]): TimelineItem[] {
     combined.push({
       id: `plan-${item.id}`,
       title: item.title ?? 'Untitled plan item',
-      date: item.plannedDate ?? new Date().toISOString(),
+      date: (item as any).scheduledDate ?? new Date().toISOString(),
       status: (item.status ?? 'queued') as NonNullable<PlanItem['status']>
     })
   }

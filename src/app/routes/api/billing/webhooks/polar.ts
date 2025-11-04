@@ -4,6 +4,7 @@ import { db } from '@common/infra/db'
 import { orgs } from '@entities/org/db/schema'
 import { upsertSubscriptionEntitlement } from '@entities/subscription/service'
 import { eq } from 'drizzle-orm'
+import { log } from '@src/common/logger'
 
 /**
  * Polar webhook handler.
@@ -21,7 +22,7 @@ export const Route = createFileRoute('/api/billing/webhooks/polar')({
       POST: async ({ request }) => {
         const secret = process.env.POLAR_WEBHOOK_SECRET
         if (!secret) {
-          console.error('[Polar Webhook] POLAR_WEBHOOK_SECRET not configured')
+          log.error('[Polar Webhook] POLAR_WEBHOOK_SECRET not configured')
           return httpError(500, 'Server configuration error')
         }
 
@@ -30,7 +31,7 @@ export const Route = createFileRoute('/api/billing/webhooks/polar')({
         const body = await request.text()
 
         if (!verifyWebhookSignature(body, signature, secret)) {
-          console.error('[Polar Webhook] Invalid signature')
+          log.error('[Polar Webhook] Invalid signature')
           return httpError(401, 'Invalid signature')
         }
 
@@ -45,7 +46,7 @@ export const Route = createFileRoute('/api/billing/webhooks/polar')({
         const eventType = event.type
         const data = event.data
 
-        console.log('[Polar Webhook] Received event:', eventType, {
+        log.info('[Polar Webhook] Received event:', eventType, {
           subscriptionId: data?.id,
           customData: data?.metadata || data?.custom_data
         })
@@ -54,7 +55,7 @@ export const Route = createFileRoute('/api/billing/webhooks/polar')({
         const userIdHint = data?.metadata?.userId || data?.metadata?.user_id || data?.custom_data?.userId
 
         if (!orgId) {
-          console.warn('[Polar Webhook] No orgId in webhook payload, attempting best-effort sync')
+          log.warn('[Polar Webhook] No orgId in webhook payload, attempting best-effort sync')
         }
 
         // Route to handler based on event type
@@ -69,7 +70,7 @@ export const Route = createFileRoute('/api/billing/webhooks/polar')({
             break
 
           default:
-            console.log('[Polar Webhook] Unhandled event type:', eventType)
+            log.info('[Polar Webhook] Unhandled event type:', eventType)
         }
 
         return json({ received: true })
@@ -94,7 +95,7 @@ function verifyWebhookSignature(body: string, signature: string | null, secret: 
     const receivedSignature = signature.replace(/^sha256=/, '')
     return crypto.timingSafeEqual(Buffer.from(receivedSignature), Buffer.from(expectedSignature))
   } catch (error) {
-    console.error('[Polar Webhook] Signature verification error:', error)
+    log.error('[Polar Webhook] Signature verification error:', error)
     return false
   }
 }
@@ -106,7 +107,7 @@ const ACTIVE_STATUSES = new Set(['active', 'trialing'])
 async function persistSubscriptionState(subscription: any, context: SubscriptionContext = {}): Promise<void> {
   const subscriptionId = String(subscription?.id || '')
   if (!subscriptionId) {
-    console.warn('[Polar Webhook] Subscription missing id, skipping')
+    log.warn('[Polar Webhook] Subscription missing id, skipping')
     return
   }
 
@@ -115,7 +116,7 @@ async function persistSubscriptionState(subscription: any, context: Subscription
   const userId = context.userId ?? resolveUserId(subscription)
 
   if (!userId) {
-    console.warn('[Polar Webhook] No userId for subscription', { subscriptionId, status })
+    log.warn('[Polar Webhook] No userId for subscription', { subscriptionId, status })
     return
   }
 
@@ -163,7 +164,7 @@ async function persistSubscriptionState(subscription: any, context: Subscription
       })
       .where(eq(orgs.id, orgId))
 
-    console.log('[Polar Webhook] Persisted subscription state', {
+    log.info('[Polar Webhook] Persisted subscription state', {
       subscriptionId,
       orgId,
       userId,
@@ -173,7 +174,7 @@ async function persistSubscriptionState(subscription: any, context: Subscription
       seatQuantity
     })
   } else {
-    console.log('[Polar Webhook] Stored entitlement without org binding', {
+    log.info('[Polar Webhook] Stored entitlement without org binding', {
       subscriptionId,
       userId,
       status,
@@ -185,13 +186,13 @@ async function persistSubscriptionState(subscription: any, context: Subscription
 async function handleOrderPaid(orgId: string | null | undefined, userIdHint: string | null | undefined, order: any): Promise<void> {
   const subscriptionId = order?.subscription_id
   if (!subscriptionId) {
-    console.log('[Polar Webhook] Order has no subscription, skipping')
+    log.info('[Polar Webhook] Order has no subscription, skipping')
     return
   }
 
   const token = process.env.POLAR_ACCESS_TOKEN
   if (!token) {
-    console.warn('[Polar Webhook] POLAR_ACCESS_TOKEN missing; cannot refresh subscription', { subscriptionId })
+    log.warn('[Polar Webhook] POLAR_ACCESS_TOKEN missing; cannot refresh subscription', { subscriptionId })
     return
   }
 
@@ -206,14 +207,14 @@ async function handleOrderPaid(orgId: string | null | undefined, userIdHint: str
     })
 
     if (!res.ok) {
-      console.error('[Polar Webhook] Failed to fetch subscription', { subscriptionId, status: res.status })
+      log.error('[Polar Webhook] Failed to fetch subscription', { subscriptionId, status: res.status })
       return
     }
 
     const subscription = await res.json()
     await persistSubscriptionState(subscription, { orgId, userId: userIdHint })
   } catch (error) {
-    console.error('[Polar Webhook] Error fetching subscription', {
+    log.error('[Polar Webhook] Error fetching subscription', {
       subscriptionId,
       message: (error as Error)?.message || String(error)
     })

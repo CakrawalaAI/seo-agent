@@ -7,21 +7,21 @@ function ensureDir() {
   try { mkdirSync(BASE, { recursive: true }) } catch {}
 }
 
-export function saveHtml(html: string, projectId?: string) {
+export function saveHtml(html: string, websiteId?: string) {
   ensureDir()
   const id = `blob_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`
   const path = join(BASE, `${id}.html`)
   try { writeFileSync(path, html, 'utf-8') } catch {}
-  void projectId
+  void websiteId
   return { id, url: `/api/blobs/${id}` }
 }
 
-export function saveText(text: string, projectId?: string) {
+export function saveText(text: string, websiteId?: string) {
   ensureDir()
   const id = `blob_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`
   const path = join(BASE, `${id}.txt`)
   try { writeFileSync(path, text, 'utf-8') } catch {}
-  void projectId
+  void websiteId
   return { id, url: `/api/blobs/${id}` }
 }
 

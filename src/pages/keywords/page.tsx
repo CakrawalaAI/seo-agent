@@ -1,10 +1,9 @@
 import { useMemo, useState } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
-import { useActiveProject } from '@common/state/active-project'
+import { useActiveWebsite } from '@common/state/active-website'
 import { useMockData } from '@common/dev/mock-data-context'
-import { getProject } from '@entities/project/service'
-import { generateKeywords, getProjectKeywords } from '@entities/project/service'
-import type { Keyword, Project } from '@entities'
+import { getWebsite, getWebsiteSnapshot, listWebsites } from '@entities/website/service'
+import type { Keyword } from '@entities'
 import { Button } from '@src/common/ui/button'
 import { Input } from '@src/common/ui/input'
 import {
@@ -22,7 +21,7 @@ import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from '@src/common/ui
 const MOCK_KEYWORDS: Keyword[] = [
   {
     id: 'kw-m-1',
-    projectId: 'proj_mock',
+    websiteId: 'proj_mock',
     canonId: 'kw-m-1',
     phrase: 'interview questions for product managers',
     metricsJson: { searchVolume: 4400, difficulty: 36, asOf: new Date().toISOString() },
@@ -30,7 +29,7 @@ const MOCK_KEYWORDS: Keyword[] = [
   },
   {
     id: 'kw-m-2',
-    projectId: 'proj_mock',
+    websiteId: 'proj_mock',
     canonId: 'kw-m-2',
     phrase: 'behavioral interview examples',
     metricsJson: { searchVolume: 6600, difficulty: 41, asOf: new Date().toISOString() },
@@ -38,7 +37,7 @@ const MOCK_KEYWORDS: Keyword[] = [
   },
   {
     id: 'kw-m-3',
-    projectId: 'proj_mock',
+    websiteId: 'proj_mock',
     canonId: 'kw-m-3',
     phrase: 'mock interview ai coach',
     metricsJson: { searchVolume: 1900, difficulty: 28, asOf: new Date().toISOString() },
@@ -47,19 +46,19 @@ const MOCK_KEYWORDS: Keyword[] = [
 ]
 
 export function Page(): JSX.Element {
-  const { id: projectId } = useActiveProject()
+  const { id: projectId } = useActiveWebsite()
   const { enabled: mockEnabled } = useMockData()
   const [query, setQuery] = useState('')
 
   const projectQuery = useQuery({
     queryKey: ['keywords.project', projectId],
-    queryFn: () => getProject(projectId!),
+    queryFn: () => getWebsite(projectId!),
     enabled: Boolean(projectId && !mockEnabled)
   })
 
   const keywordsQuery = useQuery({
     queryKey: ['keywords.list', projectId],
-    queryFn: async () => (await getProjectKeywords(projectId!, 200)).items,
+    queryFn: async () => (await (await fetch(`/api/websites/${projectId}/keywords?limit=200`)).json()).items,
     enabled: Boolean(projectId && !mockEnabled),
     refetchInterval: 45_000
   })
@@ -69,17 +68,19 @@ export function Page(): JSX.Element {
   const filtered = useMemo(() => {
     const term = query.trim().toLowerCase()
     if (!term) return keywords
-    return keywords.filter((item) => item.phrase.toLowerCase().includes(term))
+    return keywords.filter((item: any) => String(item.phrase || '').toLowerCase().includes(term))
   }, [keywords, query])
 
-  const locale = (projectQuery.data as Project | undefined)?.defaultLocale ?? 'en-US'
+  const locale = (projectQuery.data as any)?.defaultLocale ?? 'en-US'
 
   const generateMutation = useMutation({
-    mutationFn: () => generateKeywords(projectId!, locale),
+    mutationFn: async () => {
+      await fetch('/api/keywords/generate', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ websiteId: projectId, locale }) })
+    },
     onSuccess: () => keywordsQuery.refetch()
   })
 
-  const actionLabel = keywords.length === 0 ? 'Generate keywords' : 'Refresh metrics'
+  const actionLabel = keywords.length === 0 ? 'Generate keywords' : 'Refresh list'
   const isPending = generateMutation.isPending || keywordsQuery.isRefetching
 
   if (!projectId) {
@@ -87,12 +88,12 @@ export function Page(): JSX.Element {
       <div className="mx-auto flex w-full max-w-5xl flex-col gap-6">
         <header className="space-y-1">
           <h1 className="text-2xl font-semibold">Keywords</h1>
-          <p className="text-sm text-muted-foreground">Discover patterns that align with the selected project.</p>
+          <p className="text-sm text-muted-foreground">Discover patterns that align with the selected website.</p>
         </header>
         <Empty>
           <EmptyHeader>
-            <EmptyTitle>No project selected</EmptyTitle>
-            <EmptyDescription>Pick a project from the sidebar to view its keyword backlog.</EmptyDescription>
+            <EmptyTitle>No website selected</EmptyTitle>
+            <EmptyDescription>Pick a website from the sidebar to view its keyword backlog.</EmptyDescription>
           </EmptyHeader>
         </Empty>
       </div>
@@ -108,11 +109,23 @@ export function Page(): JSX.Element {
     }
   }
 
+  async function setIncludeLocal(keywordId: string, include: boolean) {
+    if (mockEnabled) return
+    await fetch(`/api/keywords/${keywordId}`, { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ include }) })
+    await keywordsQuery.refetch()
+  }
+
+  async function toggleStarLocal(keywordId: string, starred: boolean) {
+    if (mockEnabled) return
+    await fetch(`/api/keywords/${keywordId}`, { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ starred }) })
+    await keywordsQuery.refetch()
+  }
+
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-col gap-6">
       <header className="space-y-1">
         <h1 className="text-2xl font-semibold">Keywords</h1>
-        <p className="text-sm text-muted-foreground">Triage and prioritize opportunities for {mockEnabled ? 'Prep Interview' : projectQuery.data?.name ?? 'your project'}.</p>
+        <p className="text-sm text-muted-foreground">Triage and prioritize opportunities for {mockEnabled ? 'Prep Interview' : (projectQuery.data as any)?.url ?? 'your website'}.</p>
       </header>
 
       <div className="flex flex-col gap-3 rounded-lg border bg-card p-4 shadow-sm md:flex-row md:items-center md:justify-between">
@@ -153,20 +166,26 @@ export function Page(): JSX.Element {
                 <TableHead>Volume</TableHead>
                 <TableHead>Difficulty</TableHead>
                 <TableHead>Last updated</TableHead>
-                <TableHead>Status</TableHead>
+                <TableHead>Include</TableHead>
+                <TableHead>Star</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {filtered.map((keyword) => (
+              {filtered.map((keyword: any) => (
                 <TableRow key={keyword.id}>
                   <TableCell className="font-medium text-foreground">{keyword.phrase}</TableCell>
                   <TableCell>{formatNumber(keyword.metricsJson?.searchVolume)}</TableCell>
                   <TableCell>{formatNumber(keyword.metricsJson?.difficulty)}</TableCell>
                   <TableCell>{formatDate(keyword.metricsJson?.asOf)}</TableCell>
                   <TableCell>
-                    <Badge variant={resolveVariant(keyword.status)} className="uppercase">
-                      {statusLabel(keyword.status)}
-                    </Badge>
+                    <Button type="button" size="sm" variant={keyword.include ? 'default' : 'outline'} onClick={() => setIncludeLocal(keyword.id, !keyword.include)}>
+                      {keyword.include ? 'Included' : 'Include'}
+                    </Button>
+                  </TableCell>
+                  <TableCell>
+                    <Button type="button" size="sm" variant={keyword.starred ? 'default' : 'outline'} onClick={() => toggleStarLocal(keyword.id, !keyword.starred)}>
+                      {keyword.starred ? 'Unstar' : 'Star'}
+                    </Button>
                   </TableCell>
                 </TableRow>
               ))}
@@ -191,17 +210,10 @@ function formatDate(value: string | null | undefined) {
   return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
 }
 
-function statusLabel(status?: string | null) {
-  if (!status) return 'New'
-  if (status === 'starred') return 'Pinned'
-  if (status === 'ready') return 'Ready'
-  if (status === 'in_plan' || status === 'scheduled') return 'Scheduled'
-  return status.replace(/_/g, ' ')
-}
-
-function resolveVariant(status?: string | null) {
-  if (status === 'starred') return 'outline'
-  if (status === 'ready') return 'default'
-  if (status === 'scheduled' || status === 'in_plan') return 'secondary'
-  return 'secondary'
+async function toggleStar(keywordId: string, starred: boolean) {
+  try {
+    await fetch(`/api/keywords/${keywordId}`, { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ starred }) })
+  } finally {
+    try { await (window as any).queryClient?.invalidateQueries?.({ queryKey: ['keywords.list'] }) } catch {}
+  }
 }

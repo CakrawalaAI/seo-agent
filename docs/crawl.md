@@ -1,36 +1,18 @@
-Flow: Simple Sitemap → Top-100 → Crawl → Dump → Summary
+SEO Agent — Crawl
 
-- Input: site URL
-- Fetch sitemap raw (index + child maps)
-- Parse URLs; exclude non‑HTML; same host; dedupe
-- LLM ranks the sitemap string; returns JSON `{"urls":[...]} (≤100)`
-- Crawl only those URLs via Playwright (no link expansion)
-- Dump: merge all page texts into one big string (no per‑page cap)
-- LLM summarizes dump → single text field (business context)
-- Persist to `projects.businessSummary`
+- Input: website URL (`websites.url`).
+- Output:
+  - Per-page records in `crawl_pages` with `content_text`, `headings_json`, `page_summary_json`.
+  - Site summary in `websites.summary` (LLM map-reduce over top-N pages).
+- Storage: Postgres only. No files/bundles. Deterministic IDs. Horizontal-safe.
 
-Defaults
-- `N = 100` fixed (if fewer eligible URLs, use all)
-- Model: gpt-5-2025-08-07 by default (override with `SEOA_LLM_MODEL`)
-- Budget: 80% of GPT‑5 (2025‑08‑07) 400k context → 320,000 input tokens
-- Dump trimming: only at final step to fit the 320k token budget (no per‑page trimming)
-- Playwright concurrency: 8, timeout/page: 12s
+Flow
+- Parse sitemap (fallback to basic homepage crawl). Robots.txt is ignored by default (can be enabled later).
+- Render pages (fetch or Playwright when needed).
+- Map: summarize each page → `crawl_pages.page_summary_json`.
+- Reduce: aggregate N highest-signal pages → `websites.summary`.
+- Record run in `crawl_runs` with timing + providers.
 
-Storage (DB‑only)
-- Raw crawl pages → table `crawl_pages` (url, status, meta/headings/links, contentText)
-- Representatives/topN → `project_discoveries.crawl_json` (e.g., `{ at, urls: [...] }`)
-- Final summary → `projects.businessSummary`
-
-Onboarding UI (live feedback)
-- Step 1: “Process sitemap” → shows once `representatives.json` is produced
-- Step 2: “Crawling your website” → progress uses `representatives.length` as target and pages completed from crawl feed
-- Crawl feed: shows actual URLs as they complete (and while in‑progress)
-
-Error Handling (simple)
-- If LLM top‑100 selection fails → take first 100 cleaned sitemap URLs
-- If Playwright fails for a URL → skip it; continue others; still summarize whatever was crawled
-- If summary LLM fails → store first 2k chars of dump as placeholder in `projects.businessSummary`
-
-Token Budgeting
-- Estimate tokens ≈ `chars / 4`
-- Before summary call, truncate dump to ≤ 320,000 tokens (≈ 1.28M chars)
+Notes
+- Only `content_text` is stored (no raw HTML).
+- `websites.status`: moves to `crawled` on success.

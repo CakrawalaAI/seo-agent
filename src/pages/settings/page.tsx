@@ -1,9 +1,11 @@
-import { useCallback, useMemo, useState, type FormEvent } from 'react'
+import { useCallback, useMemo, useState, useEffect, type FormEvent } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { useMockData } from '@common/dev/mock-data-context'
 import { extractErrorMessage } from '@common/http/json'
 import { fetchSession, fetchOrgMembers, inviteOrgMember } from '@entities/org/service'
 import type { MeSession, OrgMember, OrgMemberRole } from '@entities'
+import { useActiveWebsite } from '@common/state/active-website'
+import { getWebsite } from '@entities/website/service'
 import { Button } from '@src/common/ui/button'
 import { Separator } from '@src/common/ui/separator'
 import { Input } from '@src/common/ui/input'
@@ -34,6 +36,10 @@ export function Page(): JSX.Element {
   const [inviteEmail, setInviteEmail] = useState('')
   const [inviteRole, setInviteRole] = useState<OrgMemberRole>('member')
   const [feedback, setFeedback] = useState<Feedback | null>(null)
+  const [savingPolicy, setSavingPolicy] = useState(false)
+  const [policyAllowYoutube, setPolicyAllowYoutube] = useState(true)
+  const [policyMaxImages, setPolicyMaxImages] = useState(2)
+  const { id: activeWebsiteId } = useActiveWebsite()
 
   const sessionQuery = useQuery<MeSession>({
     queryKey: ['settings.session'],
@@ -51,6 +57,22 @@ export function Page(): JSX.Element {
 
   const session = mockEnabled ? MOCK_SESSION : sessionQuery.data
   const members = useMemo(() => (mockEnabled ? MOCK_MEMBERS : membersQuery.data?.items ?? []), [mockEnabled, membersQuery.data])
+
+  // Content policy query (active website)
+  const websiteQuery = useQuery({
+    queryKey: ['settings.website', activeWebsiteId],
+    queryFn: () => getWebsite(activeWebsiteId!),
+    enabled: Boolean(activeWebsiteId && !mockEnabled),
+    staleTime: 30_000
+  })
+
+  useEffect(() => {
+    const w: any = websiteQuery.data
+    if (!w) return
+    const s = (w?.settings as any) || {}
+    if (typeof s.allowYoutube === 'boolean') setPolicyAllowYoutube(Boolean(s.allowYoutube))
+    if (typeof s.maxImages === 'number') setPolicyMaxImages(Math.max(0, Math.min(4, Number(s.maxImages))))
+  }, [websiteQuery.data])
 
   const sortedMembers = useMemo(() => {
     return [...members].sort((a, b) => {
@@ -224,6 +246,67 @@ export function Page(): JSX.Element {
               {subscriptionActionPending ? 'Processing…' : subscriptionActionLabel}
             </Button>
           </div>
+        </div>
+      </section>
+
+      <section className="rounded-lg border bg-card p-6 shadow-sm">
+        <div className="space-y-4">
+          <h2 className="text-lg font-semibold">Content policy (active website)</h2>
+          <Separator />
+          {activeWebsiteId ? (
+            <div className="grid gap-4 md:grid-cols-3 lg:grid-cols-4">
+              <Label className="flex items-center gap-2 text-sm font-medium text-foreground">
+                <input
+                  type="checkbox"
+                  className="h-4 w-4"
+                  checked={policyAllowYoutube}
+                  onChange={(e) => setPolicyAllowYoutube(e.currentTarget.checked)}
+                  disabled={mockEnabled || websiteQuery.isFetching || savingPolicy}
+                />
+                Allow YouTube embeds
+              </Label>
+              <Label className="flex items-center gap-2 text-sm font-medium text-foreground">
+                Max images
+                <Input
+                  type="number"
+                  min={0}
+                  max={4}
+                  value={policyMaxImages}
+                  onChange={(e) => setPolicyMaxImages(Math.max(0, Math.min(4, Number(e.currentTarget.value))))}
+                  className="w-24"
+                  disabled={mockEnabled || websiteQuery.isFetching || savingPolicy}
+                />
+              </Label>
+              <div className="md:col-span-1 lg:col-span-2 flex items-center">
+                <Button
+                  type="button"
+                  onClick={async () => {
+                    if (!activeWebsiteId || mockEnabled) return
+                    setSavingPolicy(true)
+                    setFeedback(null)
+                    try {
+                      const res = await fetch(`/api/websites/${activeWebsiteId}`, {
+                        method: 'PATCH',
+                        headers: { 'content-type': 'application/json' },
+                        body: JSON.stringify({ settings: { allowYoutube: policyAllowYoutube, maxImages: policyMaxImages } })
+                      })
+                      if (!res.ok) throw new Error(`Save failed (${res.status})`)
+                      setFeedback({ type: 'success', message: 'Content policy saved.' })
+                    } catch (err) {
+                      setFeedback({ type: 'error', message: extractErrorMessage(err) })
+                    } finally {
+                      setSavingPolicy(false)
+                    }
+                  }}
+                  disabled={mockEnabled || websiteQuery.isFetching || savingPolicy}
+                >
+                  {savingPolicy ? 'Saving…' : 'Save policy'}
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <p className="text-sm text-muted-foreground">Choose a website to configure content policy.</p>
+          )}
         </div>
       </section>
 

@@ -14,6 +14,11 @@ export interface LlmProvider {
     competitorDump?: string
     tone?: string
     locale?: string
+    websiteSummary?: string
+    citations?: Array<{ title?: string; url: string; snippet?: string }>
+    youtube?: Array<{ title?: string; url: string }>
+    images?: Array<{ src: string; alt?: string; caption?: string }>
+    internalLinks?: Array<{ anchor?: string; url: string }>
   }): Promise<{ bodyHtml: string }>
 
   factCheck?(args: {

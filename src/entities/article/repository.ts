@@ -4,12 +4,20 @@ import { articles } from './db/schema'
 import { desc, eq } from 'drizzle-orm'
 
 export const articlesRepo = {
-  async list(projectId: string, limit = 90): Promise<Article[]> {
+  async listByWebsite(websiteId: string, limit = 90): Promise<Article[]> {
     if (!hasDatabase()) return []
     const db = getDb()
-    // @ts-ignore
-    const rows = await db.select().from(articles).where(eq(articles.projectId as any, projectId)).orderBy(desc(articles.createdAt)).limit(limit)
+    const rows = await db
+      .select()
+      .from(articles)
+      .where(eq(articles.websiteId as any, websiteId))
+      .orderBy(desc(articles.createdAt as any))
+      .limit(limit)
     return rows as any
+  },
+  // Legacy signature retained for callers; forwards to website when possible
+  async list(websiteId: string, limit = 90): Promise<Article[]> {
+    return this.listByWebsite(websiteId, limit)
   },
   async get(id: string): Promise<Article | null> {
     if (!hasDatabase()) return null
@@ -17,7 +25,7 @@ export const articlesRepo = {
     const rows = await db.select().from(articles).where(eq(articles.id, id)).limit(1)
     return (rows?.[0] as any) ?? null
   },
-  async createDraft(input: { projectId: string; planItemId: string; title: string; outline?: ArticleOutlineSection[] }): Promise<Article> {
+  async createDraft(input: { websiteId?: string; planItemId: string; title: string; outline?: ArticleOutlineSection[] }): Promise<Article> {
     const now = new Date()
     const targetId = input.planItemId
     // If a planned article exists with id = planItemId, convert it into a draft in place
@@ -49,7 +57,7 @@ export const articlesRepo = {
     const articleId = targetId || genId('article')
     const article: Article = {
       id: articleId,
-      projectId: input.projectId,
+      websiteId: (input.websiteId as any),
       title: input.title,
       language: 'en',
       tone: 'neutral',
@@ -66,7 +74,7 @@ export const articlesRepo = {
         .insert(articles)
         .values({
           id: article.id,
-          projectId: article.projectId,
+          websiteId: (article as any).websiteId ?? null,
           title: article.title,
           language: article.language,
           tone: article.tone,
@@ -83,7 +91,7 @@ export const articlesRepo = {
     if (!hasDatabase()) return null
     const db = getDb()
     const set: any = { updatedAt: new Date() as any }
-    for (const k of ['projectId','keywordId','plannedDate','title','language','tone','status','outlineJson','bodyHtml','generationDate','publishDate','url'] as const) {
+    for (const k of ['websiteId','keywordId','scheduledDate','title','language','tone','status','outlineJson','bodyHtml','generationDate','publishDate','url'] as const) {
       const v = (patch as any)[k]
       if (v !== undefined) set[k] = v as any
     }
@@ -94,7 +102,7 @@ export const articlesRepo = {
   async removeByProject(projectId: string) {
     if (!hasDatabase()) return
     const db = getDb()
-    await db.delete(articles).where(eq(articles.projectId, projectId))
+    await db.delete(articles).where(eq(articles.websiteId as any, projectId))
   }
 }
 

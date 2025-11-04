@@ -8,12 +8,17 @@ export type CrawlPageMeta = {
 
 export type CrawlPage = {
   id: string
-  projectId: string
+  websiteId: string
   url: string
   depth?: number | null
   httpStatus?: number | string | null
   status?: CrawlPageStatus | null
   extractedAt?: string | null
+  // New canonical fields
+  title?: string | null
+  content?: string | null
+  summary?: string | null
+  // Legacy/optional fields (kept for compatibility)
   metaJson?: CrawlPageMeta | null
   headingsJson?: unknown | null
   linksJson?: unknown | null

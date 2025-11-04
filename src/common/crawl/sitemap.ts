@@ -1,38 +1,27 @@
 import { XMLParser } from 'fast-xml-parser'
+import { log } from '@src/common/logger'
+import { normalizeUrl, isHtmlLike } from '@common/crawl/url-filter'
 
 type SitemapEntry = { loc: string; lastmod?: string | null; priority?: number | null }
-
-function normalizeUrl(u: string, base: URL): string | null {
-  try {
-    const url = new URL(u, base)
-    if (url.host !== base.host) return null
-    url.hash = ''
-    url.search = ''
-    let href = url.toString()
-    // collapse trailing slash
-    if (href.endsWith('/') && href !== `${url.protocol}//${url.host}/`) href = href.slice(0, -1)
-    return href
-  } catch {
-    return null
-  }
-}
-
-function isHtmlLike(u: string): boolean {
-  const lowered = u.toLowerCase()
-  if (/\.(pdf|jpg|jpeg|png|gif|webp|svg|zip|csv|xls|xlsx|doc|docx|ppt|pptx|mp4|mp3)(?:$|\?)/.test(lowered)) return false
-  if (/(?:\/wp-|\/feed|\/tag\/|\/category\/|\/page\/\d+|\/login|\/admin|\/cart|\/checkout|\/account|\/search|\/api)(?:$|\/|\?)/.test(lowered)) return false
-  return true
-}
 
 export async function fetchAndParseSitemapUrls(siteUrl: string, hardCap = 100000): Promise<string[]> {
   const base = new URL(siteUrl)
   const sitemapUrl = new URL('/sitemap.xml', `${base.protocol}//${base.host}`).toString()
   const parser = new XMLParser({ ignoreAttributes: false })
   const urls: string[] = []
+  const fetchText = async (url: string, timeoutMs = 15000): Promise<string | null> => {
+    const ac = new AbortController()
+    const t = setTimeout(() => ac.abort(), timeoutMs)
+    try {
+      const r = await fetch(url, { signal: ac.signal })
+      if (!r.ok) return null
+      return await r.text()
+    } catch { return null } finally { clearTimeout(t) }
+  }
   try {
-    const res = await fetch(sitemapUrl)
-    if (!res.ok) return []
-    const xml = await res.text()
+    log.info('[sitemap] fetch root', { url: sitemapUrl })
+    const xml = await fetchText(sitemapUrl)
+    if (!xml) { log.warn('[sitemap] root fetch failed', { url: sitemapUrl }); return [] }
     const data = parser.parse(xml)
     const enqueueUrlset = (rawXml: string) => {
       try {
@@ -57,9 +46,8 @@ export async function fetchAndParseSitemapUrls(siteUrl: string, hardCap = 100000
         const loc = sm.loc
         if (typeof loc !== 'string') continue
         try {
-          const r = await fetch(loc)
-          if (!r.ok) continue
-          const x = await r.text()
+          const x = await fetchText(loc)
+          if (!x) continue
           enqueueUrlset(x)
         } catch {}
         if (urls.length >= hardCap) break
@@ -84,6 +72,7 @@ export async function fetchAndParseSitemapUrls(siteUrl: string, hardCap = 100000
   for (const u of urls) {
     if (!seen.has(u)) { seen.add(u); cleaned.push(u) }
   }
+  log.info('[sitemap] cleaned', { site: siteUrl, count: cleaned.length })
   return cleaned
 }
 

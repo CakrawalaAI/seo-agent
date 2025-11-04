@@ -6,9 +6,9 @@ export type IntegrationConfig = {
   [key: string]: unknown
 }
 
-export type ProjectIntegration = {
+export type WebsiteIntegration = {
   id: string
-  projectId: string
+  websiteId: string
   type: string
   status: IntegrationStatus
   configJson?: IntegrationConfig | null

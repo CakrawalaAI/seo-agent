@@ -7,9 +7,9 @@ export type ArticleOutlineSection = {
 
 export type Article = {
   id: string
-  projectId: string
+  websiteId: string
   keywordId?: string | null
-  plannedDate?: string | null
+  scheduledDate?: string | null
   title?: string | null
   language?: string | null
   tone?: string | null

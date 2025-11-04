@@ -1,7 +1,7 @@
 // @ts-nocheck
 import { createFileRoute } from '@tanstack/react-router'
-import { json, httpError, safeHandler, requireSession, requireProjectAccess } from '@app/api-utils'
-import { planRepo } from '@entities/plan/repository'
+import { json, httpError, safeHandler, requireSession, requireWebsiteAccess } from '@app/api-utils'
+import { planRepo } from '@entities/article/planner'
 import { hasDatabase, getDb } from '@common/infra/db'
 import { articles } from '@entities/article/db/schema'
 import { eq, and, asc, inArray, isNotNull } from 'drizzle-orm'
@@ -11,11 +11,11 @@ export const Route = createFileRoute('/api/plan-items')({
     handlers: {
       GET: safeHandler(async ({ request }) => {
         const url = new URL(request.url)
-        const projectId = url.searchParams.get('projectId')
+        const websiteId = url.searchParams.get('websiteId') || url.searchParams.get('projectId')
         const limit = Number(url.searchParams.get('limit') || '90')
-        if (!projectId) return httpError(400, 'Missing projectId')
+        if (!websiteId) return httpError(400, 'Missing websiteId')
         await requireSession(request)
-        await requireProjectAccess(request, projectId)
+        await requireWebsiteAccess(request, websiteId)
         if (hasDatabase()) {
           try {
             const db = getDb()
@@ -24,37 +24,37 @@ export const Route = createFileRoute('/api/plan-items')({
               .from(articles)
               .where(
                 and(
-                  eq(articles.projectId, projectId),
-                  isNotNull(articles.plannedDate),
+                  eq((articles as any).websiteId, websiteId),
+                  isNotNull((articles as any).scheduledDate),
                   inArray(articles.status as any, ['queued', 'scheduled', 'published'] as any)
                 )
               )
-              .orderBy(asc(articles.plannedDate as any))
+              .orderBy(asc((articles as any).scheduledDate as any))
               .limit(Number.isFinite(limit) ? limit : 90)
             return json({
               items: rows.map((r: any) => ({
                 id: r.id,
-                projectId: r.projectId,
+                projectId: r.websiteId,
                 keywordId: r.keywordId ?? null,
                 title: r.title,
-                plannedDate: r.plannedDate,
+                scheduledDate: (r as any).scheduledDate,
                 status: r.status,
                 outlineJson: r.outlineJson
               }))
             })
           } catch {}
         }
-        const items = await planRepo.list(projectId, Number.isFinite(limit) ? limit : 90)
+        const items = await planRepo.list(websiteId, Number.isFinite(limit) ? limit : 90)
         return json({ items })
       }),
       POST: safeHandler(async ({ request }) => {
         await requireSession(request)
         const body = await request.json().catch(() => ({}))
-        const projectId = body?.projectId
+        const websiteId = body?.websiteId || body?.projectId
         const days = Number(body?.days ?? 30)
-        if (!projectId || !Number.isFinite(days) || days <= 0) return httpError(400, 'Invalid input')
-        await requireProjectAccess(request, String(projectId))
-        const { jobId } = await planRepo.createPlan(String(projectId), days)
+        if (!websiteId || !Number.isFinite(days) || days <= 0) return httpError(400, 'Invalid input')
+        await requireWebsiteAccess(request, String(websiteId))
+        const { jobId } = await planRepo.createPlan(String(websiteId), days)
         return json({ jobId }, { status: 202 })
       })
     }

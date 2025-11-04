@@ -1,5 +1,5 @@
 import { articlesRepo } from '@entities/article/repository'
-import { crawlRepo } from '@entities/crawl/repository'
+import { websiteCrawlRepo } from '@entities/crawl/repository.website'
 import { getResearchProvider, getLlmProvider } from '@common/providers/registry'
 import * as bundle from '@common/bundle/store'
 
@@ -12,7 +12,7 @@ export async function processEnrich(payload: { projectId: string; articleId: str
   let citations: Array<{ title: string; url: string; snippet?: string }> = []
   try { citations = await research.search(q, { topK: 5 }); try { const { appendJsonl } = await import('@common/bundle/store'); appendJsonl('global', 'metrics/costs.jsonl', { node: 'research', provider: process.env.EXA_API_KEY ? 'exa' : 'stub', at: new Date().toISOString(), stage: 'citations' }) } catch {}; try { const { updateCostSummary } = await import('@common/metrics/costs'); updateCostSummary() } catch {} } catch {}
   // Internal links: from recent crawl pages (exclude homepage)
-  const crawlPages = await crawlRepo.list(payload.projectId, 200)
+  const crawlPages = await websiteCrawlRepo.listRecentPages(String(payload.projectId), 200)
   const internal = crawlPages
     .filter((page) => {
       try {
@@ -23,7 +23,7 @@ export async function processEnrich(payload: { projectId: string; articleId: str
       }
     })
     .slice(0, 10)
-    .map((page) => ({ anchor: ((page.metaJson as any)?.title as string) || 'Related', url: page.url }))
+    .map((page) => ({ anchor: (page as any).title || 'Related', url: page.url }))
   const enrichment = {
     citations,
     internalLinks: internal,
@@ -55,7 +55,7 @@ export async function processEnrich(payload: { projectId: string; articleId: str
     const words = new Set(title.toLowerCase().split(/[^a-z0-9]+/).filter((w) => w.length > 3))
     const candidates = crawlPages
       .map((page) => {
-        const t = String(((page.metaJson as any)?.title) || '')
+        const t = String((page as any)?.title || '')
         const tokens = new Set(t.toLowerCase().split(/[^a-z0-9]+/).filter((w) => w.length > 3))
         let overlap = 0
         for (const w of words) if (tokens.has(w)) overlap++

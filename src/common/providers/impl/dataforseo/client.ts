@@ -35,7 +35,7 @@ type GeoParams = {
   languageName?: string | null
 }
 
-type KeywordArrayParams = GeoParams & { keywords: string[] }
+type KeywordArrayParams = GeoParams & { keywords: string[]; limit?: number }
 
 type SingleKeywordParams = GeoParams & { keyword: string }
 
@@ -226,7 +226,7 @@ class DataForSeoClient {
         language_name: languageName
       }
     ]
-    const json = await this.post('/v3/keywords_data/google/keywords_for_keywords/live', payload)
+    const json = await this.post('/v3/keywords_data/google_ads/keywords_for_keywords/live', payload)
     if (!Array.isArray(json?.tasks) || !json.tasks.length) {
       log.warn('[dfs] keywordsForKeywords empty', { keywords: keywords.length, locationCode, languageName })
       return []
@@ -293,6 +293,32 @@ class DataForSeoClient {
         continue
       }
       out.push(...extractKeywordsFromDataforseoResponse(json))
+    }
+    return out
+  }
+
+  async keywordIdeasDetailed(params: KeywordArrayParams): Promise<Array<{ keyword: string; keyword_info?: any; keyword_properties?: any; impressions_info?: any }>> {
+    const keywords = ensureKeywords('keywordIdeasDetailed', params.keywords, 200)
+    const { locationCode, languageName } = this.resolveGeo(params)
+    const payload = [
+      { keywords, location_code: locationCode, language_name: languageName, include_serp_info: false, limit: typeof params.limit === 'number' ? params.limit : 30 }
+    ]
+    const json = await this.post('/v3/dataforseo_labs/google/keyword_ideas/live', payload)
+    const out: Array<{ keyword: string; keyword_info?: any; keyword_properties?: any; impressions_info?: any }> = []
+    if (!Array.isArray(json?.tasks) || !json.tasks.length) {
+      log.warn('[dfs] keywordIdeasDetailed empty', { keywords: keywords.length, locationCode, languageName })
+      return out
+    }
+    for (const task of json.tasks) {
+      const results = Array.isArray(task?.result) ? task.result : []
+      for (const block of results) {
+        const items = Array.isArray(block?.items) ? block.items : []
+        for (const item of items) {
+          const kw = String(item?.keyword || item?.keyword_data?.keyword || '').trim()
+          if (!kw) continue
+          out.push({ keyword: kw, keyword_info: item?.keyword_info ?? null, keyword_properties: item?.keyword_properties ?? null, impressions_info: item?.impressions_info ?? null })
+        }
+      }
     }
     return out
   }

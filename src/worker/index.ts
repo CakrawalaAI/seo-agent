@@ -7,12 +7,8 @@ import { initConnectors } from '@features/integrations/server/registry'
 import { processCrawl } from './processors/crawler'
 import { processDiscovery } from './processors/discovery'
 import { processPlan } from './processors/plan'
-import { processScore } from './processors/score'
 import { processGenerate } from './processors/generate'
 import { processPublish } from './processors/publish'
-import { processMetrics } from './processors/metrics'
-import { processSerp } from './processors/serp'
-import { processCompetitors } from './processors/competitors'
 import { processEnrich } from './processors/enrich'
 import { processFeedback } from './processors/feedback'
 import { log } from '@src/common/logger'
@@ -71,28 +67,28 @@ export async function runWorker(options: WorkerOptions = {}) {
     }, SCHEDULE_EVERY_MS)
     log.info('[worker] scheduler enabled', { intervalMs: SCHEDULE_EVERY_MS })
     log.info('[worker] DB available?', { hasDb: hasDatabase() })
-    const perProjectRunning = new Map<string, number>()
+    const perWebsiteRunning = new Map<string, number>()
     const projectConcurrency = 1
     const maxRetries = 2
     const baseDelayMs = 1000
     await consumeJobs(async (msg) => {
-      const projectId = String((msg.payload as any).projectId ?? '')
-      // simple per-project concurrency: if saturated, requeue with small delay
-      if (projectId) {
-        const cur = perProjectRunning.get(projectId) ?? 0
+      const websiteId = String((msg.payload as any).websiteId ?? (msg.payload as any).projectId ?? '')
+      // simple per-website concurrency: if saturated, requeue with small delay
+      if (websiteId) {
+        const cur = perWebsiteRunning.get(websiteId) ?? 0
         if (cur >= projectConcurrency) {
-          log.warn('[worker] project concurrency saturated; requeueing', { projectId, type: msg.type, current: cur, limit: projectConcurrency })
+          log.warn('[worker] website concurrency saturated; requeueing', { websiteId, type: msg.type, current: cur, limit: projectConcurrency })
           setTimeout(() => publishJob({ type: msg.type, payload: msg.payload, retries: msg.retries ?? 0 }).catch(() => {}), 300)
           return
         }
-        perProjectRunning.set(projectId, cur + 1)
+        perWebsiteRunning.set(websiteId, cur + 1)
       }
-      if (projectId) recordJobRunning(projectId, msg.id)
-      log.info('[worker] processing', { id: msg.id, type: msg.type, projectId, retries: msg.retries ?? 0 })
+      if (websiteId) recordJobRunning(websiteId, msg.id)
+      log.info('[worker] processing', { id: msg.id, type: msg.type, websiteId, retries: msg.retries ?? 0 })
       try {
         try {
           const row = { id: msg.id, type: msg.type, status: 'running', at: new Date().toISOString() }
-          const target = projectId || 'global'
+          const target = websiteId || 'global'
           const { appendJsonl } = await import('@common/bundle/store')
           appendJsonl(target, 'logs/jobs.jsonl', row)
         } catch {}
@@ -103,9 +99,7 @@ export async function runWorker(options: WorkerOptions = {}) {
           case 'discovery':
             await processDiscovery(msg.payload as any)
             break
-          case 'score':
-            await processScore(msg.payload as any)
-            break
+          // score processor removed in website-first cleanup
           case 'plan':
             await processPlan(msg.payload as any)
             break
@@ -115,15 +109,7 @@ export async function runWorker(options: WorkerOptions = {}) {
           case 'publish':
             await processPublish(msg.payload as any)
             break
-          case 'metrics':
-            await processMetrics(msg.payload as any)
-            break
-          case 'serp':
-            await processSerp(msg.payload as any)
-            break
-          case 'competitors':
-            await processCompetitors(msg.payload as any)
-            break
+          // removed: metrics/serp/competitors processors in per-website model
           case 'enrich':
             await processEnrich(msg.payload as any)
             break
@@ -133,29 +119,29 @@ export async function runWorker(options: WorkerOptions = {}) {
           default:
             break
         }
-        if (projectId) recordJobCompleted(projectId, msg.id)
+        if (websiteId) recordJobCompleted(websiteId, msg.id)
         try {
           const { onJobSuccess } = await import('@common/workflow/manager')
           await onJobSuccess(msg.type, msg.payload)
         } catch {}
         try {
           const row = { id: msg.id, type: msg.type, status: 'completed', at: new Date().toISOString() }
-          const target = projectId || 'global'
+          const target = websiteId || 'global'
           const { appendJsonl } = await import('@common/bundle/store')
           appendJsonl(target, 'logs/jobs.jsonl', row)
         } catch {}
-        log.info('[worker] completed', { id: msg.id, type: msg.type, projectId })
+        log.info('[worker] completed', { id: msg.id, type: msg.type, websiteId })
       } catch (error) {
         const isCredit = error instanceof Error && error.message === 'credit_exceeded'
         const err = error instanceof Error ? { message: error.message } : { message: String(error) }
-        if (projectId) recordJobFailed(projectId, msg.id, err)
+        if (websiteId) recordJobFailed(websiteId, msg.id, err)
         try {
           const row = { id: msg.id, type: msg.type, status: 'failed', at: new Date().toISOString(), error: err }
-          const target = projectId || 'global'
+          const target = websiteId || 'global'
           const { appendJsonl } = await import('@common/bundle/store')
           appendJsonl(target, 'logs/jobs.jsonl', row)
         } catch {}
-        log.error('[worker] failed', { id: msg.id, type: msg.type, projectId, error: err })
+        log.error('[worker] failed', { id: msg.id, type: msg.type, websiteId, error: err })
         // retry/backoff limited
         const attempt = Number(msg.retries ?? 0)
         if (!isCredit && attempt < maxRetries) {
@@ -165,9 +151,9 @@ export async function runWorker(options: WorkerOptions = {}) {
         }
       }
       finally {
-        if (projectId) {
-          const cur = perProjectRunning.get(projectId) ?? 1
-          perProjectRunning.set(projectId, Math.max(0, cur - 1))
+        if (websiteId) {
+          const cur = perWebsiteRunning.get(websiteId) ?? 1
+          perWebsiteRunning.set(websiteId, Math.max(0, cur - 1))
         }
       }
     })

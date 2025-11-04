@@ -1,2 +1,2 @@
 export * from './domain/page'
-export * from './repository'
+export * from './repository.website'

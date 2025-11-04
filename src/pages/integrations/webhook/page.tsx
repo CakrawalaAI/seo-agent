@@ -1,18 +1,13 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { Link, useRouterState } from '@tanstack/react-router'
-import { useActiveProject } from '@common/state/active-project'
+import { useActiveWebsite } from '@common/state/active-website'
 import { useMockData } from '@common/dev/mock-data-context'
-import {
-  createIntegration,
-  getProject,
-  getProjectSnapshot,
-  updateIntegration
-} from '@entities/project/service'
+import { getWebsite, getWebsiteSnapshot } from '@entities/website/service'
 import type { IntegrationStatus } from '@entities'
 import { buildIntegrationViews } from '@integrations/shared/catalog'
-import type { ProjectIntegrationView } from '@integrations/shared/types'
-import { extractErrorMessage, maskSecret } from '@features/projects/shared/helpers'
+import type { WebsiteIntegrationView } from '@integrations/shared/types'
+import { extractErrorMessage, maskSecret } from '@src/common/ui/format'
 import { Button } from '@src/common/ui/button'
 import { Input } from '@src/common/ui/input'
 import { Label } from '@src/common/ui/label'
@@ -75,7 +70,7 @@ const WEBHOOK_EVENTS: Array<{
 ]
 
 export function Page(): JSX.Element {
-  const { id: activeProjectId } = useActiveProject()
+  const { id: activeProjectId } = useActiveWebsite()
   const { enabled: mockEnabled } = useMockData()
   const routerState = useRouterState()
   const projectId = activeProjectId
@@ -85,20 +80,20 @@ export function Page(): JSX.Element {
 
   const snapshotQuery = useQuery({
     queryKey: ['integrations.snapshot', projectId],
-    queryFn: () => getProjectSnapshot(projectId!, { cache: 'no-store' }),
+    queryFn: () => getWebsiteSnapshot(projectId!, { cache: 'no-store' }),
     enabled: Boolean(projectId && !mockEnabled),
     refetchInterval: 45_000
   })
 
   const projectQuery = useQuery({
     queryKey: ['project.detail', projectId],
-    queryFn: () => getProject(projectId!),
+    queryFn: () => getWebsite(projectId!),
     enabled: Boolean(projectId && !mockEnabled)
   })
 
-  const integrationView = useMemo<ProjectIntegrationView | null>(() => {
+  const integrationView = useMemo<WebsiteIntegrationView | null>(() => {
     if (!snapshotQuery.data) return null
-    const integrations = snapshotQuery.data.integrationViews ?? buildIntegrationViews(snapshotQuery.data.integrations ?? [])
+    const integrations = (snapshotQuery.data.integrationViews ?? buildIntegrationViews(snapshotQuery.data.integrations ?? [])) as WebsiteIntegrationView[]
     return integrations.find((view) => view.manifest.type === 'webhook') ?? null
   }, [snapshotQuery.data])
 
@@ -117,17 +112,21 @@ export function Page(): JSX.Element {
         throw new Error('Provide both Target URL and Shared Secret.')
       }
       if (integrationView?.id) {
-        return updateIntegration(integrationView.id, {
-          config: { targetUrl: targetUrl.trim(), secret: secret.trim() },
-          status: 'connected' as IntegrationStatus
+        const res = await fetch(`/api/integrations/${integrationView.id}`, {
+          method: 'PATCH',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ config: { targetUrl: targetUrl.trim(), secret: secret.trim() }, status: 'connected' as IntegrationStatus })
         })
+        if (!res.ok) throw new Error('Failed to save integration')
+        return
       }
-      return createIntegration({
-        projectId,
-        type: 'webhook',
-        config: { targetUrl: targetUrl.trim(), secret: secret.trim() },
-        status: 'connected'
+      const res = await fetch(`/api/integrations`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ projectId, type: 'webhook', config: { targetUrl: targetUrl.trim(), secret: secret.trim() }, status: 'connected' as IntegrationStatus })
       })
+      if (!res.ok) throw new Error('Failed to create integration')
+      return
     },
     onSuccess: () => {
       setBanner({ tone: 'success', text: 'Webhook saved.' })
@@ -139,7 +138,7 @@ export function Page(): JSX.Element {
   const disconnectMutation = useMutation({
     mutationFn: async () => {
       if (!integrationView?.id) return null
-      return updateIntegration(integrationView.id, { status: 'disconnected' as IntegrationStatus })
+      await fetch(`/api/integrations/${integrationView.id}`, { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ status: 'disconnected' as IntegrationStatus }) })
     },
     onSuccess: () => {
       setBanner({ tone: 'success', text: 'Webhook disconnected.' })
@@ -153,8 +152,8 @@ export function Page(): JSX.Element {
       <div className="mx-auto flex w-full max-w-4xl flex-col gap-6">
         <Empty>
           <EmptyHeader>
-            <EmptyTitle>No project selected</EmptyTitle>
-            <EmptyDescription>Choose a project to configure the webhook integration.</EmptyDescription>
+            <EmptyTitle>No website selected</EmptyTitle>
+            <EmptyDescription>Choose a website to configure the webhook integration.</EmptyDescription>
           </EmptyHeader>
         </Empty>
       </div>
@@ -165,7 +164,7 @@ export function Page(): JSX.Element {
   const config = integrationView?.integration?.configJson
   const secretPreview = config?.secret ? maskSecret(String(config.secret)) : null
   const canMutate = Boolean(projectId) && !mockEnabled
-  const projectName = projectQuery.data?.name ?? 'Project'
+  const projectName = projectQuery.data?.url ?? 'Website'
   const rawSearch = routerState.location.search as unknown
   const currentSearch = useMemo<Record<string, unknown>>(() => {
     if (!rawSearch) return {}
@@ -186,7 +185,7 @@ export function Page(): JSX.Element {
         <BreadcrumbList>
           <BreadcrumbItem>
             <BreadcrumbLink asChild>
-              <Link to="/projects">Projects</Link>
+              <Link to="/dashboard">Dashboard</Link>
             </BreadcrumbLink>
           </BreadcrumbItem>
           <BreadcrumbSeparator />

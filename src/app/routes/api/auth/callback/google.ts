@@ -15,8 +15,8 @@ import { hasDatabase, getDb } from '@common/infra/db'
 import { session } from '@common/infra/session'
 import { orgs, orgMembers } from '@entities/org/db/schema'
 import { eq } from 'drizzle-orm'
-import { projectsRepo } from '@entities/project/repository'
 import { normalizeSiteInput } from '@features/onboarding/shared/url'
+import { log } from '@src/common/logger'
 
 export const Route = createFileRoute('/api/auth/callback/google')({
   server: {
@@ -31,18 +31,13 @@ export const Route = createFileRoute('/api/auth/callback/google')({
         const redirectTo = sanitizeRedirect(tmp.redirectTo || '/dashboard')
         const payloadMeta = (tmp?.payload as any) ?? null
 
-        if ((process.env.SEOA_AUTH_DEBUG || '') === '1') {
-          console.info('[auth/callback/google:start]', {
-            url: request.url,
-            hasTempCookie: Boolean(parseTempCookie(request)?.state),
-          })
-        }
+        // Debug logging removed (no flag)
         let tokens
         try {
           tokens = await exchangeCodeForTokens(request, code)
         } catch (error) {
           if (error instanceof GoogleOAuthConfigError) {
-            console.error('[auth/callback/google] missing Google OAuth credentials for token exchange')
+            log.error('[auth/callback/google] missing Google OAuth credentials for token exchange')
             return httpError(500, 'Google OAuth not configured')
           }
           throw error
@@ -88,12 +83,13 @@ export const Route = createFileRoute('/api/auth/callback/google')({
               site: normalized.siteUrl,
               slug
             })
+            if (meta.flow) ensureSearch.set('flow', String(meta.flow))
             if (typeof meta.projectName === 'string' && meta.projectName) {
               ensureSearch.set('name', meta.projectName)
             }
-            redirectOverride = `/onboarding/ensure?${ensureSearch.toString()}`
+            redirectOverride = `/dashboard/ensure?${ensureSearch.toString()}`
           } catch (error) {
-            console.error('[auth/callback/google] failed to prepare ensure redirect', {
+            log.error('[auth/callback/google] failed to prepare ensure redirect', {
               siteUrl: payloadMeta.onboarding?.siteUrl,
               error: (error as Error)?.message || String(error)
             })
@@ -112,22 +108,21 @@ export const Route = createFileRoute('/api/auth/callback/google')({
         headers.set('Location', redirectOverride ?? redirectTo)
         headers.append('Set-Cookie', cookie)
         headers.append('Set-Cookie', clearTempCookie())
-        if ((process.env.SEOA_AUTH_DEBUG || '') === '1') {
-          console.info('[auth/callback/google:session-set]', {
-            email: profile.email,
-            redirectTo,
-            cookiePreview: String(cookie).slice(0, 48) + '...'
-          })
-        }
+        // Debug logging removed (no flag)
         // org_usage removed; no usage row required
         // Clear legacy Better Auth cookies if present
         headers.append('Set-Cookie', clearName('better-auth.session_token'))
         headers.append('Set-Cookie', clearName('better-auth.state'))
         headers.append('Set-Cookie', clearName('seo-agent-session'))
-        const resp = new Response(null, { status: 302, headers })
-        if ((process.env.SEOA_AUTH_DEBUG || '') === '1') {
-          console.info('[auth/callback/google:done]', { status: resp.status, headers: { location: headers.get('Location') } })
+        if (process.env.NODE_ENV !== 'production') {
+          log.debug('[auth/callback/google] oauth_callback', {
+            email: profile.email,
+            activeOrgId: activeOrg?.id ?? null,
+            redirect: redirectOverride ?? redirectTo,
+          })
         }
+        const resp = new Response(null, { status: 302, headers })
+        // Debug logging removed (no flag)
         return resp
       }),
     },

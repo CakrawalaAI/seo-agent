@@ -4,6 +4,7 @@ import { safeHandler, json, requireSession } from '@app/api-utils'
 import { hasDatabase, getDb } from '@common/infra/db'
 import { orgMembers } from '@entities/org/db/schema'
 import { eq } from 'drizzle-orm'
+import { log } from '@src/common/logger'
 
 export const Route = createFileRoute('/api/orgs/members')({
   server: {
@@ -24,7 +25,7 @@ export const Route = createFileRoute('/api/orgs/members')({
             }))
             return json({ items })
           } catch (error) {
-            console.error('Fetch org members failed', error)
+            log.error('Fetch org members failed', error)
           }
         }
         return json({ items: [] })

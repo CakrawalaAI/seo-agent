@@ -18,6 +18,8 @@ type HandlerContext = {
   context: unknown
 }
 
+import { log } from '@src/common/logger'
+
 export const safeHandler = (
   handler: (ctx: HandlerContext) => Promise<Response> | Response
 ) => {
@@ -26,17 +28,21 @@ export const safeHandler = (
       return await handler(ctx)
     } catch (error) {
       if (error instanceof Response) return error
-      console.error('API error', error)
-      return httpError(500, 'Internal Server Error')
+      const raw = (error as Error)?.message || String(error)
+      const message = raw.replace(/[\r\n]+/g, ' ').slice(0, 180)
+      log.error('API error', { message })
+      const body = { message: 'Internal Server Error', code: '500' }
+      const headers: Record<string, string> = { 'content-type': 'application/json; charset=utf-8' }
+      if (process.env.NODE_ENV !== 'production') headers['x-seoa-error'] = message
+      return new Response(JSON.stringify(body), { status: 500, headers })
     }
   }
 }
 
 // Auth helpers (cookie-based session)
 import { hasDatabase, getDb } from '@common/infra/db'
-import { projects } from '@entities/project/db/schema'
+import { websites } from '@entities/website/db/schema'
 import { orgMembers, orgs } from '@entities/org/db/schema'
-import { projectsRepo } from '@entities/project/repository'
 import { eq } from 'drizzle-orm'
 import { session } from '@common/infra/session'
 
@@ -68,6 +74,8 @@ export async function requireSession(request: Request) {
       }
     } catch {}
   }
+  // Fallback to cookie value when DB is not available
+  if (!activeOrg && activeId) activeOrg = { id: activeId }
   return { user: { email: user.email, name: user.name }, activeOrg }
 }
 
@@ -77,7 +85,7 @@ export async function requireActiveOrg(request: Request) {
   return sess.activeOrg.id
 }
 
-export async function requireProjectAccess(request: Request, projectId: string) {
+export async function requireWebsiteAccess(request: Request, websiteId: string) {
   const sess = await requireSession(request)
   const activeOrgId = sess.activeOrg?.id
   if (!activeOrgId) throw httpError(403, 'Organization not selected')
@@ -85,9 +93,8 @@ export async function requireProjectAccess(request: Request, projectId: string) 
   if (hasDatabase()) {
     try {
       const db = getDb()
-      // @ts-ignore
-      const rows = await (db.select().from(projects).where(eq(projects.id, projectId)).limit(1) as any)
-      if (rows[0]) projectOrg = rows[0].orgId ?? null
+      const rows = await (db.select().from(websites).where(eq(websites.id as any, websiteId)).limit(1) as any)
+      if (rows[0]) projectOrg = (rows[0] as any).orgId ?? null
     } catch {}
   }
   // DB-only repo: rely on DB for ownership
@@ -109,6 +116,7 @@ export async function requireProjectAccess(request: Request, projectId: string) 
   }
   return true
 }
+
 
 export async function requireAdmin(request: Request) {
   const sess = await requireSession(request)

@@ -1,5 +1,5 @@
-import type { ProjectIntegration } from '@entities'
-import type { IntegrationManifest, ProjectIntegrationView } from './types'
+import type { WebsiteIntegration } from '@entities'
+import type { IntegrationManifest, WebsiteIntegrationView } from './types'
 
 export const integrationManifests: IntegrationManifest[] = [
   {
@@ -256,8 +256,8 @@ export function getIntegrationManifest(type: string): IntegrationManifest | unde
   return manifestByType.get(type)
 }
 
-export function buildIntegrationViews(integrations: ProjectIntegration[]): ProjectIntegrationView[] {
-  const firstByType = new Map<string, ProjectIntegration>()
+export function buildIntegrationViews(integrations: WebsiteIntegration[]): WebsiteIntegrationView[] {
+  const firstByType = new Map<string, WebsiteIntegration>()
   for (const integration of integrations) {
     if (!firstByType.has(integration.type)) {
       firstByType.set(integration.type, integration)

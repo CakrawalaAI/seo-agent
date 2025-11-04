@@ -6,7 +6,7 @@ type FetchKeywordOptions = {
   limit?: number
 }
 
-export async function fetchKeywords(projectId: string, options: FetchKeywordOptions = {}) {
+export async function fetchKeywords(websiteId: string, options: FetchKeywordOptions = {}) {
   const params = new URLSearchParams()
   const limit = options.limit && options.limit > 0 ? options.limit : 100
   params.set('limit', String(limit))
@@ -16,7 +16,7 @@ export async function fetchKeywords(projectId: string, options: FetchKeywordOpti
   if (options.scope && options.scope !== 'all') {
     params.set('scope', options.scope)
   }
-  const response = await fetch(`/api/projects/${projectId}/keywords?${params.toString()}`, {
+  const response = await fetch(`/api/websites/${websiteId}/keywords?${params.toString()}`, {
     credentials: 'include'
   })
   if (!response.ok) {

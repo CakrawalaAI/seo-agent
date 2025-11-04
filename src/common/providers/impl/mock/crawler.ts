@@ -5,7 +5,7 @@ import type { CrawlPage } from '@entities/crawl/domain/page'
  * Used when crawler mocking is enabled in dev
  */
 
-const PREPINTERVIEW_PAGES: Array<Omit<CrawlPage, 'id' | 'projectId' | 'createdAt' | 'updatedAt'>> = [
+const PREPINTERVIEW_PAGES: Array<Omit<CrawlPage, 'id' | 'websiteId' | 'createdAt' | 'updatedAt'>> = [
   {
     url: 'https://prepinterview.ai/',
     depth: 0,
@@ -260,7 +260,7 @@ export interface MockCrawlResult {
  * Generate mock crawl pages for PrepInterview.ai
  * Returns realistic pages without making actual HTTP requests
  */
-export function generateMockCrawl(projectId: string, budget: number = 20): MockCrawlResult {
+export function generateMockCrawl(websiteId: string, budget: number = 20): MockCrawlResult {
   const now = new Date().toISOString()
 
   // Take up to budget pages from our hardcoded set
@@ -268,8 +268,8 @@ export function generateMockCrawl(projectId: string, budget: number = 20): MockC
 
   const pages: CrawlPage[] = selectedPages.map((template, index) => ({
     ...template,
-    id: `mock_crawl_${projectId}_${index}_${Date.now().toString(36)}`,
-    projectId,
+    id: `mock_crawl_${websiteId}_${index}_${Date.now().toString(36)}`,
+    websiteId,
     extractedAt: now,
     createdAt: now,
     updatedAt: now

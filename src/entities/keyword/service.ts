@@ -9,7 +9,7 @@ type FetchKeywordOptions = {
   limit?: number
 }
 
-export function fetchKeywords(projectId: string, options: FetchKeywordOptions = {}) {
+export function fetchKeywords(websiteId: string, options: FetchKeywordOptions = {}) {
   const params = new URLSearchParams()
   const limit = options.limit && options.limit > 0 ? options.limit : 100
   params.set('limit', String(limit))
@@ -20,7 +20,7 @@ export function fetchKeywords(projectId: string, options: FetchKeywordOptions = 
     params.set('scope', options.scope)
   }
   return fetchJson<{ items: Keyword[]; nextCursor?: string }>(
-    `/api/projects/${projectId}/keywords?${params.toString()}`
+    `/api/websites/${websiteId}/keywords?${params.toString()}`
   )
 }
 

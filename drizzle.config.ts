@@ -2,7 +2,8 @@ import 'dotenv/config'
 import { defineConfig } from 'drizzle-kit'
 
 export default defineConfig({
-  schema: './src/entities/**/db/schema.ts',
+  // Include all entity DB schema files
+  schema: ['./src/entities/**/db/*.ts'],
   out: './drizzle',
   dialect: 'postgresql',
   dbCredentials: {

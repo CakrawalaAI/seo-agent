@@ -6,20 +6,20 @@ async function main() {
   const base = process.env.APP_URL || 'http://localhost:3000'
   const siteUrl = process.env.SMOKE_SITE_URL || 'https://example.com'
   const orgId = process.env.SMOKE_ORG_ID || 'org-dev'
-  const name = process.env.SMOKE_PROJECT_NAME || 'Smoke Project'
+  const name = process.env.SMOKE_PROJECT_NAME || 'Smoke Website'
 
-  // Create project (E2E_NO_AUTH=1 recommended for local)
-  const createRes = await fetch(new URL('/api/projects', base).toString(), {
+  // Create website (E2E_NO_AUTH=1 recommended for local)
+  const createRes = await fetch(new URL('/api/websites', base).toString(), {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ orgId, name, siteUrl, defaultLocale: 'en-US' })
+    body: JSON.stringify({ url: siteUrl, defaultLocale: 'en-US' })
   })
   const createBody: any = await createRes.json().catch(() => ({}))
   if (!createRes.ok) {
     console.error('create project failed', createBody)
     process.exit(1)
   }
-  const projectId: string | undefined = createBody?.project?.id
+  const projectId: string | undefined = createBody?.website?.id
   if (!projectId) {
     console.error('missing project id in create response', createBody)
     process.exit(1)
@@ -29,7 +29,7 @@ async function main() {
   const deadline = Date.now() + Math.max(60_000, Number(process.env.SMOKE_TIMEOUT_MS || '180000'))
   let last: any = null
   while (Date.now() < deadline) {
-    const snapRes = await fetch(new URL(`/api/projects/${projectId}/snapshot`, base).toString())
+    const snapRes = await fetch(new URL(`/api/websites/${projectId}/snapshot`, base).toString())
     last = await snapRes.json().catch(() => ({}))
     const hasSummary = Boolean(last?.latestDiscovery?.summaryJson)
     const planCount = Array.isArray(last?.planItems) ? last.planItems.length : 0
@@ -44,4 +44,3 @@ async function main() {
 }
 
 main().catch((e) => { console.error(e); process.exit(1) })
-

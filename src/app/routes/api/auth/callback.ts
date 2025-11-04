@@ -6,6 +6,7 @@ import { hasDatabase, getDb } from '@common/infra/db'
 import { session } from '@common/infra/session'
 import { orgs, orgMembers } from '@entities/org/db/schema'
 import { eq } from 'drizzle-orm'
+import { log } from '@src/common/logger'
 
 export const Route = createFileRoute('/api/auth/callback')({
   server: {
@@ -19,9 +20,7 @@ export const Route = createFileRoute('/api/auth/callback')({
         if (!tmp?.state || tmp.state !== state) return httpError(400, 'Invalid state')
         const redirectTo = sanitizeRedirect(tmp.redirectTo || '/dashboard')
 
-        if ((process.env.SEOA_AUTH_DEBUG || '') === '1') {
-          console.info('[auth/callback:start]', { url: request.url, hasTempCookie: Boolean(parseTempCookie(request)?.state) })
-        }
+        // Debug logging removed (no flag)
         const tokens = await exchangeCodeForTokens(request, code)
         const profile = await fetchGoogleUser(tokens.access_token)
         const { userId } = await upsertUserFromGoogle({ sub: profile.sub, email: profile.email, name: profile.name, picture: profile.picture ?? null })
@@ -44,9 +43,7 @@ export const Route = createFileRoute('/api/auth/callback')({
         headers.set('Location', redirectTo)
         headers.append('Set-Cookie', cookie)
         headers.append('Set-Cookie', clearTempCookie())
-        if ((process.env.SEOA_AUTH_DEBUG || '') === '1') {
-          console.info('[auth/callback:session-set]', { email: profile.email, redirectTo, cookiePreview: String(cookie).slice(0, 48) + '...' })
-        }
+        // Debug logging removed (no flag)
         return new Response(null, { status: 302, headers })
       }),
     },

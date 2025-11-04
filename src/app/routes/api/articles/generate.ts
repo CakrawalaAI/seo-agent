@@ -1,6 +1,6 @@
 import { createFileRoute } from '@tanstack/react-router'
-import { json, httpError, safeHandler, requireSession, requireProjectAccess } from '@app/api-utils'
-import { planRepo } from '@entities/plan/repository'
+import { json, httpError, safeHandler, requireSession, requireWebsiteAccess } from '@app/api-utils'
+import { planRepo } from '@entities/article/planner'
 import { articlesRepo } from '@entities/article/repository'
 import { hasDatabase, getDb } from '@common/infra/db'
 import { articles } from '@entities/article/db/schema'
@@ -10,6 +10,7 @@ import { recordJobQueued, recordJobCompleted } from '@common/infra/jobs'
 import { requirePostEntitlement } from '@common/infra/entitlements'
 import { z } from 'zod'
 import { parseJson } from '@common/http/validate'
+import { log } from '@src/common/logger'
 
 export const Route = createFileRoute('/api/articles/generate')({
   server: {
@@ -25,17 +26,17 @@ export const Route = createFileRoute('/api/articles/generate')({
         let title: string | null = null
         let outline = null
 
-        if (hasDatabase()) { try { const db = getDb(); const rows = await db.select().from(articles).where(eq(articles.id, String(planItemId))).limit(1); const row: any = rows?.[0]; if (row) { projectId = row.projectId as string; title = String(row.title || '') } } catch {} }
+        if (hasDatabase()) { try { const db = getDb(); const rows = await db.select().from(articles).where(eq(articles.id, String(planItemId))).limit(1); const row: any = rows?.[0]; if (row) { projectId = (row.websiteId as string) || (row.projectId as string); title = String(row.title || '') } } catch {} }
 
         if (!projectId || !title) {
           const found = await planRepo.findById(String(planItemId))
           if (!found) return httpError(404, 'Plan item not found')
-          projectId = found.projectId
+          projectId = found.websiteId
           title = found.item.title
           outline = found.item.outlineJson ?? null
         }
 
-        await requireProjectAccess(request, String(projectId))
+        await requireWebsiteAccess(request, String(projectId))
 
         // Enforce entitlements (centralized middleware)
         const activeOrgId = sess.activeOrg?.id
@@ -49,7 +50,7 @@ export const Route = createFileRoute('/api/articles/generate')({
           const totalCredits = Number(entitlements?.monthlyPostCredits ?? 0)
           const usedCredits = Number(usage?.postsUsed ?? 0)
           if (totalCredits > 0 && usedCredits / totalCredits >= 0.9) {
-            console.warn('[Billing] Usage approaching limit', {
+            log.warn('[Billing] Usage approaching limit', {
               orgId: activeOrgId,
               used: usedCredits + 1,
               total: totalCredits
@@ -61,7 +62,7 @@ export const Route = createFileRoute('/api/articles/generate')({
         if (queueEnabled()) {
           const jobId = await publishJob({
             type: 'generate',
-            payload: { projectId: String(projectId), planItemId: String(planItemId) }
+            payload: { websiteId: String(projectId), planItemId: String(planItemId) }
           })
           recordJobQueued(String(projectId), 'generate', jobId)
           return json({ jobId }, { status: 202 })
@@ -71,7 +72,7 @@ export const Route = createFileRoute('/api/articles/generate')({
         const jobId = `job_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`
         recordJobQueued(String(projectId), 'generate', jobId)
         const draft = await articlesRepo.createDraft({
-          projectId: String(projectId),
+          websiteId: String(projectId),
           planItemId: String(planItemId),
           title: String(title),
           outline: Array.isArray(outline) ? outline : undefined

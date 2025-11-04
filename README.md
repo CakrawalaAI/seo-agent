@@ -29,6 +29,27 @@ CLI examples
 - seo integration-add-webflow --project <id> --site site --collection col
 - seo article-publish --article <id> --integration <integrationId>
 
+Testing & Validation
+- bun test – runs unit/integration suite (ensures APIs import, bundle helpers, worker processors, CLI commands)
+- bun run typecheck – TypeScript type safety
+- bun run lint – Biome linting
+- bunx vite build --mode=production – ensures client build compiles
+- bun run smoke – hits /api/health
+- Vitest suites under tests/system verify docs consistency & provider stubs
+
+Deployment Notes
+- Ensure PostgreSQL and RabbitMQ accessible via DATABASE_URL and RABBITMQ_URL
+- No bundle directory required. Stateless across instances
+- Configure provider API keys for production (OpenAI, DataForSEO, Exa, Resend)
+- Set SEOA_QUEUE_NAME per worker type (seo_jobs.crawler, seo_jobs.general)
+- Set SESSION_SECRET, ADMIN_EMAILS, and CMS credentials as needed
+
+Documentation
+- docs/erd.md – Entity schemas and process contracts
+- docs/sequence-diagram.md – Complete flows, architecture, provider touchpoints
+- docs/pages.md – Route inventory and UI layouts
+- docs/notes.md – Ad-hoc development notes
+
 Notes
-- Auth/Billing are dev-mocked; providers (crawler/metrics) are seeded; repos are in-memory.
-- Swap to Drizzle/Postgres and real providers for production.
+- Auth/Billing are dev-mocked; providers (crawler/metrics) are seeded; repos are in-memory
+- Swap to Drizzle/Postgres and real providers for production

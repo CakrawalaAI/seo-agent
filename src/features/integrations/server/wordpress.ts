@@ -3,6 +3,7 @@ import type { IntegrationConfig } from '@entities/integration/domain/integration
 import type { CMSConnector, PublishResult } from './interface'
 import { config } from '@common/config'
 import { buildPortableArticle } from './interface'
+import { log } from '@src/common/logger'
 
 /**
  * WordPress connector configuration.
@@ -36,7 +37,7 @@ class WordPressConnector implements CMSConnector {
     const wpConfig = cfg as WordPressConfig
 
     if (!wpConfig.siteUrl || !wpConfig.apiToken) {
-      console.error('[WordPress] Missing required config: siteUrl, apiToken')
+      log.error('[WordPress] Missing required config: siteUrl, apiToken')
       return null
     }
 
@@ -68,7 +69,7 @@ class WordPressConnector implements CMSConnector {
     if (!config.providers.allowStubs) {
       throw new Error('WordPress connector not implemented; enable stubs in dev or use webhook/webflow')
     }
-    console.warn('[WordPress] Connector not yet implemented, returning stub')
+    log.warn('[WordPress] Connector not yet implemented, returning stub')
     return {
       externalId: `wp_stub_${article.id}`,
       url: `${wpConfig.siteUrl}/${portable.slug}`,

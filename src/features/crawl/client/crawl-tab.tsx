@@ -1,4 +1,4 @@
-import { formatDateTime } from '@features/projects/shared/helpers'
+import { formatDateTime } from '@src/common/ui/format'
 import { Button } from '@src/common/ui/button'
 import { Table, TableBody, TableHead, TableHeader, TableRow, TableCell } from '@src/common/ui/table'
 import type { CrawlPage } from '@entities'
@@ -12,7 +12,7 @@ type CrawlTabProps = {
 }
 
 export function CrawlTab({ items, isLoading, onRefresh, onStartCrawl, isStarting }: CrawlTabProps) {
-  const lastExtractedAt = items[0]?.extractedAt ?? null
+  const lastExtractedAt = (items[0] as any)?.createdAt ?? null
 
   return (
     <section className="space-y-4">
@@ -67,10 +67,10 @@ export function CrawlTab({ items, isLoading, onRefresh, onStartCrawl, isStarting
                     {page.httpStatus ?? '—'}
                   </TableCell>
                   <TableCell className="px-4 py-3 text-sm text-foreground">
-                    {page.metaJson?.title ?? '—'}
+                    {(page as any).title ?? '—'}
                   </TableCell>
                   <TableCell className="px-4 py-3 text-sm text-muted-foreground">
-                    {formatDateTime(page.extractedAt)}
+                    {formatDateTime((page as any).createdAt)}
                   </TableCell>
                 </TableRow>
               ))}

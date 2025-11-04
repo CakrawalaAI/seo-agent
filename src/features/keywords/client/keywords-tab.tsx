@@ -1,4 +1,4 @@
-import { formatCurrency, formatDateTime, formatNumber } from '@features/projects/shared/helpers'
+import { formatCurrency, formatDateTime, formatNumber } from '@src/common/ui/format'
 import type { Keyword } from '@entities'
 import type { KeywordScope } from '@entities/keyword/domain/keyword'
 import { deriveScope } from '@entities/keyword/domain/keyword'

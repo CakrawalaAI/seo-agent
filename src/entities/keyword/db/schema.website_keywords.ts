@@ -1,0 +1,33 @@
+import { pgTable, text, integer, jsonb, timestamp, uniqueIndex, boolean } from 'drizzle-orm/pg-core'
+import { websites } from '@entities/website/db/schema'
+
+export const websiteKeywords = pgTable(
+  'website_keywords',
+  {
+    id: text('id').primaryKey(),
+    websiteId: text('website_id')
+      .notNull()
+      .references(() => websites.id, { onDelete: 'cascade' }),
+    phrase: text('phrase').notNull(),
+    phraseNorm: text('phrase_norm').notNull(),
+    languageCode: text('language_code').notNull(),
+    languageName: text('language_name').notNull(),
+    locationCode: integer('location_code').notNull(),
+    locationName: text('location_name').notNull(),
+    provider: text('provider').notNull().default('dataforseo.labs.keyword_ideas'),
+    include: boolean('include').notNull().default(false),
+    starred: integer('starred').notNull().default(0),
+    // metrics columns
+    searchVolume: integer('search_volume'),
+    cpc: text('cpc'), // keep as text to avoid decimal issues; parse in UI when needed
+    competition: text('competition'),
+    difficulty: integer('difficulty'),
+    vol12mJson: jsonb('vol_12m_json').$type<Array<{ month: string; searchVolume: number }> | null>().default(null),
+    impressionsJson: jsonb('impressions_json').$type<Record<string, unknown> | null>().default(null),
+    rawJson: jsonb('raw_json').$type<Record<string, unknown> | null>().default(null),
+    metricsAsOf: timestamp('metrics_as_of', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow()
+  },
+  (t) => ({ uniq: uniqueIndex('uniq_website_kw_geo_lang').on(t.websiteId, t.phraseNorm, t.languageCode, t.locationCode) })
+)

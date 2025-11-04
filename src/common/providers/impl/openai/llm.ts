@@ -79,7 +79,11 @@ export const openAiLlm: LlmProvider = {
     }
     const { OpenAI } = await import('openai')
     const client = new OpenAI({ apiKey: key })
-    const prompt = `Write an SEO article with the given outline and evidence. Return HTML only.\nTitle: ${args.title}\nOutline: ${JSON.stringify(args.outline)}\nSERP:\n${args.serpDump ?? ''}\nCompetitors:\n${args.competitorDump ?? ''}`
+    const citeList = (args.citations || []).map((c, i) => `${i + 1}. ${c.title || ''} — ${c.url} — ${(c.snippet || '').slice(0,140)}`).join('\n')
+    const ytList = (args.youtube || []).map((y, i) => `${i + 1}. ${y.title || ''} — ${y.url}`).join('\n')
+    const imgList = (args.images || []).map((img, i) => `${i + 1}. ${img.src} ${img.alt ? '('+img.alt+')' : ''}`).join('\n')
+    const internalList = (args.internalLinks || []).map((l) => `${l.anchor || 'Related'} — ${l.url}`).join('\n')
+    const prompt = `You are writing a production‑ready SEO article. Return valid semantic HTML only. Requirements:\n- H1 title must equal the Title.\n- Use provided Outline as H2/H3.\n- Naturally cite sources with numbered footnotes [1], [2] inline; append a References section with links.\n- Embed 1–2 Unsplash images as <figure> with <img src alt> and <figcaption>.\n- Embed the first YouTube URL as a responsive <iframe>.\n- Add 3–5 internal links where relevant.\n- Include JSON‑LD Article schema (script[type=application/ld+json]).\n- No markdown.\n\nBusiness Summary:\n${args.websiteSummary || ''}\n\nTitle: ${args.title}\nOutline JSON: ${JSON.stringify(args.outline)}\n\nSERP (top results excerpts):\n${args.serpDump ?? ''}\n\nCompetitors (optional):\n${args.competitorDump ?? ''}\n\nCitations:\n${citeList}\n\nYouTube:\n${ytList}\n\nUnsplash Images:\n${imgList}\n\nInternal Links:\n${internalList}`
     const resp = await client.chat.completions.create({ model: 'gpt-4o-mini', messages: [{ role: 'user', content: prompt }], temperature: 0.5 })
     const html = resp.choices?.[0]?.message?.content || ''
     return { bodyHtml: html }

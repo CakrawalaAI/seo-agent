@@ -4,7 +4,7 @@ import { CircleUserRound } from 'lucide-react'
 import clsx from 'clsx'
 import { Button } from '@src/common/ui/button'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@src/common/ui/dropdown-menu'
-import { ProjectSwitcher } from './project-switcher'
+import { WebsiteSwitcher } from './project-switcher'
 
 import {
   Sidebar,
@@ -58,11 +58,11 @@ export type DashboardShellProps = {
   actions?: React.ReactNode
   nav: DashboardNavGroup[]
   user?: DashboardUserSummary | null
-  projectSwitcher?: boolean
+  websiteSwitcher?: boolean
   children: React.ReactNode
 }
 
-export function DashboardShell({ title, subtitle, actions, nav, user, projectSwitcher = true, children }: DashboardShellProps) {
+export function DashboardShell({ title, subtitle, actions, nav, user, websiteSwitcher = true, children }: DashboardShellProps) {
   return (
     <SidebarProvider>
       <div className="flex min-h-screen bg-background text-foreground">
@@ -70,7 +70,7 @@ export function DashboardShell({ title, subtitle, actions, nav, user, projectSwi
           <SidebarHeader className="flex flex-col gap-2 text-base">
             <CircleUserRound className="h-5 w-5 text-sidebar-primary" />
             <span>SEO Agent</span>
-            {projectSwitcher ? <ProjectSwitcher /> : null}
+            {websiteSwitcher ? <WebsiteSwitcher /> : null}
           </SidebarHeader>
           <SidebarContent>
             {nav.map((group) => (
@@ -163,7 +163,7 @@ function UserSummary({ user }: { user?: DashboardUserSummary | null }) {
       <div className="flex items-center justify-between gap-3">
         <div className="text-xs text-sidebar-foreground/70">Not signed in</div>
         <a
-          href="/login"
+          href="/api/auth/login?redirect=/dashboard"
           className="ml-auto text-xs text-sidebar-foreground/70 underline hover:text-sidebar-foreground"
         >
           Sign in

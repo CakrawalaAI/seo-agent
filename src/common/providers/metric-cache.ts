@@ -3,12 +3,12 @@ type Entry = { metrics: { searchVolume?: number; difficulty?: number; cpc?: numb
 
 const store = new Map<Key, Entry>()
 
-function keyOf(phrase: string, locale?: string, location?: string, projectId?: string) {
-  return `${projectId ?? ''}|${phrase.toLowerCase()}|${locale ?? ''}|${location ?? ''}`
+function keyOf(phrase: string, locale?: string, location?: string, websiteId?: string) {
+  return `${websiteId ?? ''}|${phrase.toLowerCase()}|${locale ?? ''}|${location ?? ''}`
 }
 
-export function getMetric(phrase: string, locale?: string, location?: string, projectId?: string) {
-  const k = keyOf(phrase, locale, location, projectId)
+export function getMetric(phrase: string, locale?: string, location?: string, websiteId?: string) {
+  const k = keyOf(phrase, locale, location, websiteId)
   const e = store.get(k)
   if (!e) return null
   if (Date.now() > e.expiresAt) {
@@ -23,9 +23,9 @@ export function setMetric(
   locale: string | undefined,
   location: string | undefined,
   metrics: { searchVolume?: number; difficulty?: number; cpc?: number },
-  projectId?: string,
+  websiteId?: string,
   ttlMs = 1000 * 60 * 60 * 24 * 7
 ) {
-  const k = keyOf(phrase, locale, location, projectId)
+  const k = keyOf(phrase, locale, location, websiteId)
   store.set(k, { metrics, expiresAt: Date.now() + Math.max(60_000, ttlMs) })
 }

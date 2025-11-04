@@ -1,9 +1,9 @@
 // @ts-nocheck
 import { createFileRoute } from '@tanstack/react-router'
-import { json, httpError, safeHandler, requireSession, requireProjectAccess } from '@app/api-utils'
-import { integrationsRepo } from '@entities/integration/repository'
+import { json, httpError, safeHandler, requireSession } from '@app/api-utils'
 import { hasDatabase, getDb } from '@common/infra/db'
-import { projectIntegrations } from '@entities/integration/db/schema'
+import { websiteIntegrations } from '@entities/integration/db/schema.website'
+import { eq } from 'drizzle-orm'
 
 export const Route = createFileRoute('/api/integrations/$integrationId/')({
   server: {
@@ -11,37 +11,32 @@ export const Route = createFileRoute('/api/integrations/$integrationId/')({
       PATCH: safeHandler(async ({ params, request }) => {
         await requireSession(request)
         const body = await request.json().catch(() => ({}))
-        const current = await integrationsRepo.get(params.integrationId)
-        if (current) await requireProjectAccess(request, String(current.projectId))
-        if (hasDatabase()) {
-          try {
-            const db = getDb()
-            await db
-              .update(projectIntegrations)
-              .set({ status: body?.status, configJson: body?.config ?? null, updatedAt: new Date() as any })
-              // @ts-ignore
-              .where((projectIntegrations as any).id.eq(params.integrationId))
-          } catch {}
-        }
-        const updated = await integrationsRepo.update(params.integrationId, { status: body?.status, configJson: body?.config ?? null })
-        if (!updated && !current) return httpError(404, 'Integration not found')
-        return json(updated ?? { id: params.integrationId })
+        if (!hasDatabase()) return httpError(404, 'Integration not found')
+        const db = getDb()
+        await db
+          .update(websiteIntegrations)
+          .set({
+            status: body?.status,
+            configJson: body?.config ? JSON.stringify(body.config) : null,
+            updatedAt: new Date() as any
+          })
+          .where(eq(websiteIntegrations.id, params.integrationId))
+        const [row] = await db
+          .select()
+          .from(websiteIntegrations)
+          .where(eq(websiteIntegrations.id, params.integrationId))
+          .limit(1)
+        if (!row) return httpError(404, 'Integration not found')
+        return json(row)
       }),
       DELETE: safeHandler(async ({ params, request }) => {
         await requireSession(request)
-        const current = await integrationsRepo.get(params.integrationId)
-        if (current) await requireProjectAccess(request, String(current.projectId))
-        if (hasDatabase()) {
-          try {
-            const db = getDb()
-            // @ts-ignore
-            await db.delete(projectIntegrations).where((projectIntegrations as any).id.eq(params.integrationId))
-          } catch {}
-        }
-        const ok = await integrationsRepo.remove(params.integrationId)
-        if (!ok && !current) return httpError(404, 'Integration not found')
+        if (!hasDatabase()) return httpError(404, 'Integration not found')
+        const db = getDb()
+        await db.delete(websiteIntegrations).where(eq(websiteIntegrations.id, params.integrationId))
         return new Response(null, { status: 204 })
       })
     }
   }
 })
+

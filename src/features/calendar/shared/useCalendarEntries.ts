@@ -1,7 +1,8 @@
 import { useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { getPlanItems, getProjectArticles } from '@entities/project/service'
-import type { Article, PlanItem } from '@entities'
+import { getPlanItems, getWebsiteArticles } from '@entities/website/service'
+import type { Article } from '@entities'
+import type { PlanItem } from '@entities/article/planner'
 
 export type CalendarEntry = {
   id?: string
@@ -18,21 +19,21 @@ function monthWindow(date: Date) {
   return { start, end }
 }
 
-export function useCalendarEntries(projectId: string | null, monthCursor: Date) {
+export function useCalendarEntries(websiteId: string | null, monthCursor: Date) {
   const { start, end } = monthWindow(monthCursor)
   const plan = useQuery<{ items: PlanItem[] }>({
-    queryKey: ['plan', projectId],
-    queryFn: () => getPlanItems(projectId!),
-    enabled: Boolean(projectId)
+    queryKey: ['plan', websiteId],
+    queryFn: () => getPlanItems(websiteId!),
+    enabled: Boolean(websiteId)
   })
   const arts = useQuery<{ items: Article[] }>({
-    queryKey: ['articles', projectId],
-    queryFn: () => getProjectArticles(projectId!),
-    enabled: Boolean(projectId)
+    queryKey: ['articles', websiteId],
+    queryFn: () => getWebsiteArticles(websiteId!),
+    enabled: Boolean(websiteId)
   })
 
   const entries = useMemo<CalendarEntry[]>(() => {
-    if (!projectId) return []
+    if (!websiteId) return []
     const items = plan.data?.items ?? []
     const articles = arts.data?.items ?? []
     const byPlan = new Map<string, Article>()
@@ -40,15 +41,15 @@ export function useCalendarEntries(projectId: string | null, monthCursor: Date) 
       byPlan.set(a.id, a)
     }
     const within = items.filter((i) => {
-      const d = new Date(i.plannedDate)
+      const d = new Date((i as any).scheduledDate)
       return d >= start && d <= end
     })
     return within.map((i) => {
       const a = byPlan.get(i.id)
       const status: CalendarEntry['status'] = a?.status === 'published' ? 'published' : a ? 'scheduled' : 'queued'
-      return { id: a?.id, articleId: a?.id, planItemId: i.id, date: i.plannedDate, title: i.title, status }
+      return { id: a?.id, articleId: a?.id, planItemId: i.id, date: (i as any).scheduledDate, title: i.title, status }
     })
-  }, [projectId, plan.data?.items, arts.data?.items, start.getTime(), end.getTime()])
+  }, [websiteId, plan.data?.items, arts.data?.items, start.getTime(), end.getTime()])
 
   return { entries, isLoading: plan.isLoading || arts.isLoading }
 }

@@ -1,4 +1,4 @@
-import type { ProjectIntegration, IntegrationStatus } from '@entities'
+import type { WebsiteIntegration, IntegrationStatus } from '@entities'
 
 export type IntegrationAvailability = 'ga' | 'beta' | 'planned'
 
@@ -40,10 +40,10 @@ export type IntegrationManifest = {
 
 export type IntegrationViewStatus = IntegrationStatus | 'not_connected' | 'coming_soon'
 
-export type ProjectIntegrationView = {
+export type WebsiteIntegrationView = {
   id: string | null
   manifest: IntegrationManifest
-  integration: ProjectIntegration | null
+  integration: WebsiteIntegration | null
   status: IntegrationViewStatus
   isActive: boolean
   isConfigured: boolean

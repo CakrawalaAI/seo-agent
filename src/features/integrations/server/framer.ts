@@ -3,6 +3,7 @@ import type { IntegrationConfig } from '@entities/integration/domain/integration
 import type { CMSConnector, PublishResult } from './interface'
 import { config } from '@common/config'
 import { buildPortableArticle } from './interface'
+import { log } from '@src/common/logger'
 
 /**
  * Framer connector configuration.
@@ -33,7 +34,7 @@ class FramerConnector implements CMSConnector {
     const framerConfig = cfg as FramerConfig
 
     if (!framerConfig.siteId) {
-      console.error('[Framer] Missing required config: siteId')
+      log.error('[Framer] Missing required config: siteId')
       return null
     }
 
@@ -48,7 +49,7 @@ class FramerConnector implements CMSConnector {
     if (!config.providers.allowStubs) {
       throw new Error('Framer connector not implemented; enable stubs in dev or use webhook/webflow')
     }
-    console.warn('[Framer] Connector not yet implemented, returning stub')
+    log.warn('[Framer] Connector not yet implemented, returning stub')
     return {
       externalId: `framer_stub_${article.id}`,
       url: `https://${framerConfig.siteId}.framer.website/${portable.slug}`,
@@ -58,7 +59,7 @@ class FramerConnector implements CMSConnector {
 
   async test(config: IntegrationConfig): Promise<boolean> {
     // No way to test without actual API
-    console.warn('[Framer] Test not implemented (no public API)')
+    log.warn('[Framer] Test not implemented (no public API)')
     return false
   }
 }

@@ -2,13 +2,15 @@ import { getSerpProvider } from '@common/providers/registry'
 import { config } from '@common/config'
 import { existsSync, readFileSync, mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { createHash } from 'node:crypto'
 
 function monthOf(date = new Date()) {
   return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}`
 }
 
 export async function ensureSerp(opts: {
-  canon: { id: string; phrase: string; language: string }
+  phrase: string
+  language: string
   locationCode: number
   device?: 'desktop' | 'mobile'
   topK?: number
@@ -28,7 +30,7 @@ export async function ensureSerp(opts: {
   // 2) Provider call
   const provider = getSerpProvider()
   const snap = await provider.ensure({
-    canon: { phrase: opts.canon.phrase, language: opts.canon.language },
+    canon: { phrase: opts.phrase, language: opts.language },
     locationCode: opts.locationCode,
     device: opts.device,
     topK: opts.topK ?? defaultTopK,
@@ -47,8 +49,10 @@ function ensureDir(dir: string) {
   try { mkdirSync(dir, { recursive: true }) } catch {}
 }
 
-function cacheKey(opts: { canon: { id: string }; locationCode: number; device?: string; topK?: number }, defaultTopK: number) {
-  return `${opts.canon.id}_${opts.locationCode}_${opts.device || 'desktop'}_${opts.topK ?? defaultTopK}`
+function cacheKey(opts: { phrase: string; language: string; locationCode: number; device?: string; topK?: number }, defaultTopK: number) {
+  const keyBase = `${opts.phrase}|${opts.language}`
+  const hash = createHash('sha1').update(keyBase).digest('hex').slice(0, 12)
+  return `${hash}_${opts.locationCode}_${opts.device || 'desktop'}_${opts.topK ?? defaultTopK}`
 }
 
 function cachePath(key: string) {

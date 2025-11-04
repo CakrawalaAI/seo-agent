@@ -1,74 +1,639 @@
-# SEO Agent – Sequence Overview (Bundle Architecture)
+# SEO Agent – Sequence & Architecture (DB‑Only)
 
-This document aligns the user journeys with the bundle-backed workflow introduced in November 2025. All long-running state is recorded in RabbitMQ and `.data/bundle`, while the database stores durable references only.
+All long‑running state is recorded in RabbitMQ; artifacts persist in Postgres only (stateless workers).
 
-## Actors
-- **User (web/CLI)**
-- **HTTP API** (`@tanstack/react-router` file routes)
-- **RabbitMQ** (`seo.jobs` exchange with `seo_jobs.crawler` & `seo_jobs.general` queues)
-- **Workers** (`crawler`, `general` processors)
-- **External Providers** (Playwright, DataForSEO, OpenAI, Exa, CMS)
-- **Bundle Store** (`.data/bundle/{projectId}`)
-- **Postgres** (core tables described in ERD)
+## 0. Architecture Snapshot (Nov 2025)
 
-## Flow A – Project Onboarding → Keyword Plan
+**Runtime:** TanStack Start (React Router) + Bun workers.
+**Persistence:** PostgreSQL (DB-only; no filesystem bundles).
+**Queues:** RabbitMQ (`seo.jobs` topic exchange).
+**Providers:** Playwright (crawl), DataForSEO (keywords/metrics/SERP), OpenAI (LLM), Exa (research), CMS drivers (webhook, Webflow, WordPress).
+
+**Directory Roles:**
+- `src/common` – infra utilities (HTTP, session, queue, provider registry)
+- `src/entities/*` – domain models + repository facades (DB access)
+- `src/features/*` – UI + server logic per feature
+- `src/blocks` – composed UI components
+- `src/pages/*` & `src/app/routes/*` – loaders/controllers + TanStack route definitions
+- `src/worker` – worker entrypoints & processors
+- `tests` – Vitest & Playwright test definitions
+
+**Auth:** Google OAuth via server-side code exchange. Stateless session cookie (`seoa_session`, signed). `E2E_NO_AUTH=1` bypasses guards in tests.
+
+---
+
+## 1. Actors
+
+- **User** (web/CLI)
+- **HTTP API** (TanStack Start file routes)
+- **Postgres** (see `docs/erd.md` for full schema)
+- **RabbitMQ** (`seo.jobs` exchange; queues: `seo_jobs.crawler`, `seo_jobs.general`)
+- **Workers** (crawler, general)
+- **External Providers:**
+  - Playwright (headless crawl)
+  - DataForSEO (keyword discovery, metrics, SERP)
+  - OpenAI (LLM for summaries, keywords, article generation)
+  - Exa (research)
+  - CMS (webhook, Webflow, WordPress, etc.)
+
+---
+## 1A. Crawl BFS + Map-Reduce (DB-Only)
+
+Design (concise)
+- Start at landing page (same-host only, exclude subdomains)
+- Ignore robots.txt (owner consent via submission)
+- BFS with limits: N pages, maxDepth, maxBreadth per node
+- Map: per-page plain-text `content` + 2–3 sentence `summary`
+- Reduce: concat page summaries → LLM → plain-text `website.summary`
+
+Algorithm (BFS)
+- Inputs: `rootUrl`, `N=50` (`env.crawlBudgetPages`), `maxDepth=2` (`env.crawlMaxDepth`), `maxBreadth=20` (`config.crawl.maxBreadth`)
+- State: `queue[{url, depth}]`, `seen`
+- Loop until visited < N and queue not empty:
+  - dequeue `{url, depth}`; if `depth>maxDepth` or seen → continue
+  - fetch/render (Playwright preferred; fallback to fetch)
+  - extract `title`, `bodyText`; links = anchors → normalize → filter → dedupe
+  - `content = title + "\\n\\n" + bodyText`
+  - `summary = summarizePage(content)` (plain text)
+  - persist row in `crawl_pages`
+  - enqueue up to `maxBreadth` normalized same-host links with `depth+1`
+
+URL Rules
+- same host equality only; no subdomains
+- normalize: drop hash/query; collapse trailing slash
+- filter: skip assets (pdf/images/media) and noisy paths (auth, admin, search, tag/category floods)
+
+Reduce (site summary)
+- Build big text: for each page → `=== URL: <url> | Title: <title> ===\\n<summary>`
+- `summarizeWebsiteDump(siteUrl, bigText)` → `websites.summary`
+- Fallback: `summarizeSite(sample pages)` if dump fails
+
+DB Shape (crawl)
+- `crawl_runs(id, website_id, started_at, completed_at, created_at)`
+- `crawl_pages(id, website_id, run_id, url, http_status, title TEXT, content TEXT, summary TEXT, created_at)`
+- Removed legacy: `meta_json`, `headings_json`, `content_text`, `page_summary_json`
+
+Rationale
+- Plain-text storage simplifies pipelines and reduces JSON friction
+- BFS biases shallow, discoverable pages; penalizes deep rarely-visited paths naturally
+
+---
+
+## 2. Flow A – Dashboard Onboarding → Crawl → Keywords → Plan
+
+### 2.1 User Journey (Dashboard)
+
+**Purpose:** Convert landing visitors into active websites with ready content plan.
+
+**Funnel Steps:**
+1. **Landing form** (`/` hero)
+   - Input: website URL
+   - Validate domain format + reachability (HEAD fetch w/ timeout)
+   - Submit → stash payload in OAuth `state` (`{ redirect:'/dashboard/ensure', domain, slug }`)
+   - If session exists, skip OAuth → `POST /api/websites`
+
+2. **OAuth Callback** (`/api/auth/callback/google`)
+   - Parse state, hydrate session cookie
+   - Redirect to `/dashboard/ensure?site={siteUrl}`
+   - On denial → return to landing with toast "Sign-in cancelled"
+
+3. **Ensure Route** (`/dashboard/ensure?site=<url>`, server-owned)
+   - Require authenticated session with active org
+   - Normalize site from query (canonicalize host; compute slug/name server-side)
+   - Insert website (org-scoped) or reuse existing
+   - Update session `activeWebsiteId`, enqueue crawl job
+   - Redirect to `/dashboard?website={id}`
+
+4. **Dashboard** (`/dashboard?website={id}`)
+   - Dashboard shows Website Status steps + Business Summary
+   - Snapshot fetched via React Query (30s refetch) for crawl/keywords/plan status
+
+5. **Crawl Animation**
+   - While snapshot lacks `crawl_pages` rows: show faux discovery list (300–500 ms cadence)
+   - Switch to real data once `crawl_pages` populated; show recent URLs with status chip
+   - Progress meter from representatives count (if available)
+
+6. **Keyword Animation**
+   - Trigger when `website_keywords` count > 0
+   - Stream top keyword tuples (`keyword | metrics`) in ticker
+
+7. **Plan Summary Card**
+   - When `articles` table gains rows, swap to plan summary card
+   - Display first publish date, number scheduled, CTA `View content plan`
+   - Provide inline tip to connect CMS integration; link to settings
+
+8. **Completion Redirect**
+   - On first `articles.status='scheduled'`, auto-redirect to `/dashboard`
+   - Persist query flag `?onboarding=done` so dashboard can show welcome banner + next steps checklist
+
+**Onboarding States (visualized on Dashboard):**
+- `auth_required`: no session; redirect to landing
+- `url_required`: authenticated, no website created yet
+- `initializing`: website row exists, jobs enqueued
+- `crawling`: `crawl_pages` non-empty
+- `keywording`: `website_keywords` populated, articles empty
+- `planning`: articles queued exist, none scheduled
+- `ready`: scheduled article(s) present
+
+**Error Paths:**
+- OAuth denial → return to landing with toast "Sign-in cancelled"
+- Website create fails → display message + allow retry with same domain
+- Snapshot polling timeout (>2 min) → show fallback CTA to dashboard
+
+**Telemetry:**
+- Onboarding telemetry endpoint removed; events not recorded
+
+### 2.2 Backend Sequence (Init Loop)
+
 ```
-User              API            Postgres          RabbitMQ          Worker (crawler)         Bundle Store
- |  POST /api/projects  ->  INSERT projects/org if missing  ------------------------------>  (enqueue crawl job)
- |  202 Accepted <------------------------------------------ publish(crawl.{project})
- |  Poll snapshot (GET /api/projects/:id/snapshot) --------> SELECT projects + read bundle summary
- |                                                                                         startRun(project)
- |                                                                                         write crawl/pages.jsonl
- |                                                                                         write crawl/link-graph.json
- |                                                                                         publish(discovery.{project})
- |                                                                Worker (general)
- |                                                                - read crawl bundle
- |                                                                - summarize via LLM
- |                                                                - discover keywords (DataForSEO)
- |                                                                - ensure canon/metrics (Postgres)
- |                                                                - write keywords/*.jsonl
- |                                                                - publish(score.{project})
+User              API                  Postgres         RabbitMQ               Worker (crawler)                Worker (general)
+ |
+ |  POST /api/websites
+ | ------------>  INSERT websites      -----------------> publish(crawl.{website})
+ |                (org-scoped)
+ |  202 Accepted
+ |  <------------
+ |                                                            |
+ |                                                            └──> Crawler Worker:
+ |  Poll snapshot                                                  • Discover sitemap (index + child)
+ |  (GET /api/websites/:id/snapshot)                               • Clean URLs, dedupe, same host
+ | ----------------> SELECT websites                               • Rank representatives (LLM or first N≤100)
+ |  <--------------- + crawl status                                • Crawl reps (Playwright, 8 concurrent)
+ |                                                                  • Extract {title,meta,headings,content_text}
+ |                                                                  • Per-page LLM summary → page_summary_json
+ |                                                                  • INSERT crawl_runs, crawl_pages (DB only)
+ |                                                                  • Reduce all page summaries → websites.summary
+ |                                                                  • publish(discovery.{website}) ------------> Discovery Worker:
+ |                                                                                                                 • Seeds (LLM from summary, 10 terms)
+ |                                                                                                                 • One call: keyword_ideas/live (limit ≤30, include_serp_info=false)
+ |                                                                                                                 • Normalize phrase → UPSERT website_keywords (per website)
+ |                                                                                                                 • No global cache; no auto-refresh; SERP fetched later on article gen
+ |                                                                                                                 • Enqueue plan rebuild (if requested)
 ```
 
-`/api/projects/:id/snapshot` now aggregates:
-- queue depth from `logs/jobs.jsonl`
-- plan items from `articles` (`status='draft'` for scheduled entries)
-- crawl pages via bundle
-- latest discovery summary (`summary/site_summary.json`)
+**Snapshot Endpoint:**
+`/api/websites/:id/snapshot` aggregates: `websites.summary`, `website_keywords`, `articles`, `integrations`.
+Geo Defaults: `language_code`/`location_code` derived from `websites.defaultLocale` (e.g., en-US → en + 2840) with names mapped from DataForSEO lists.
 
-## Flow B – Daily Generation & Publishing
+### 2.3 Crawl Pipeline Detail
+
+**Input:** `websites.url`
+
+**Steps:**
+1. Fetch sitemap (index + child); clean URLs, dedupe, same host
+2. Rank representatives (LLM or fallback first N, N≤100)
+3. Crawl representatives (Playwright); extract `{title,meta,headings,content_text}`
+4. **Map:** LLM summarize each page → `crawl_pages.page_summary_json`
+5. **Reduce:** LLM summarize all page summaries → `websites.summary`
+
+**Defaults:**
+- N (representatives): 100
+- Model: from `SEOA_LLM_MODEL`
+- Playwright concurrency: 8; timeout/page: 12s
+
+**Storage (DB only):**
+- `crawl_runs(id, website_id, started_at, completed_at)`
+- `crawl_pages(id, website_id, run_id, url, http_status, title, content, summary, created_at)`
+- `websites.summary` (reduce over per‑page summaries)
+- `website_keywords(id, website_id, phrase_norm, language_code/name, location_code/name, search_volume, difficulty, cpc, competition, vol_12m_json, impressions_json, raw_json, metrics_as_of)`
+
+**Error Handling:**
+- If rank fails → take first N cleaned sitemap URLs
+- If page fetch fails → skip; continue
+- If per‑page summarize fails → store short excerpt as fallback in `page_summary_json`
+
+**Process Contract:**
+Input `websites.url` → Output `websites.summary`, `crawl_runs` + `crawl_pages`
+(See `docs/erd.md` for full schema)
+
+### 2.4 Keyword Generation (DB-only, Global Cache)
+
+**Goal:** Build reusable global keyword cache; websites point to global rows; fetch provider metrics only on cache miss.
+
+**Inputs:**
+- Website: `websites.summary`
+- Headings: sample from latest `crawl_pages`
+
+**Keyword Store (per website):**
+- `website_keywords(id, website_id, phrase_norm UNIQUE per site+geo+lang, include BOOLEAN, starred INT, metrics columns…)`
+
+**Steps:**
+1. **Seeds:** from website summary (LLM) + headings (parser)
+2. **Expand:** DataForSEO (real) or deterministic mock (default)
+3. **Canon:** normalize phrase
+4. **Metrics:** fetch and upsert volume/difficulty
+5. **Attach:** persist into `website_keywords` with default `include=false` (auto-include top picks)
+
+**Notes:**
+- No location/language/device dims; keyword identity is the string
+- TTL default 30d; background refresh can update metrics
+
+**Process Contract:**
+Input `websites.summary` (+ headings) → Output `website_keywords` (per‑site rows)
+
+---
+
+## 3. Flow B – Daily Scheduler (Generate & Publish)
+
+**Scope:**
+- Plan runway: keep 30 days of titles+outlines (QUEUED) ahead
+- Global policy: 3‑day generation buffer; daily publish when due
+- Maintain buffer: items with `scheduled_date ≤ today+3` move QUEUED → SCHEDULED by generating body
+- Publish: items with `scheduled_date ≤ today` and SCHEDULED
+- First‑run: if no SCHEDULED/PUBLISHED exist, publish today after generation
+- Entitlement: only within active subscription window; gate per `scheduled_date`
+
+**Triggers:**
+- Worker interval (default 24h; `SEOA_SCHEDULER_INTERVAL_MS` override)
+- Manual: `POST /api/schedules/run { websiteId }`
+
+**Selection Rules:**
+For each website with a plan:
+- **Outline runway:** planner ensures 1/day up to `today+30`; deletions leave gaps
+- **Generation buffer:** `status='queued'` and `scheduled_date ≤ today+3` and subscription active → enqueue `generate`
+- **First‑run publish:** none scheduled/published AND `scheduled_date===today` → publish after generate
+- **Normal publish:** `status='scheduled'` and `scheduled_date ≤ today` and allowed integration connected → enqueue `publish`
+
+**Subscription Gate:**
+A plan item is eligible only if the organization's subscription is active for the target date.
+Active when status is `active|trialing` and `scheduled_date <= activeUntil` (or `<= trialEndsAt` during trial).
+
+**Sequence:**
 ```
-Cron/User -> POST /api/schedules/run ---------------------------> enqueue(generate.{project})
-Worker (general)
-  - planRepo.list(project) (articles table)
-  - promote draft -> outline -> body via OpenAI
-  - ensure SERP context (file cache, DataForSEO)
-  - write articles/drafts/{id}.html/json
-  - record jobs.jsonl event(s)
-  - publish(enrich.{project})
-Worker (general – enrich)
-  - read crawl bundle for internal links
-  - run Exa for citations
-  - write articles/drafts/{id}.json enrichment
-  - optionally publish via project_integrations
+Cron/User                API                          RabbitMQ                      Worker (general)
+  |
+  |  POST /api/schedules/run
+  | ------------------------> enqueue(generate.{website}) ------------------->  Generate Worker:
+  |                                                                              • List articles (today..today+3)
+  |                                                                              • Filter by subscription active
+  |                                                                              • outline-if-missing → body via LLM
+  |                                                                              • UPDATE articles(status='scheduled', body_html)
+  |                                                                              • First-run: enqueue publish for today
+  |                                                                              • Normal publish: scheduled_date ≤ today -----> Publish Worker:
+  |                                                                                                                             • Fetch article + integration config
+  |                                                                                                                             • Build PortableArticle payload
+  |                                                                                                                             • Call connectorRegistry.publish(type, article, config)
+  |                                                                                                                             • Update articles(status='published', url, publish_date)
 ```
 
-All job transitions append to `.data/bundle/{project}/logs/jobs.jsonl`, which powers `/api/projects/:id/jobs`.
+**Worker Behavior:**
+- `runDailySchedules()` enqueues generate/publish; passes `publishAfterGenerate=true` on first run
+- Interval 24h default
 
-## Flow C – Snapshot APIs
-- **`GET /api/crawl/pages`**: reads `pages.jsonl` and filters client-side; DB authentication skipped in test mode (`E2E_NO_AUTH`).
-- **`GET /api/projects/:id/link-graph`**: serves `crawl/link-graph.json` nodes/edges.
-- **`GET /api/projects/:id/snapshot`**: combines:
-  - Plan items from `articles` (status `'draft'`)
-  - Integrations from `project_integrations`
-  - Keywords via `keywordsRepo.list`
-  - Crawl pages, representatives, discovery summary from bundle
-  - Queue depth from `logs/jobs.jsonl`
+**Process Contracts:**
+- **Plan/Schedule:** Input `website_keywords(include=true)` → Output `articles` rows (30‑day runway or full subscription period; round‑robin; deletions leave days empty)
+- **Generate Articles:** Input `articles(status=queued)` within global 3‑day buffer → Output `articles(status=scheduled, body_html)`
+- **Publish:** Input `articles(status=scheduled, scheduled_date<=today)` + integration → Output `articles(status=published, url)`
 
-## Error Handling & Observability
-- Workers append lineage (`logs/lineage.json`) per node run.
-- Job log JSONL includes status transitions (`queued`, `running`, `completed`, `failed`).
-- Providers expose stubs unless `config.providers.allowStubs === false`; third-party failures log to bundle and job log.
+**Notes:**
+- Planner fills 1/day across subscription; deletions leave gaps
+- DB only; no filesystem artifacts
 
-## Removal of Legacy Queues
-The previous database-backed `jobs`, `crawl_pages`, `link_graph`, and `serp_snapshot` tables have been deprecated. Any components that still query them should be migrated to the bundle helpers in `@entities/crawl/repository` or `@common/infra/jobs`.
+---
+
+## 4. Flow C – Integrations (Lifecycle & Publish Handshake)
+
+### 4.1 Integration Lifecycle
+
+**Architecture:**
+- `src/entities/integration/*`: persist website integrations (`website_integrations` table), OAuth tokens, status transitions
+- `src/features/integrations/server/*`: connector registry, runtime adapters, shared helpers (no React deps)
+- Routes, workers, CLI import from server package
+
+**Steps:**
+1. **Create:** `/api/integrations` stores `{websiteId,type,status,configJson}` via entities repo
+2. **Configure:** UI writes provider-specific `configJson` (sites, tokens, collection IDs, publish mode)
+3. **Verify:** routes call `connectorRegistry.test(type, configJson)`; status flips `connected|error`
+4. **Publish:** scheduler queues jobs → `connectorRegistry.publish(type, article, config)`; connectors map PortableArticle into provider API
+5. **Monitor:** workers update `status`, attach metadata (externalId, url), surface errors in integrations tab
+
+### 4.2 Publish Handshake Sequence
+
+```
+Daily Scheduler      Worker (publish)       Integration Registry      CMS Provider (Webflow/Webhook/WordPress)
+     |
+     |  publish.{article}
+     | -----------------> Publish Worker:
+     |                     • Fetch article
+     |                     • Fetch integration config
+     |                     • Build PortableArticle
+     |                     • registry.publish(type, article, config) -----> Connector Adapter:
+     |                                                                         • Validate config (zod schema)
+     |                                                                         • Map PortableArticle → CMS format
+     |                                                                         • POST to CMS API (with retry logic)
+     |                                                                         • Return {externalId, url, status}
+     |                     • Update articles(status='published', url, publish_date, externalId)
+     |                     • On error: retry 3x with exponential backoff (30–90s jitter)
+     |                     • On 410 response: disable integration
+```
+
+### 4.3 Connect Flows (per Provider Type)
+
+**Webhook (default):**
+- Inline form (URL + secret)
+- Submit → `POST /api/integrations` → optimistic card with switch enabled
+- Provide copyable sample payload + curl test snippet
+
+**OAuth providers** (Webflow, HubSpot, Squarespace, Wix):
+- `Connect` opens hosted OAuth window (new tab)
+- On callback server writes/updates integration + secrets, card auto-activates
+- UI listens on channel (Pusher/long-poll) or polls `/snapshot` until status=connected
+
+**API token providers** (Shopify, Ghost, WordPress app passwords, Notion, Unicorn Platform):
+- `Connect` opens drawer containing form
+- Submit saves config & immediately runs `test`; success flips to connected
+
+**REST API:**
+- Card links to docs and exposes test button only
+- Scheduling uses manual triggers (`publish` endpoint)
+- Treated as always available (no toggle)
+
+**Coming Soon:**
+- Disabled cards with CTA "Join Beta" collecting email via modal; no API calls
+
+### 4.4 PortableArticle & Webhook Baseline
+
+**PortableArticle** (see `src/common/connectors/interface.ts`) is authoritative payload for every connector.
+**Webhook connector** is zero-dependency baseline; all other integrations adapt the same structure.
+
+**Delivery:**
+`POST` JSON with headers:
+- `X-SEOA-Signature` (`sha256=` HMAC of body using stored secret)
+- `X-SEOA-Timestamp` (ISO8601)
+- `X-SEOA-Integration-Id`
+- `X-SEOA-Website-Id`
+
+**Body schema:**
+```json
+{
+  "meta": {
+    "integrationId": "int_xxx",
+    "websiteId": "site_xxx",
+    "articleId": "art_xxx",
+    "trigger": "schedule|manual|test",
+    "triggeredAt": "2025-11-02T00:12:34Z",
+    "dryRun": false,
+    "locale": "en-US"
+  },
+  "article": { /* PortableArticle */ }
+}
+```
+
+**Retry Policy:**
+- Receivers must return 2xx within 10s
+- Non-2xx triggers retry with exponential backoff (max 3 attempts, jitter 30–90s)
+- Respond `410` to disable integration
+
+**Connector Registry:**
+- `registry.ts` loads adapters from `server/*`
+- Each adapter implements `{type,name,publish(),test()?}` and may override `buildPortable(article)`
+- Shared helpers: slug/excerpt builders, media upload queue, rate-limit wrapper, OAuth token refresh hooks
+- Routes/workers invoke registry only; they never reach into individual connector modules
+
+**Configuration Patterns:**
+- Store provider fields inside `configJson` per `type`
+- Secrets (tokens, app passwords) encrypted at rest
+- All connectors validate config via zod schema before persisting
+- Each adapter exposes metadata via `getConnectorManifest()` describing config schema, supportsAutoActivate, supportsTest, supportsToggle
+- Status values: `connected` (auto-publish enabled), `disconnected` (config retained, no publishes), `error` (last test failed), `pending` (mid OAuth flow), `coming_soon` (not selectable)
+
+---
+
+## 5. Flow D – Snapshot APIs (Read-Only Views)
+
+**Snapshot Endpoints:**
+- `GET /api/crawl/pages?websiteId` → DB `crawl_pages` (recent crawl pages from DB)
+- `GET /api/websites/:id/snapshot` → Aggregator: `websites` + `website_keywords` + `articles` + `integrations`
+  - Computes: `status`, `isActive`, `isConfigured`, `supportsOneClick`, `missingCapabilities`
+  - When connector requires additional capabilities (images, categories), `missingCapabilities` array blocks activation + surfaces checklist
+
+**Usage:**
+- Dashboard health metrics
+- Onboarding polling (5s interval until ready state)
+- Integrations tab (card status updates)
+
+---
+
+## 6. Provider Touchpoints
+
+### 6.1 DataForSEO API Endpoints (9 Total)
+
+**Base URL:** `https://api.dataforseo.com`
+**Auth:** HTTP Basic Auth (export `DATAFORSEO_AUTH=$(printf '%s:%s' "$LOGIN" "$PASSWORD" | base64)`)
+
+**Discovery Phase (4 endpoints):**
+1. **Keywords For Site** (`/v3/dataforseo_labs/google/keywords_for_site/live`)
+   Purpose: Baseline discovery - what site currently ranks for
+   Usage: First step in discovery workflow (limit: 500)
+
+2. **Related Keywords** (`/v3/dataforseo_labs/google/related_keywords/live`)
+   Purpose: Semantic expansion - find conceptually related terms
+   Usage: 20 seeds → ~2000 phrases
+
+3. **Keyword Ideas** (`/v3/dataforseo_labs/google/keyword_ideas/live`)
+   Purpose: Broader expansion - Google autocomplete-style suggestions
+   Usage: 10 seeds → ~1000 phrases
+
+4. **Keyword Suggestions** (`/v3/dataforseo_labs/google/keyword_suggestions/live`)
+   Purpose: Autocomplete-style expansion (cheaper alternative)
+   Usage: Optional first step (configurable via `SEOA_DFS_SUGGESTIONS_FIRST=1`)
+
+**Metrics Phase (2 endpoints):**
+5. **Bulk Keyword Difficulty** (`/v3/dataforseo_labs/google/bulk_keyword_difficulty/live`)
+   Purpose: Cheap initial scoring to filter thousands of candidates
+   Cost: $0.003/keyword
+   Usage: Filter ~3k candidates → top 200 easiest
+
+6. **Keyword Overview** (`/v3/dataforseo_labs/google/keyword_overview/live`)
+   Purpose: Rich metrics (search volume, CPC, difficulty, 12-month trends)
+   Cost: $0.025/keyword
+   Usage: Enrich top 200 candidates with full metrics
+
+**Rankability Phase (1 endpoint):**
+7. **SERP Organic** (`/v3/serp/google/organic/live/regular`)
+   Purpose: Understand current rankings and competition
+   Cost: $0.050/keyword
+   Usage: Top 50 keywords for "SERP-lite" rankability analysis
+
+**Additional Endpoints:**
+8. **Search Volume** (`/v3/keywords_data/google_ads/search_volume/live`)
+   Status: ⚠️ Implemented but not actively used (Overview provides superset)
+
+9. **Keywords For Keywords** (`/v3/keywords_data/google_ads/keywords_for_keywords/live`)
+   Purpose: Expand seed keywords with related phrases from Google Ads data
+   Usage: Alongside suggestions endpoint (LLM seeds → ~1000 variations)
+
+**Cost-Optimized Discovery Funnel:**
+```
+Wide Discovery (4 endpoints)
+  ↓ ~3000 candidate keywords
+Bulk Difficulty Filter ($0.003/kw)
+  ↓ ~1000 with difficulty scores
+Sort by Easiest
+  ↓ Top 200
+Full Metrics Overview ($0.025/kw)
+  ↓ 200 with volume/CPC/trends
+SERP Analysis (top 50)
+  ↓ 50 with rankability scores
+Final Prioritization
+  ↓ Top 30 → content calendar
+```
+
+**Total cost per website:** ~$22.50 (70% savings vs calling overview on all candidates)
+
+**Reference data:** `src/common/providers/impl/dataforseo/geo.ts` (auto-generated from official CSV) powers website creation/settings selectors.
+
+**Smoke checks:**
+```bash
+bun test tests/common/dataforseo-client.spec.ts
+curl -H "Authorization: Basic $DATAFORSEO_AUTH" \
+     -H 'content-type: application/json' \
+     -d '{"data":[{"keyword":"demo","location_code":2840,"language_name":"English"}]}' \
+     https://api.dataforseo.com/v3/dataforseo_labs/google/keyword_overview/live
+```
+
+### 6.2 Other Providers
+
+**Playwright (crawl):**
+- Headless browser automation
+- Concurrency: 8 simultaneous pages
+- Timeout: 12s per page
+- Extracts: `{title, meta, headings, content_text}`
+
+**OpenAI (LLM):**
+- Model: from `SEOA_LLM_MODEL` (default: gpt-5-2025-08-07)
+- Token budget: 80% for summaries
+- Uses:
+  - Per-page summaries (map phase)
+  - Website summary (reduce phase)
+  - Seed keywords generation
+  - Article outline + body generation
+
+**Exa (research):**
+- AI-powered intelligent search and crawling
+- Used for content research and enrichment
+
+**CMS Drivers:**
+- See Connector Catalog (Appendix B) for full list
+
+---
+
+## 7. Error Handling & Observability
+
+**Job Transitions:**
+- Tracked in queue system: `queued`, `running`, `completed`, `failed`
+- No filesystem logs; all in DB
+
+**Worker Lineage:**
+- Workers append lineage (`logs/lineage.json`) per node run
+- Job log JSONL includes status transitions
+
+**Provider Stubs:**
+- Providers resolved through `src/common/providers/registry.ts`
+- Stub fallback controlled by `config.providers.allowStubs`
+- Metrics & SERP caching use Postgres caches (no file cache)
+- Third-party failures recorded in job logs (DB)
+
+**Crawl Error Handling:**
+- If rank fails → take first N cleaned sitemap URLs
+- If page fetch fails → skip; continue
+- If per‑page summarize fails → store short excerpt as fallback
+
+**Integration Error Handling:**
+- Failed test marks card `Error`; user sees toast + inline description
+- Card provides `Retry` button (calls `POST /api/integrations/$id/test`)
+- Publish failures trigger retry with exponential backoff (max 3 attempts, jitter 30–90s)
+- Respond `410` to disable integration
+
+---
+
+## 8. Storage Policy
+
+**DB-Only (Stateless):**
+- All crawl pages, summaries, keyword caches, article drafts, and logs persist in Postgres
+- No filesystem bundles in production
+- Stateless across instances
+
+**Queue Storage:**
+- RabbitMQ `seo.jobs` topic exchange
+- Queues: `seo_jobs.crawler` (crawl jobs), `seo_jobs.general` (discovery, generate, publish)
+- Worker queue name set via `SEOA_QUEUE_NAME` per worker type
+
+---
+
+## Appendix A: Selected API Routes
+
+- `POST /api/websites` → `{ website }`, enqueues crawl when queue enabled
+- `GET /api/websites/:id/snapshot` → DB aggregator for dashboard
+- `GET /api/crawl/pages?websiteId` → recent crawl pages from DB
+- `POST /api/keywords/generate` → queue discovery
+- `POST /api/plan/create` → rebuild plan (articles rows)
+- `POST /api/articles/generate` → queue article generation for a plan item
+- `POST /api/orgs { action: 'switch'|'invite' }` → switch org or emit stub invite email
+- `GET /api/blobs/:id` → blob store (auth required unless `SEOA_BLOBS_PUBLIC=1`)
+
+---
+
+## Appendix B: Connector Catalog (Competitor Parity)
+
+| Integration | Status | Auth | Publish Modes | Notes |
+|---|---|---|---|---|
+| REST API | GA | API key | Draft/Publish | Direct job control via `/api/articles/:id/publish` |
+| Webhook | GA | Shared secret | Draft/Publish | Reference implementation; fallback for custom stacks |
+| WordPress (.org/.com) | Beta | App password/JWT | Draft/Publish | Maps PortableArticle → `wp-json/wp/v2/posts` |
+| Webflow | Beta | OAuth token | Draft/Publish | Collection schema mapping per site |
+| Shopify | Planned | Admin API token | Draft | Blog + metafields support, images via asset API |
+| Ghost | Planned | Admin API key | Draft/Publish | HTML/Markdown dual support |
+| HubSpot | Planned | Private app token | Draft/Publish | CMS Blog v3 endpoint |
+| Notion | Planned | Internal integration | Draft | Block tree expansion |
+| Squarespace | Planned | OAuth client | Draft/Publish | Content API |
+| Wix | Planned | OAuth client | Draft/Publish | Content Manager |
+| Framer | Planned | Personal token | Draft | Falls back to webhook until public API matures |
+| Unicorn Platform | Planned | API key | Draft | REST endpoints / CSV import |
+| Zapier-style | Via webhook | n/a | Workflow-defined | Documented recipes only, no native connector |
+
+---
+
+## Appendix C: Configuration & Environment
+
+**Provider API Keys (production):**
+- `DATAFORSEO_AUTH` (or `DATAFORSEO_LOGIN` + `DATAFORSEO_PASSWORD`)
+- `OPENAI_API_KEY`
+- `EXA_API_KEY`
+- `RESEND_API_KEY`
+
+**Queue Configuration:**
+- `RABBITMQ_URL`
+- `SEOA_QUEUE_NAME` (per worker type: `seo_jobs.crawler`, `seo_jobs.general`)
+
+**Database:**
+- `DATABASE_URL`
+
+**Session & Auth:**
+- `SESSION_SECRET`
+- `ADMIN_EMAILS`
+- CMS credentials as needed per integration
+
+**Scheduler:**
+- `SEOA_SCHEDULER_INTERVAL_MS` (default: 24h)
+
+**Provider Control:**
+- `SEOA_LLM_MODEL` (default: gpt-5-2025-08-07)
+- `SEOA_DFS_TIMEOUT_MS` (default: 20s)
+- `SEOA_DFS_DEBUG=1` (enable debug logging)
+- `SEOA_DFS_SUGGESTIONS_FIRST=1` (use suggestions before For Keywords)
+- `SEOA_PROVIDER_KEYWORD_DISCOVERY=dataforseo` (override discovery provider)
+
+**Test Overrides:**
+- `E2E_NO_AUTH=1` (bypass auth guards in tests)
+- `SEOA_BLOBS_PUBLIC=1` (public blob access for testing)
+
+---
+
+## Notes
+
+- Terminology: "websites" only (never "projects")
+- Storage: "DB-only", "stateless" (no bundle/filesystem references)
+- Queue names: `seo.jobs` exchange, `seo_jobs.crawler`/`seo_jobs.general` workers
+- Mock flags: Reference AGENTS.md; don't duplicate flag docs here
+- Cross-refs: Sequence links to erd.md sections for produced tables; pages.md links to Snapshot APIs section here

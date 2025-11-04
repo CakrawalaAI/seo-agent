@@ -1,10 +1,11 @@
 // @ts-nocheck
 import { createFileRoute } from '@tanstack/react-router'
-import { json, httpError, safeHandler, requireSession, requireProjectAccess } from '@app/api-utils'
+import { json, httpError, safeHandler, requireSession, requireWebsiteAccess } from '@app/api-utils'
 import { keywordsRepo } from '@entities/keyword/repository'
 import { enrichMetrics } from '@common/providers/metrics'
 import { queueEnabled, publishJob } from '@common/infra/queue'
 import { recordJobQueued } from '@common/infra/jobs'
+import { log } from '@src/common/logger'
 
 export const Route = createFileRoute('/api/keywords/generate')({
   server: {
@@ -12,24 +13,21 @@ export const Route = createFileRoute('/api/keywords/generate')({
       POST: safeHandler(async ({ request }) => {
         await requireSession(request)
         const body = await request.json().catch(() => ({}))
-        const projectId = body?.projectId
+        const projectId = body?.websiteId || body?.projectId
         const locale = body?.locale || 'en-US'
-        if (!projectId) return httpError(400, 'Missing projectId')
-        await requireProjectAccess(request, String(projectId))
-        console.info('[api/keywords/generate] request', { projectId: String(projectId), locale: String(locale), queueEnabled: queueEnabled() })
+        const languageCode = typeof body?.languageCode === 'string' ? String(body.languageCode) : undefined
+        const locationCode = Number.isFinite(Number(body?.locationCode)) ? Number(body.locationCode) : undefined
+        if (!projectId) return httpError(400, 'Missing websiteId')
+        await requireWebsiteAccess(request, String(projectId))
+        log.info('[api/keywords/generate] request', { websiteId: String(projectId), locale: String(locale), queueEnabled: queueEnabled() })
         if (queueEnabled()) {
-          const jobId = await publishJob({ type: 'discovery', payload: { projectId: String(projectId), locale: String(locale) } })
+          const jobId = await publishJob({ type: 'discovery', payload: { websiteId: String(projectId), locale: String(locale), languageCode, locationCode } })
           recordJobQueued(String(projectId), 'discovery', jobId)
-          console.info('[api/keywords/generate] queued', { projectId: String(projectId), jobId })
+          log.info('[api/keywords/generate] queued', { websiteId: String(projectId), jobId })
           return json({ jobId }, { status: 202 })
         } else {
-        const { jobId } = await keywordsRepo.generate(String(projectId), String(locale))
-          // Enrich metrics via provider (no-op if repo already set)
-          const current = await keywordsRepo.list(String(projectId), { status: 'all', limit: 100 })
-          const enriched = await enrichMetrics(current.map((k) => ({ phrase: k.phrase })), String(locale), undefined, String(projectId))
-          keywordsRepo.upsertMetrics(String(projectId), enriched)
-          console.warn('[api/keywords/generate] queue disabled; generated locally', { projectId: String(projectId), jobId })
-          return json({ jobId }, { status: 202 })
+          // In DB-only + global-cache model, local generation path is deprecated; require queue
+          return json({ jobId: null }, { status: 202 })
         }
       })
     }

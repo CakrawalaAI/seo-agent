@@ -1,5 +1,24 @@
 import { dfsClient } from './impl/dataforseo/client'
 import { DATAFORSEO_DEFAULT_LOCATION_CODE } from './impl/dataforseo/geo'
+export {
+  locationNameFromCode,
+  locationCodeFromName,
+  languageNameFromCode,
+  languageCodeFromName,
+  languagesForLocation,
+  supportsLanguage,
+  coerceToCodes,
+  dataforseoGeo
+} from './impl/dataforseo/geo-mapper'
+export {
+  LOCATION_CODE_TO_NAME,
+  LOCATION_NAME_TO_CODE,
+  LANGUAGE_CODE_TO_NAME,
+  LANGUAGE_NAME_TO_CODE,
+  GEO_DICTIONARY,
+  getLocationOptions,
+  getLanguageOptions
+} from './impl/dataforseo/geo-mapper'
 
 export type SvInput = { phrase: string; locale?: string; location?: string }
 export type SvResult = { phrase: string; metrics: { searchVolume?: number; cpc?: number; competition?: number; asOf?: string } }

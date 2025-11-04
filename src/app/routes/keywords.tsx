@@ -8,10 +8,10 @@ export const Route = createFileRoute('/keywords')({
       const res = await fetch('/api/me', { headers: { accept: 'application/json' } })
       const data = res.ok ? await res.json() : null
       if (!data?.user) {
-        throw redirect({ to: '/login', search: { redirect: location.href || '/keywords' } })
+        throw redirect({ to: '/' })
       }
     } catch {
-      throw redirect({ to: '/login', search: { redirect: '/keywords' } })
+      throw redirect({ to: '/' })
     }
   },
   loader,

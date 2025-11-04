@@ -7,9 +7,8 @@ type Recipe = { nodes: Record<string, { onSuccess?: string[] }> }
 const DEFAULT_RECIPE: Recipe = {
   nodes: {
     crawl: { onSuccess: ['discovery'] },
-    // Per workflow: discovery → score → plan
-    discovery: { onSuccess: ['score'] },
-    score: { onSuccess: ['plan'] },
+    // Per-website model: discovery → plan
+    discovery: { onSuccess: ['plan'] },
     plan: { onSuccess: [] },
     generate: { onSuccess: [] },
     enrich: { onSuccess: [] }
@@ -61,11 +60,11 @@ export async function onJobSuccess(currentType: string, payload: Record<string, 
   const recipe = await loadRecipe()
   const node = recipe.nodes[currentType]
   if (!node || !Array.isArray(node.onSuccess) || node.onSuccess.length === 0) return
-  const projectId = String((payload as any)?.projectId || '')
+  const websiteId = String((payload as any)?.websiteId || (payload as any)?.projectId || '')
   for (const next of node.onSuccess) {
     // Avoid double-queueing enrich: generate processor already enqueues
     if (currentType === 'generate' && next === 'enrich') continue
-    const nextPayload: Record<string, unknown> = { projectId }
+    const nextPayload: Record<string, unknown> = { websiteId }
     if (next === 'plan') nextPayload.days = 30
     await publishJob({ type: next as any, payload: nextPayload })
   }

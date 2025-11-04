@@ -1,20 +1,8 @@
-import { hasDatabase, getDb } from '@common/infra/db'
-import { keywordCanon } from '@entities/keyword/db/schema.canon'
-import { normalizePhrase } from './normalize'
+import { createHash } from 'node:crypto'
 
 export async function ensureCanon(phrase: string, language: string) {
-  const phraseNorm = normalizePhrase(phrase)
-  const id = `kcan_${Buffer.from(`${phraseNorm}|${language}`).toString('base64').slice(0, 20)}`
-  if (hasDatabase()) {
-    try {
-      const db = getDb()
-      // @ts-ignore drizzle .onConflictDoNothing may not exist at runtime
-      await db
-        .insert(keywordCanon)
-        .values({ id, phraseNorm, languageCode: language })
-        .onConflictDoNothing?.()
-    } catch {}
-  }
-  return { id, phraseNorm, language }
+  const key = `${String(phrase || '').trim().toLowerCase()}|${String(language || 'en-US')}`
+  const id = 'kw_' + createHash('sha1').update(key).digest('hex').slice(0, 12)
+  return { id, phrase, language }
 }
 

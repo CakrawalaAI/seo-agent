@@ -1,9 +1,8 @@
 // @ts-nocheck
 import { createFileRoute } from '@tanstack/react-router'
-import { json, httpError, safeHandler, requireSession, requireProjectAccess } from '@app/api-utils'
-import { integrationsRepo } from '@entities/integration/repository'
+import { json, httpError, safeHandler, requireSession, requireWebsiteAccess } from '@app/api-utils'
 import { hasDatabase, getDb } from '@common/infra/db'
-import { projectIntegrations } from '@entities/integration/db/schema'
+import { websiteIntegrations } from '@entities/integration/db/schema.website'
 
 export const Route = createFileRoute('/api/integrations')({
   server: {
@@ -11,25 +10,27 @@ export const Route = createFileRoute('/api/integrations')({
       POST: safeHandler(async ({ request }) => {
         await requireSession(request)
         const body = await request.json().catch(() => ({}))
-        const { projectId, type, status, config } = body ?? {}
-        if (!projectId || !type) return httpError(400, 'Missing fields')
-        await requireProjectAccess(request, String(projectId))
-        const integration = integrationsRepo.create({
-          projectId: String(projectId),
-          type: String(type),
-          status: status ? String(status) : undefined,
-          configJson: config ?? null
-        })
+        const { websiteId, projectId, type, status, config } = body ?? {}
+        const siteId = websiteId || projectId
+        if (!siteId || !type) return httpError(400, 'Missing fields')
+        await requireWebsiteAccess(request, String(siteId))
         if (hasDatabase()) {
           try {
             const db = getDb()
-            await db
-              .insert(projectIntegrations)
-              .values({ id: integration.id, projectId: integration.projectId, type: integration.type, status: integration.status, configJson: integration.configJson, updatedAt: new Date() as any })
-              .onConflictDoNothing()
+            const row = {
+              id: genId('int'),
+              websiteId: String(siteId),
+              type: String(type),
+              status: String(status || 'connected'),
+              configJson: config ? JSON.stringify(config) : null,
+              createdAt: new Date() as any,
+              updatedAt: new Date() as any
+            } as any
+            await db.insert(websiteIntegrations).values(row).onConflictDoNothing?.()
+            return json({ id: row.id, websiteId: row.websiteId, type: row.type, status: row.status, configJson: config ?? null }, { status: 201 })
           } catch {}
         }
-        return json(integration, { status: 201 })
+        return json({ id: genId('int'), websiteId: String(siteId), type: String(type), status: String(status || 'connected'), configJson: config ?? null }, { status: 201 })
       })
     }
   }

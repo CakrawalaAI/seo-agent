@@ -10,12 +10,12 @@ export const Route = createFileRoute('/integrations/webhook')({
       })
       const data = res.ok ? await res.json() : null
       if (!data?.user) {
-        throw redirect({ to: '/login', search: { redirect: location.href || '/integrations/webhook' } })
+        throw redirect({ to: '/' })
       }
-      const projectParam = new URL(location.href).searchParams.get('project')
+      const projectParam = new URL(location.href).searchParams.get('website') || new URL(location.href).searchParams.get('project')
       if (projectParam) {
         try {
-          const projectsResponse = await fetch('/api/projects?limit=200', {
+          const projectsResponse = await fetch('/api/websites?limit=200', {
             headers: { accept: 'application/json' },
             credentials: 'include'
           })
@@ -23,18 +23,18 @@ export const Route = createFileRoute('/integrations/webhook')({
             const body = await projectsResponse.json()
             const match = findProjectBySearchValue(body?.items ?? [], projectParam)
             if (match) {
-              await fetch('/api/active-project', {
+              await fetch('/api/active-website', {
                 method: 'POST',
                 headers: { 'content-type': 'application/json' },
                 credentials: 'include',
-                body: JSON.stringify({ projectId: match.id })
+                body: JSON.stringify({ websiteId: match.id })
               })
             }
           }
         } catch {}
       }
     } catch {
-      throw redirect({ to: '/login', search: { redirect: '/integrations/webhook' } })
+      throw redirect({ to: '/' })
     }
   },
   component: Page
@@ -44,7 +44,7 @@ function findProjectBySearchValue(projects: Array<Record<string, any>>, input: s
   const normalized = normalizeValue(input)
   for (const project of projects) {
     if (normalizeValue(project?.id) === normalized) return project
-    const siteUrl = project?.siteUrl ?? project?.site_url
+    const siteUrl = project?.url ?? project?.siteUrl ?? project?.site_url
     if (siteUrl && normalizeValue(siteUrl) === normalized) return project
   }
   return null

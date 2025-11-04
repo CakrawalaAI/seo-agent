@@ -1,31 +1,32 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
-import { useActiveProject } from '@common/state/active-project'
+import { useActiveWebsite } from '@common/state/active-website'
 import { useMockData } from '@common/dev/mock-data-context'
-import { getProject, getProjectSnapshot, patchProject, generateKeywords, getPlanItems, createPlan } from '@entities/project/service'
-import type { Keyword, PlanItem, Project, ProjectSnapshot } from '@entities'
+import { getWebsite, getWebsiteSnapshot, runSchedule } from '@entities/website/service'
+import type { Keyword } from '@entities'
+import type { PlanItem } from '@entities/article/planner'
 import { Button } from '@src/common/ui/button'
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from '@src/common/ui/empty'
 import { Textarea } from '@src/common/ui/textarea'
+import { OnboardingForm } from '@features/onboarding/client/onboarding-form'
 
-type DashboardData = {
-  project: Project | null
-  snapshot: ProjectSnapshot | null
-}
+type DashboardData = { website: any | null; snapshot: any | null }
 
 const MOCK_PLAN_ITEMS: PlanItem[] = [
   {
     id: 'plan-1',
-    projectId: 'proj_mock',
+    websiteId: 'proj_mock',
+    keywordId: null,
     title: 'Create 30-60-90 Day Plan Template',
-    plannedDate: new Date().toISOString(),
+    scheduledDate: new Date().toISOString(),
     status: 'scheduled'
   },
   {
     id: 'plan-2',
-    projectId: 'proj_mock',
+    websiteId: 'proj_mock',
+    keywordId: null,
     title: 'Behavioral STAR Method Examples',
-    plannedDate: new Date(Date.now() + 86_400_000).toISOString(),
+    scheduledDate: new Date(Date.now() + 86_400_000).toISOString(),
     status: 'draft'
   }
 ]
@@ -33,14 +34,14 @@ const MOCK_PLAN_ITEMS: PlanItem[] = [
 const MOCK_KEYWORDS: Keyword[] = [
   {
     id: 'kw-1',
-    projectId: 'proj_mock',
+    websiteId: 'proj_mock',
     canonId: 'kw-1',
     phrase: 'interview practice questions',
     metricsJson: { searchVolume: 5400, difficulty: 38, asOf: new Date().toISOString() }
   },
   {
     id: 'kw-2',
-    projectId: 'proj_mock',
+    websiteId: 'proj_mock',
     canonId: 'kw-2',
     phrase: 'mock interview ai',
     metricsJson: { searchVolume: 2600, difficulty: 42, asOf: new Date().toISOString() }
@@ -48,14 +49,13 @@ const MOCK_KEYWORDS: Keyword[] = [
 ]
 
 const MOCK_DASHBOARD: DashboardData = {
-  project: {
+  website: {
     id: 'proj_mock',
     orgId: 'org_mock',
-    name: 'Prep Interview',
-    siteUrl: 'https://prepinterview.ai',
+    url: 'https://prepinterview.ai',
     defaultLocale: 'en-US',
-    status: 'active',
-    businessSummary: [
+    status: 'articles_scheduled',
+    summary: [
       'Interview prep platform helping candidates practice behavioral questions with AI-guided drills.',
       'Key value props: real interview simulation, instant scoring, targeted feedback for tech roles.'
     ].join('\n')
@@ -75,56 +75,59 @@ const MOCK_DASHBOARD: DashboardData = {
 }
 
 export function Page(): JSX.Element {
-  const { id: projectId } = useActiveProject()
+  const { id: projectId } = useActiveWebsite()
   const { enabled: mockEnabled } = useMockData()
 
   const projectQuery = useQuery({
-    queryKey: ['dashboard.project', projectId],
-    queryFn: () => getProject(projectId!),
+    queryKey: ['dashboard.website', projectId],
+    queryFn: () => getWebsite(projectId!),
     enabled: Boolean(projectId && !mockEnabled)
   })
 
   const snapshotQuery = useQuery({
     queryKey: ['dashboard.snapshot', projectId],
-    queryFn: () => getProjectSnapshot(projectId!),
+    queryFn: () => getWebsiteSnapshot(projectId!),
     enabled: Boolean(projectId && !mockEnabled),
     refetchInterval: 30_000
   })
 
-  const project = mockEnabled ? MOCK_DASHBOARD.project : projectQuery.data
+  const project = mockEnabled ? MOCK_DASHBOARD.website : projectQuery.data
   const snapshot = mockEnabled ? MOCK_DASHBOARD.snapshot : snapshotQuery.data
 
   const insight = useMemo(() => buildInsights(project, snapshot), [project, snapshot])
 
   const [isEditingSummary, setIsEditingSummary] = useState(false)
-  const [draftSummary, setDraftSummary] = useState(() => project?.businessSummary ?? insight.summaryText)
+  const [draftSummary, setDraftSummary] = useState(() => project?.summary ?? insight.summaryText)
 
   useEffect(() => {
     if (mockEnabled) return
     if (isEditingSummary) return
-    setDraftSummary((project?.businessSummary ?? insight.summaryText).trim())
-  }, [isEditingSummary, project?.businessSummary, insight.summaryText, mockEnabled])
+    setDraftSummary((project?.summary ?? insight.summaryText).trim())
+  }, [isEditingSummary, project?.summary, insight.summaryText, mockEnabled])
 
   const saveSummaryMutation = useMutation({
-    mutationFn: async (summary: string) => patchProject(projectId!, { businessSummary: summary }),
-    onSuccess: () => {
-      projectQuery.refetch()
-      setIsEditingSummary(false)
-    }
+    mutationFn: async (_summary: string) => null,
+    onSuccess: () => { setIsEditingSummary(false) }
   })
 
   const mergeActionMutation = useMutation({
     mutationFn: async (step: ProjectStatusStep['action']) => {
       if (!step || mockEnabled) return
-      if (step.type === 'crawl') return projectId ? getProjectSnapshot(projectId) : null
-      if (step.type === 'generateKeywords') return generateKeywords(projectId!, project?.defaultLocale ?? 'en-US')
-      if (step.type === 'schedulePlan') return createPlan(projectId!, 30)
+      if (step.type === 'crawl') return projectId ? getWebsiteSnapshot(projectId) : null
+      if (step.type === 'generateKeywords') return getWebsiteSnapshot(projectId!)
+      if (step.type === 'schedulePlan') {
+        // Create/refresh the 30-day plan runway
+        await fetch('/api/plan-items', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ websiteId: projectId, days: 30 })
+        })
+        // Then kick the scheduler to fill 3-day buffer + publish due
+        return runSchedule(projectId!)
+      }
       return null
     },
-    onSuccess: () => {
-      snapshotQuery.refetch()
-      if (projectId) getPlanItems(projectId)
-    }
+    onSuccess: () => { snapshotQuery.refetch() }
   })
 
   if (!projectId) {
@@ -132,14 +135,17 @@ export function Page(): JSX.Element {
       <div className="mx-auto flex w-full max-w-5xl flex-col gap-6">
         <header className="space-y-1">
           <h1 className="text-2xl font-semibold">Dashboard</h1>
-          <p className="text-sm text-muted-foreground">Pick a project to see its health and next steps.</p>
+          <p className="text-sm text-muted-foreground">Add your website to start crawling and planning content.</p>
         </header>
         <Empty>
           <EmptyHeader>
-            <EmptyTitle>No project selected</EmptyTitle>
-            <EmptyDescription>Choose a project from the sidebar to load its summary.</EmptyDescription>
+            <EmptyTitle>No website yet</EmptyTitle>
+            <EmptyDescription>Enter your site URL to create and begin.</EmptyDescription>
           </EmptyHeader>
         </Empty>
+        <div className="max-w-3xl">
+          <OnboardingForm />
+        </div>
       </div>
     )
   }
@@ -165,7 +171,7 @@ export function Page(): JSX.Element {
               if (isEditingSummary) {
                 saveSummaryMutation.mutate(draftSummary.trim())
               } else {
-                setDraftSummary((project?.businessSummary ?? insight.summaryText).trim())
+                setDraftSummary((project?.summary ?? insight.summaryText).trim())
                 setIsEditingSummary(true)
               }
             }}
@@ -188,7 +194,7 @@ export function Page(): JSX.Element {
       <section className="rounded-lg border bg-card p-5 shadow-sm">
         <div className="flex items-start justify-between gap-3">
           <div>
-            <h2 className="text-lg font-semibold text-foreground">Project status</h2>
+            <h2 className="text-lg font-semibold text-foreground">Website status</h2>
             <p className="text-sm text-muted-foreground">Key automation steps from ingestion to scheduling.</p>
           </div>
         </div>
@@ -224,17 +230,17 @@ export function Page(): JSX.Element {
   )
 }
 
-function buildInsights(project: Project | null | undefined, snapshot: ProjectSnapshot | null | undefined) {
+function buildInsights(website: any | null | undefined, snapshot: any | null | undefined) {
   const keywords = snapshot?.keywords ?? []
   const planItems = snapshot?.planItems ?? []
   const queueDepth = snapshot?.queueDepth ?? 0
-  const scheduledCount = planItems.filter((p) => p.status === 'scheduled').length
-  const hasSummary = Boolean(project?.businessSummary?.trim())
+  const scheduledCount = planItems.filter((p: any) => p.status === 'scheduled').length
+  const hasSummary = Boolean(website?.summary?.trim())
 
-  const summaryText = hasSummary ? String(project?.businessSummary).trim() : DEFAULT_CONTEXT
+  const summaryText = hasSummary ? String(website?.summary).trim() : DEFAULT_CONTEXT
 
   const projectStatus = buildProjectStatus({
-    project,
+    project: website,
     hasSummary,
     keywordsCount: keywords.length,
     queueDepth,
@@ -267,7 +273,7 @@ function buildProjectStatus({
   queueDepth,
   scheduledCount
 }: {
-  project: Project | null | undefined
+  project: any | null | undefined
   hasSummary: boolean
   keywordsCount: number
   queueDepth: number
@@ -276,8 +282,8 @@ function buildProjectStatus({
   const steps = [
     {
       label: 'Input website',
-      description: project?.siteUrl ? `Tracking ${project.siteUrl}` : 'Connect a site to begin discovery.',
-      completed: Boolean(project?.siteUrl),
+      description: project?.url ? `Tracking ${project.url}` : 'Connect a site to begin discovery.',
+      completed: Boolean(project?.url),
       action: null
     },
     {

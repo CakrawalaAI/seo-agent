@@ -7,7 +7,7 @@ export type ArticleEval = {
   at: string
 }
 
-export async function evaluateArticle(projectId: string, articleId: string, input: { title: string; outline?: Array<{ heading: string }>; bodyHtml: string }) {
+export async function evaluateArticle(websiteId: string, articleId: string, input: { title: string; outline?: Array<{ heading: string }>; bodyHtml: string }) {
   const key = process.env.OPENAI_API_KEY
   const now = new Date().toISOString()
   let score = 0
@@ -33,7 +33,6 @@ export async function evaluateArticle(projectId: string, articleId: string, inpu
     }
   }
   const out: ArticleEval = { score, suggestions, at: now }
-  try { bundle.writeJson(projectId, `articles/eval/${articleId}.json`, out) } catch {}
+  try { bundle.writeJson(websiteId, `articles/eval/${articleId}.json`, out) } catch {}
   return out
 }
-

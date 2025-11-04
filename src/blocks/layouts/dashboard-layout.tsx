@@ -5,17 +5,17 @@ import { Home, ListChecks, CalendarDays, FileText, Plug, UserCircle2 } from 'luc
 
 import { DashboardShell, type DashboardNavGroup, type DashboardUserSummary } from '@blocks/dashboard/dashboard-shell'
 import { MockDataProvider } from '@common/dev/mock-data-context'
-import { ActiveProjectProvider } from '@common/state/active-project'
-import { useActiveProject } from '@common/state/active-project'
+import { ActiveWebsiteProvider } from '@common/state/active-website'
+import { useActiveWebsite } from '@common/state/active-website'
 import type { MeSession } from '@entities'
 import { fetchSession } from '@entities/org/service'
-import { listProjects } from '@entities/project/service'
+import { listWebsites } from '@entities/website/service'
 
 export function DashboardLayout({ children }: { children: React.ReactNode }) {
   const location = useRouterState({ select: (s) => s.location })
   const pathname = location.pathname
   const search = (location as any).search as Record<string, any>
-  const requestedProjectParam = typeof search?.project === 'string' ? (search.project as string) : null
+  const requestedProjectParam = typeof search?.website === 'string' ? (search.website as string) : null
   const navigate = useNavigate()
 
   const meQuery = useQuery<MeSession>({ queryKey: ['me'], queryFn: fetchSession, staleTime: 60_000 })
@@ -23,20 +23,20 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
   const activeOrg = meQuery.data?.activeOrg ?? null
 
   const projectsQuery = useQuery<{ items: any[] }>({
-    queryKey: ['projects', activeOrg?.id ?? 'none'],
-    queryFn: () => listProjects(activeOrg?.id),
+    queryKey: ['websites', activeOrg?.id ?? 'none'],
+    queryFn: () => listWebsites(activeOrg?.id),
     enabled: Boolean(activeOrg?.id)
   })
-  const projects = projectsQuery.data?.items ?? []
+  const websites = projectsQuery.data?.items ?? []
 
   const searchValueById = useMemo(() => {
     const map = new Map<string, string>()
-    for (const project of projects) {
-      const searchValue = projectToSearchValue(project)
-      if (searchValue) map.set(project.id, searchValue)
+    for (const site of websites) {
+      const searchValue = websiteToSearchValue(site)
+      if (searchValue) map.set(site.id, searchValue)
     }
     return map
-  }, [projects])
+  }, [websites])
 
   const getSearchValue = useCallback(
     (id: string) => searchValueById.get(id) ?? id,
@@ -44,23 +44,23 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
   )
 
   const resolvedProjectId = useMemo<string | null>(() => {
-    if (projects.length === 0) return null
-    if (!requestedProjectParam) return projects[0]?.id ?? null
-    const byId = projects.find((project: any) => project.id === requestedProjectParam)
+    if (websites.length === 0) return null
+    if (!requestedProjectParam) return websites[0]?.id ?? null
+    const byId = websites.find((project: any) => project.id === requestedProjectParam)
     if (byId) return byId.id
-    const bySearch = projects.find((project: any) => projectToSearchValue(project) === requestedProjectParam)
+    const bySearch = websites.find((project: any) => websiteToSearchValue(project) === requestedProjectParam)
     if (bySearch) return bySearch.id
-    return projects[0]?.id ?? null
-  }, [projects, requestedProjectParam])
+    return websites[0]?.id ?? null
+  }, [websites, requestedProjectParam])
 
   useEffect(() => {
     if (projectsQuery.isLoading) return
-    if (!projects.length) {
+    if (!websites.length) {
       if (requestedProjectParam) {
         navigate({
           search: ((prev: Record<string, unknown>) => {
             const next = { ...prev }
-            delete next.project
+            delete next.website
             return next
           }) as never,
           replace: true
@@ -72,31 +72,31 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
       const desired = searchValueById.get(resolvedProjectId) ?? resolvedProjectId
       if (requestedProjectParam !== desired) {
         navigate({
-          search: ((prev: Record<string, unknown>) => ({ ...prev, project: desired })) as never,
+          search: ((prev: Record<string, unknown>) => ({ ...prev, website: desired })) as never,
           replace: true
         })
       }
     }
-  }, [navigate, projects, projectsQuery.isLoading, requestedProjectParam, resolvedProjectId, searchValueById])
+  }, [navigate, websites, projectsQuery.isLoading, requestedProjectParam, resolvedProjectId, searchValueById])
   const userSummary: DashboardUserSummary | null = user
     ? { name: user.name, email: user.email, plan: meQuery.data?.activeOrg?.plan ?? null }
     : null
 
   return (
     <MockDataProvider>
-      <ActiveProjectProvider
+      <ActiveWebsiteProvider
         initialId={resolvedProjectId}
         buildSearchValue={(id) => (id ? getSearchValue(id) : null)}
       >
         <DashboardLayoutInner
           pathname={pathname}
           userSummary={userSummary}
-          hasOrgNoProjects={Boolean(activeOrg?.id && projects.length === 0)}
+          hasOrgNoProjects={Boolean(activeOrg?.id && websites.length === 0)}
           getSearchValue={getSearchValue}
         >
           {children}
         </DashboardLayoutInner>
-      </ActiveProjectProvider>
+      </ActiveWebsiteProvider>
     </MockDataProvider>
   )
 }
@@ -114,7 +114,7 @@ function DashboardLayoutInner({
   getSearchValue: (id: string) => string
   children: React.ReactNode
 }) {
-  const { id: activeProjectId } = useActiveProject()
+  const { id: activeProjectId } = useActiveWebsite()
 
   const nav = useMemo<DashboardNavGroup[]>(() => {
     const is = (p: string) => pathname === p || pathname.startsWith(`${p}/`)
@@ -127,42 +127,42 @@ function DashboardLayoutInner({
             label: 'Dashboard',
             icon: Home,
             active: is('/dashboard') || pathname === '/',
-            element: <Link to="/dashboard" search={() => (activeProjectId ? { project: getSearchValue(activeProjectId) } : {})} />
+            element: <Link to="/dashboard" search={() => (activeProjectId ? { website: getSearchValue(activeProjectId) } : {})} />
           },
           {
             key: 'keywords',
             label: 'Keywords',
             icon: ListChecks,
             active: is('/keywords'),
-            element: <Link to="/keywords" search={() => (activeProjectId ? { project: getSearchValue(activeProjectId) } : {})} />
+            element: <Link to="/keywords" search={() => (activeProjectId ? { website: getSearchValue(activeProjectId) } : {})} />
           },
           {
             key: 'calendar',
             label: 'Calendar',
             icon: CalendarDays,
             active: is('/calendar'),
-            element: <Link to="/calendar" search={() => (activeProjectId ? { project: getSearchValue(activeProjectId) } : {})} />
+            element: <Link to="/calendar" search={() => (activeProjectId ? { website: getSearchValue(activeProjectId) } : {})} />
           },
           {
             key: 'articles',
             label: 'Articles',
             icon: FileText,
             active: is('/articles'),
-            element: <Link to="/articles" search={() => (activeProjectId ? { project: getSearchValue(activeProjectId) } : {})} />
+            element: <Link to="/articles" search={() => (activeProjectId ? { website: getSearchValue(activeProjectId) } : {})} />
           },
           {
             key: 'integrations',
             label: 'Integrations',
             icon: Plug,
             active: is('/integrations'),
-            element: <Link to="/integrations" search={() => (activeProjectId ? { project: getSearchValue(activeProjectId) } : {})} />
+            element: <Link to="/integrations" search={() => (activeProjectId ? { website: getSearchValue(activeProjectId) } : {})} />
           },
           {
             key: 'settings',
             label: 'Settings',
             icon: UserCircle2,
             active: is('/settings'),
-            element: <Link to="/settings" search={() => (activeProjectId ? { project: getSearchValue(activeProjectId) } : {})} />
+            element: <Link to="/settings" search={() => (activeProjectId ? { website: getSearchValue(activeProjectId) } : {})} />
           }
         ]
       }
@@ -174,18 +174,10 @@ function DashboardLayoutInner({
     <DashboardShell nav={nav} user={userSummary}>
       {hasOrgNoProjects ? (
         <section className="mb-6 rounded-lg border border-dashed bg-muted/30 p-6 text-center">
-          <h2 className="text-lg font-semibold">No projects yet</h2>
+          <h2 className="text-lg font-semibold">No websites yet</h2>
           <p className="mt-1 text-sm text-muted-foreground">
-            Create your first project to start crawling a site and planning content.
+            Add your first website to start crawling and planning content.
           </p>
-          <div className="mt-4 flex justify-center">
-            <Link
-              to="/projects"
-              className="inline-flex items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground shadow-sm transition hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2"
-            >
-              Create project
-            </Link>
-          </div>
         </section>
       ) : null}
       {children}
@@ -193,8 +185,8 @@ function DashboardLayoutInner({
   )
 }
 
-function projectToSearchValue(project: any): string | null {
-  const raw = typeof project?.siteUrl === 'string' ? project.siteUrl : typeof project?.site_url === 'string' ? project.site_url : null
+function websiteToSearchValue(project: any): string | null {
+  const raw = typeof project?.url === 'string' ? project.url : typeof project?.siteUrl === 'string' ? project.siteUrl : typeof project?.site_url === 'string' ? project.site_url : null
   if (raw) {
     const trimmed = raw.trim()
     if (trimmed.length > 0) {

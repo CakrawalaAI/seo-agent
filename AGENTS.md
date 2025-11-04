@@ -71,6 +71,11 @@ PostgreSQL
 - Worker/CLI bootstraps no longer patch columns; if you see missing columns, fix via migrations instead of runtime ALTERs.
 - When executing project scripts from automations, pass an explicit timeout (`timeout_ms`) so hung processes can be surfaced quickly.
 
+### Stateless Runtime (DB‑only)
+- No filesystem/bundle artifacts. Workers must not write to `.data/**`.
+- All crawl pages, summaries, keyword caches, article drafts, logs persist in Postgres.
+- Set `SEOA_ENABLE_BUNDLE=0` (default). Any bundle helpers are no‑ops under this mode.
+
 ## Mock Provider System (Composable)
 
 The SEO agent supports atomic mock providers for offline development and testing without external API costs. Each mock can be enabled independently via environment flags.

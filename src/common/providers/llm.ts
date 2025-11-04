@@ -122,3 +122,24 @@ function capitalize(s: string) {
 }
 
 // removed path-based stub fallback
+export async function summarizePage(text: string): Promise<string> {
+  const content = String(text || '').trim()
+  if (!process.env.OPENAI_API_KEY) {
+    return content.replace(/\s+/g, ' ').slice(0, 360)
+  }
+  try {
+    const { OpenAI } = await import('openai')
+    const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
+    const prompt = `Summarize the following web page content in 2-3 concise sentences. Output plain text only. No markdown.\n\n${content.slice(0, 4000)}`
+    const resp = await client.chat.completions.create({
+      model: 'gpt-4o-mini',
+      messages: [{ role: 'user', content: prompt }],
+      temperature: 0.2
+    })
+    const textOut = resp.choices?.[0]?.message?.content || ''
+    const clean = String(textOut).replace(/^\s+|\s+$/g, '')
+    return clean || content.replace(/\s+/g, ' ').slice(0, 360)
+  } catch (e) {
+    return content.replace(/\s+/g, ' ').slice(0, 360)
+  }
+}

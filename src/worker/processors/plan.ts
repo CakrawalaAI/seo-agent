@@ -1,20 +1,18 @@
-import { planRepo } from '@entities/plan/repository'
-import { projectsRepo } from '@entities/project/repository'
+import { planRepo } from '@entities/article/planner'
+import { websitesRepo } from '@entities/website/repository'
 import { draftTitleOutline } from '@common/providers/llm'
-import * as bundle from '@common/bundle/store'
+import { log } from '@src/common/logger'
 
-export async function processPlan(payload: { projectId: string; days: number }) {
-  const project = await projectsRepo.get(payload.projectId)
-  if (!project?.planningApproved) {
-    console.info('[plan] skipped because planning not approved', { projectId: payload.projectId })
-    return
-  }
+export async function processPlan(payload: { projectId?: string; websiteId?: string; days: number }) {
+  const websiteId = String(payload.websiteId || payload.projectId)
+  const project = await websitesRepo.get(websiteId)
+  if (!project) { log.info('[plan] website not found', { websiteId }); return }
   const requestedDays = Number.isFinite(payload.days as any) ? (payload.days as any) : 30
   const outlineDays = Math.max(3, Math.min(90, requestedDays))
-  const result = await planRepo.createPlan(String(payload.projectId), outlineDays, { draftDays: 3 })
+  const result = await planRepo.createPlan(String(websiteId), outlineDays, { draftDays: 3 })
 
   const poolSize = Math.max(outlineDays, Math.max(result.outlineIds.length, result.draftIds.length) + 5)
-  const planItems = await planRepo.list(String(payload.projectId), poolSize)
+  const planItems = await planRepo.list(String(websiteId), poolSize)
   const itemMap = new Map(planItems.map((item) => [item.id, item]))
 
   for (const id of result.outlineIds) {
@@ -26,8 +24,5 @@ export async function processPlan(payload: { projectId: string; days: number }) 
       await planRepo.updateFields(id, { title: res.title, outlineJson: res.outline, status: known.status === 'scheduled' ? 'scheduled' : 'queued' })
     } catch {}
   }
-  try { if ((await import('@common/config')).config.debug?.writeBundle) { bundle.writeJson(String(payload.projectId), 'planning/plan_v1.json', planItems); bundle.appendLineage(String(payload.projectId), { node: 'plan' }) } } catch {}
-  try {
-    await projectsRepo.patch(payload.projectId, { workflowState: 'active' })
-  } catch {}
+  try { await websitesRepo.patch(websiteId, { status: 'articles_scheduled' }) } catch {}
 }

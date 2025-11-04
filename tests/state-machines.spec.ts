@@ -15,7 +15,7 @@ import {
 } from '../src/features/plan/shared/state-machines'
 
 describe('plan edit state machine', () => {
-  const item = { id: 'plan-1', plannedDate: '2024-11-01' }
+  const item = { id: 'plan-1', scheduledDate: '2024-11-01' }
 
   it('opens the editor with the current date', () => {
     const state = openPlanEditor(item)
@@ -43,16 +43,16 @@ describe('plan edit state machine', () => {
     const editing = openPlanEditor(item)
     expect(closePlanEditor(editing)).toEqual({ status: 'idle' })
 
-    const submitting = submitPlanEditor(editing, { planItemId: 'plan-1', plannedDate: '2024-11-20' })
+    const submitting = submitPlanEditor(editing, { planItemId: 'plan-1', scheduledDate: '2024-11-20' })
     expect(closePlanEditor(submitting)).toBe(submitting)
   })
 
   it('moves to submitting only for the active plan item', () => {
     const editing = openPlanEditor(item)
-    const submitting = submitPlanEditor(editing, { planItemId: 'plan-1', plannedDate: '2024-11-10' })
+    const submitting = submitPlanEditor(editing, { planItemId: 'plan-1', scheduledDate: '2024-11-10' })
     expect(submitting).toEqual({ status: 'submitting', item, date: '2024-11-10' })
 
-    const untouched = submitPlanEditor(editing, { planItemId: 'plan-2', plannedDate: '2024-11-10' })
+    const untouched = submitPlanEditor(editing, { planItemId: 'plan-2', scheduledDate: '2024-11-10' })
     expect(untouched).toBe(editing)
   })
 
@@ -62,7 +62,7 @@ describe('plan edit state machine', () => {
 
   it('captures submit errors for the active item', () => {
     const editing = openPlanEditor(item)
-    const submitting = submitPlanEditor(editing, { planItemId: 'plan-1', plannedDate: '2024-11-10' })
+    const submitting = submitPlanEditor(editing, { planItemId: 'plan-1', scheduledDate: '2024-11-10' })
     const errored = planEditorSubmitError(submitting, { planItemId: 'plan-1', message: 'Failed to update' })
     expect(errored).toEqual({ status: 'error', item, date: '2024-11-10', message: 'Failed to update' })
 

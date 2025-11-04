@@ -2,6 +2,7 @@ import type { CMSConnector } from './interface'
 import type { Article } from '@entities/article/domain/article'
 import type { IntegrationConfig } from '@entities/integration/domain/integration'
 import type { PublishResult } from './interface'
+import { log } from '@src/common/logger'
 
 /**
  * Registry of available CMS connectors.
@@ -40,14 +41,14 @@ class ConnectorRegistry {
   ): Promise<PublishResult | null> {
     const connector = this.get(type)
     if (!connector) {
-      console.error(`[Connector Registry] No connector registered for type: ${type}`)
+      log.error(`[Connector Registry] No connector registered for type: ${type}`)
       return null
     }
 
     try {
       return await connector.publish(article, config)
     } catch (error) {
-      console.error(`[Connector Registry] Publish failed for ${type}:`, error)
+      log.error(`[Connector Registry] Publish failed for ${type}:`, error)
       return null
     }
   }
@@ -61,14 +62,14 @@ class ConnectorRegistry {
   async test(type: string, config: IntegrationConfig): Promise<boolean> {
     const connector = this.get(type)
     if (!connector || !connector.test) {
-      console.warn(`[Connector Registry] No test method for type: ${type}`)
+      log.warn(`[Connector Registry] No test method for type: ${type}`)
       return false
     }
 
     try {
       return await connector.test(config)
     } catch (error) {
-      console.error(`[Connector Registry] Test failed for ${type}:`, error)
+      log.error(`[Connector Registry] Test failed for ${type}:`, error)
       return false
     }
   }

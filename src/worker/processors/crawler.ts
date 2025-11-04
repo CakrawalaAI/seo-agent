@@ -1,6 +1,7 @@
-import { projectsRepo } from '@entities/project/repository'
-import { crawlRepo } from '@entities/crawl/repository'
-import { discoverFromSitemap, fetchAndParseSitemapUrls } from '@common/crawl/sitemap'
+import { websitesRepo } from '@entities/website/repository'
+import { websiteCrawlRepo } from '@entities/crawl/repository.website'
+// sitemap helpers available if needed for seed top-up in future
+import { normalizeUrl, isHtmlLike } from '@common/crawl/url-filter'
 // robots intentionally ignored per config (owner consent)
 import { env } from '@common/infra/env'
 // bundle writes avoided when DB present; keep import only if needed for dev fallback
@@ -8,69 +9,41 @@ import { env } from '@common/infra/env'
 import { createHash } from 'node:crypto'
 import { config } from '@common/config'
 import { getLlmProvider } from '@common/providers/registry'
-import { summarizeSite } from '@common/providers/llm'
-import { projectDiscoveryRepo } from '@entities/project/discovery/repository'
+import { summarizeSite, summarizePage } from '@common/providers/llm'
+// discovery persistence removed; summary written to websites
 import { getDevFlags } from '@common/dev/flags'
 import { log } from '@src/common/logger'
 
-export async function processCrawl(payload: { projectId: string }) {
-  const project = await projectsRepo.get(payload.projectId)
-  if (!project?.siteUrl) {
-    log.warn('[crawler] missing siteUrl; skipping', { projectId: payload.projectId })
-    return
-  }
-  const siteUrl = project.siteUrl!
-  const crawlBudget = 100
-  log.info('[crawler] start', { projectId: payload.projectId, siteUrl, render: env.crawlRender })
+export async function processCrawl(payload: { websiteId?: string; projectId?: string }) {
+  const websiteId = String(payload.websiteId || payload.projectId)
+  const site = await websitesRepo.get(websiteId)
+  if (!site?.url) { log.warn('[crawler] missing url; skipping', { websiteId }); return }
+  const siteUrl = site.url!
+  const crawlBudget = Math.max(1, env.crawlBudgetPages || 50)
+  log.info('[crawler] start', { websiteId, siteUrl, render: env.crawlRender })
 
   // Check if we should use mock crawler
   const flags = getDevFlags()
   if (flags.mocks.crawl) {
     log.info('[crawler] Using mock crawler (dev mock enabled)')
     const { generateMockCrawl } = await import('@common/providers/impl/mock/crawler')
-    const mockResult = generateMockCrawl(payload.projectId, crawlBudget)
-
+    const mockResult = generateMockCrawl(websiteId, crawlBudget)
+    const runId = (await websiteCrawlRepo.startRun(websiteId))!
     for (const page of mockResult.pages) {
-      crawlRepo.addOrUpdate(payload.projectId, page)
+      const statusVal = typeof page.httpStatus === 'number' ? page.httpStatus : (Number.isFinite(Number(page.httpStatus)) ? Number(page.httpStatus) : null)
+      const title = ((page as any)?.metaJson?.title as string | undefined) || (page as any)?.title || ''
+      const content = (title ? title + '\n\n' : '') + String((page as any)?.contentText || '')
+      const summary = content.replace(/\s+/g, ' ').slice(0, 360)
+      await websiteCrawlRepo.recordPage({ websiteId, runId, url: page.url, httpStatus: statusVal, title, content, summary })
     }
-
-    log.info('[crawler] Mock crawl complete', {
-      projectId: payload.projectId,
-      pagesGenerated: mockResult.urlsVisited
-    })
+    await websiteCrawlRepo.completeRun(runId)
+    log.info('[crawler] Mock crawl complete', { websiteId, pagesGenerated: mockResult.urlsVisited })
     return
   }
 
-  // 1) SIMPLE MODE: sitemap raw → cleaned URLs → LLM picks top 100 (or fewer)
-  let reps: string[] = []
-  try {
-    const cleaned = await fetchAndParseSitemapUrls(project.siteUrl, 100000)
-    log.info('[crawler] sitemap parsed', { total: cleaned.length })
-    const listString = cleaned.join('\n')
-    const llm = getLlmProvider()
-    if (typeof (llm as any).pickTopFromSitemapString === 'function') {
-      log.info('[crawler] LLM pickTop start', { requested: crawlBudget })
-      const pickWithTimeout = async () => (llm as any).pickTopFromSitemapString(siteUrl, listString, crawlBudget)
-      const picked: string[] = await Promise.race([
-        pickWithTimeout(),
-        new Promise<string[]>((resolve) => setTimeout(() => resolve([]), 20000))
-      ])
-      if (Array.isArray(picked) && picked.length) reps = picked.slice(0, crawlBudget)
-      else log.warn('[crawler] LLM pickTop timeout/fallback; using first URLs')
-    }
-    if (!reps.length) reps = cleaned.slice(0, crawlBudget)
-  } catch {
-    // Fallback to the older limited sitemap discover
-    const candidates = await discoverFromSitemap(project.siteUrl, crawlBudget)
-    reps = candidates.slice(0, crawlBudget)
-  }
-  log.info('[crawler] representatives selected', { count: reps.length })
-  const initialSeeds = reps.map((u) => ({ url: u, depth: 0 }))
-  // Record representatives in DB discovery log for snapshot/overview
-  try {
-    const at = new Date().toISOString()
-    await projectDiscoveryRepo.recordRun({ projectId: project.id, providersUsed: ['crawl'], crawlDigest: { at, urls: reps } })
-  } catch {}
+  // Seeds: landing page only (BFS), optional sitemap top-ups when few links found
+  const initialSeeds = [{ url: siteUrl, depth: 0 }]
+  const runId = (await websiteCrawlRepo.startRun(websiteId))!
 
   // Attempt Playwright; if unavailable, use undici fetch as fallback
   let usePlaywright = env.crawlRender === 'playwright'
@@ -98,8 +71,9 @@ export async function processCrawl(payload: { projectId: string }) {
     }
   }
 
-  const visitLimit = Math.max(1, reps.length || crawlBudget)
-  const maxDepth = 0 // simple mode: no link expansion
+  const visitLimit = Math.max(1, crawlBudget)
+  const maxDepth = Math.max(0, env.crawlMaxDepth || 2)
+  const maxBreadth = Math.max(1, (config.crawl as any)?.maxBreadth ?? 20)
   const seen = new Set<string>()
   const nodes = new Map<string, { url: string; title?: string | null }>()
   const edges: Array<{ from: string; to: string; text?: string | null }> = []
@@ -118,48 +92,29 @@ export async function processCrawl(payload: { projectId: string }) {
       let textDump: string | null = null
       let contentBlobUrl: string | null = null
 
-      // record in-progress for live UI
-      try {
-        const now = new Date().toISOString()
-        crawlRepo.recordPage(project.id, {
-          id: pageIdFor(url),
-          projectId: project.id,
-          url,
-          depth,
-          httpStatus: null,
-          status: 'in_progress',
-          extractedAt: now,
-          metaJson: { title: '' },
-          headingsJson: [],
-          linksJson: [],
-          contentText: null,
-          createdAt: now,
-          updatedAt: now
-        })
-      } catch {}
+      // no in-progress row; persist only finalized page rows (DB-only)
       if (usePlaywright && page) {
         const res = await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 15000 })
         httpStatus = res?.status() ?? null
         title = await page.title().catch(() => '')
         try { pageHtml = await page.content() } catch {}
         try { textDump = await page.evaluate(() => document.body?.innerText || '') } catch {}
-        // discover more links (same host)
+        // discover links; limit breadth per node
         const anchors = await page.$$eval('a[href]', (els: any[]) =>
-          els.map((a: any) => ({
-            href: (a as HTMLAnchorElement).getAttribute('href') || '',
-            text: (a as HTMLAnchorElement).textContent || ''
-          }))
+          els.map((a: any) => ({ href: (a as HTMLAnchorElement).getAttribute('href') || '', text: (a as HTMLAnchorElement).textContent || '' }))
         )
         const base = new URL(url)
+        let added = 0
         for (const anchor of anchors) {
-          const href = anchor.href
-          try {
-            const u = new URL(href, base)
-            if (u.host === base.host && (u.protocol === 'http:' || u.protocol === 'https:')) {
-              queue.push({ url: u.toString(), depth: depth + 1 })
-              linksForJson.push({ href: u.toString(), text: anchor.text?.trim() || undefined })
-            }
-          } catch {}
+          if (added >= maxBreadth) break
+          const norm = normalizeUrl(anchor.href, base)
+          if (!norm || !isHtmlLike(norm)) continue
+          if (new URL(norm).host !== base.host) continue
+          if (!seen.has(norm) && !queue.some((q) => q.url === norm)) {
+            queue.push({ url: norm, depth: depth + 1 })
+            linksForJson.push({ href: norm, text: anchor.text?.trim() || undefined })
+            added++
+          }
         }
         const h1s = await page.$$eval('h1, h2, h3', (nodes: any[]) =>
           nodes.map((n: any) => ({
@@ -178,39 +133,33 @@ export async function processCrawl(payload: { projectId: string }) {
         title = m?.[1]?.trim() ?? ''
         const base = new URL(url)
         const hrefs = Array.from(text.matchAll(/<a\s+[^>]*href\s*=\s*"([^"]+)"[^>]*>(.*?)<\/a>/gis))
+        let added = 0
         for (const match of hrefs) {
+          if (added >= maxBreadth) break
           const href = match[1] || ''
           const linkText = (match[2] || '').replace(/<[^>]+>/g, '').trim()
-          try {
-            const u = new URL(href, base)
-            if (u.host === base.host && (u.protocol === 'http:' || u.protocol === 'https:')) {
-              queue.push({ url: u.toString(), depth: depth + 1 })
-              linksForJson.push({ href: u.toString(), text: linkText || undefined })
-            }
-          } catch {}
+          const norm = normalizeUrl(href, base)
+          if (!norm || !isHtmlLike(norm)) continue
+          if (new URL(norm).host !== base.host) continue
+          if (!seen.has(norm) && !queue.some((q) => q.url === norm)) {
+            queue.push({ url: norm, depth: depth + 1 })
+            linksForJson.push({ href: norm, text: linkText || undefined })
+            added++
+          }
         }
-        const headingMatches = Array.from(text.matchAll(/<(h[1-3])[^>]*>(.*?)<\/\1>/gis))
-        headings = headingMatches.map((hm) => ({ level: Number(hm[1]!.slice(1)), text: (hm[2] || '').replace(/<[^>]+>/g, '').trim() }))
       }
       const now = new Date().toISOString()
       // No file storage: keep contentBlobUrl null (DB-only storage)
       const pageId = pageIdFor(url)
-      crawlRepo.recordPage(project.id, {
-        id: pageId,
-        projectId: project.id,
-        url,
-        depth,
-        httpStatus: httpStatus ?? undefined,
-        status: 'completed',
-        extractedAt: now,
-        metaJson: { title },
-        headingsJson: headings,
-        linksJson: linksForJson,
-        contentText: textDump || pageHtml || null,
-        contentBlobUrl,
-        createdAt: now,
-        updatedAt: now
-      })
+      let pageSummary: string | null = null
+      try {
+        const basis = textDump || pageHtml || ''
+        if (basis && basis.length > 0) {
+          const s = await summarizePage(basis)
+          pageSummary = s || null
+        }
+      } catch {}
+      await websiteCrawlRepo.recordPage({ websiteId, runId, url, httpStatus: httpStatus ?? null, title, content: (title ? title + '\n\n' : '') + (textDump || pageHtml || ''), summary: pageSummary })
       nodes.set(url, { url, title })
       if (linksForJson.length) {
         for (const link of linksForJson.slice(0, 50)) {
@@ -228,16 +177,13 @@ export async function processCrawl(payload: { projectId: string }) {
 
   log.info('[crawler] done', { visited: seen.size })
 
-  // 3) Build one big dump string (no per-page cap), then summarize within model context budget
+  // 3) Build one big text of per-page summaries, then summarize within model context budget
   try {
-    const pages = await crawlRepo.list(project.id, Math.max(200, reps.length || crawlBudget))
+    const pages = await websiteCrawlRepo.listRecentPages(websiteId, Math.max(200, crawlBudget))
     const sections = pages.map((p) => {
-      const title = ((p.metaJson as any)?.title as string | undefined) || ''
-      const heads = Array.isArray(p.headingsJson)
-        ? (p.headingsJson as Array<{ level: number; text: string }>).map((h) => `H${h.level}: ${h.text}`).join('\n')
-        : ''
-      const body = p.contentText || ''
-      return `=== URL: ${p.url} | Title: ${title} ===\n${heads}\n${body}\n\n`
+      const title = String((p as any)?.title || '')
+      const s = String((p as any)?.summary || '')
+      return `=== URL: ${p.url} | Title: ${title} ===\n${s}\n\n`
     })
     const dump = sections.join('')
     // No file dump in DB-only mode
@@ -269,22 +215,18 @@ export async function processCrawl(payload: { projectId: string }) {
       }
     }
     if (!businessSummary || !businessSummary.trim()) {
-      // Fallback to older JSON summarizer using first 50 pages
-      const summaryInput = pages.slice(0, 50).map((p) => ({ url: p.url, text: p.contentText || '' }))
+      // Fallback: use first 50 page contents
+      const summaryInput = pages.slice(0, 50).map((p) => ({ url: p.url, text: (p as any)?.content || '' }))
       const jsonSummary = await summarizeSite(summaryInput).catch(() => null)
       businessSummary = jsonSummary?.businessSummary || (dump.slice(0, 2000) + ' ...')
     }
 
-    await projectsRepo.patch(project.id, {
-      businessSummary,
-      workflowState: 'pending_summary_approval',
-      discoveryApproved: false,
-      planningApproved: false
-    })
+    await websitesRepo.patch(websiteId, { summary: businessSummary })
     // No summary file in DB-only mode
   } catch (err) {
     log.warn('[crawler] failed to summarize site', { error: (err as Error)?.message || String(err) })
   }
+  try { await websiteCrawlRepo.completeRun(runId) } catch {}
 }
 
 function pageIdFor(url: string) {

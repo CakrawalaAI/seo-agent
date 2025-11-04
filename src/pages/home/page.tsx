@@ -1,7 +1,7 @@
 import { useMemo } from 'react'
 import { Link, useLoaderData } from '@tanstack/react-router'
 import { ArrowRight, CheckCircle2, PlayCircle } from 'lucide-react'
-import { OnboardingStartForm } from '@features/onboarding/client/start-form'
+import { OnboardingForm } from '@features/onboarding/client/onboarding-form'
 import type { HomeLoaderData } from './loader'
 
 export function Page() {
@@ -26,19 +26,19 @@ export function Page() {
               ))}
             </nav>
             <div className="flex items-center gap-3">
-              <Link
-                to="/login"
+              <a
+                href="/api/auth/login?redirect=/dashboard"
                 className="hidden rounded-md border px-4 py-2 text-sm font-medium transition hover:bg-muted md:inline-flex"
               >
                 Sign in
-              </Link>
-              <Link
-                to="/login"
+              </a>
+              <a
+                href="/api/auth/login?redirect=/dashboard"
                 className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground shadow-sm transition hover:opacity-90"
               >
                 Start for Free
                 <ArrowRight className="h-4 w-4" />
-              </Link>
+              </a>
             </div>
           </div>
           <section id="hero" className="grid gap-12 lg:grid-cols-[1fr,0.9fr]">
@@ -56,7 +56,7 @@ export function Page() {
                 </p>
               </div>
               <div className="space-y-4">
-                <OnboardingStartForm />
+                <OnboardingForm />
                 <div className="flex flex-wrap items-center gap-4 text-sm text-muted-foreground">
                   <button
                     type="button"
@@ -322,7 +322,7 @@ export function Page() {
               <span className="text-xs font-semibold uppercase tracking-wide text-primary">Pricing</span>
               <h2 className="text-3xl font-semibold">Pick the cadence that fits your runway</h2>
               <p className="max-w-2xl text-muted-foreground">
-                One organization, one project, one website. Let SEO Agent handle 30 long-form articles a month for you—
+                One organization, one website. Let SEO Agent handle 30 long-form articles a month for you—
                 pay monthly or lock in annual savings. Polar keeps subscriptions, billing, and entitlements in sync.
               </p>
             </div>
@@ -400,17 +400,17 @@ export function Page() {
                 Plug in your domain, approve the roadmap, and let the agent publish optimized articles and media every day while you focus on product.
               </p>
               <div className="flex flex-wrap justify-center gap-4">
-                <Link
-                  to="/login"
+                <a
+                  href="/api/auth/login?redirect=/dashboard"
                   className="inline-flex items-center justify-center rounded-md bg-primary px-6 py-3 text-base font-semibold text-primary-foreground shadow-sm transition hover:opacity-90"
                 >
                   Start your $1 trial
-                </Link>
+                </a>
                 <Link
-                  to="/projects"
+                  to="/dashboard"
                   className="inline-flex items-center gap-2 rounded-md border px-6 py-3 text-base font-semibold transition hover:bg-muted"
                 >
-                  Explore projects
+                  Go to dashboard
                   <ArrowRight className="h-4 w-4" />
                 </Link>
               </div>
@@ -436,9 +436,9 @@ export function Page() {
               <a href="#pricing" className="transition hover:text-foreground">
                 Pricing
               </a>
-              <Link to="/login" className="transition hover:text-foreground">
+              <a href="/api/auth/login?redirect=/dashboard" className="transition hover:text-foreground">
                 Sign in
-              </Link>
+              </a>
               <a href="mailto:hello@seoagent.ai" className="transition hover:text-foreground">
                 Contact
               </a>
@@ -521,12 +521,12 @@ function PricingPlans({ config }: PricingPlansProps) {
                 {plan.trialDays}-day free trial. Cancel anytime before it ends to avoid charges.
               </p>
             ) : null}
-            <Link
-              to="/login"
+            <a
+              href="/api/auth/login?redirect=/dashboard"
               className="inline-flex items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground transition hover:opacity-90"
             >
               {cta}
-            </Link>
+            </a>
             <ul className="space-y-2 text-sm text-muted-foreground">
               {PRICING_VALUE_PROPS.map((feature) => (
                 <li key={`${interval}-${feature}`} className="flex items-start gap-2">
@@ -543,7 +543,7 @@ function PricingPlans({ config }: PricingPlansProps) {
 }
 
 const PRICING_VALUE_PROPS = [
-  'One organization, one project, one website fully managed',
+  'One organization, one website fully managed',
   'Up to 30 long-form articles delivered every month',
   'Auto research, outlining, on-page optimization, and publishing',
   'Webhook + CMS integrations, internal linking, media automation',
