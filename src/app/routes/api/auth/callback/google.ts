@@ -11,7 +11,7 @@ import {
   sanitizeRedirect,
   upsertUserFromGoogle
 } from '@common/auth/google'
-import { hasDatabase, getDb } from '@common/infra/db'
+import { getDb } from '@common/infra/db'
 import { session } from '@common/infra/session'
 import { organizations, organizationMembers } from '@entities/org/db/schema'
 import { eq } from 'drizzle-orm'
@@ -46,31 +46,29 @@ export const Route = createFileRoute('/api/auth/callback/google')({
         const { userId } = await upsertUserFromGoogle({ sub: profile.sub, email: profile.email, name: profile.name, picture: profile.picture ?? null })
 
         let activeOrg: { id: string; plan?: string } | undefined
-        if (hasDatabase()) {
-          try {
-            const db = getDb()
-            // Check existing memberships
-            const membs = (await db
-              .select()
-              .from(organizationMembers)
-              .where(eq(organizationMembers.userEmail, profile.email))
-              .limit(25)) as any
-            if (!Array.isArray(membs) || membs.length === 0) {
-              // Auto-create org and membership on first login
-              const orgId = `org_${crypto.randomBytes(6).toString('hex')}`
-              const orgName = `${(profile.email || 'org').split('@')[0]}'s Org`
-              const trialEnt = { monthlyPostCredits: 1 }
-              await db.insert(organizations).values({ id: orgId, name: orgName, plan: 'starter', entitlementsJson: trialEnt as any }).onConflictDoNothing()
-              await db.insert(organizationMembers).values({ orgId, userEmail: profile.email, role: 'owner' }).onConflictDoNothing?.()
-              activeOrg = { id: orgId, plan: 'starter' }
-            } else {
-              const ids = new Set<string>(membs.map((m: any) => String(m.orgId)))
-              const all = (await db.select().from(organizations).limit(50)) as any
-              const joined = all.filter((o: any) => ids.has(String(o.id)))
-              if (joined.length) activeOrg = { id: joined[0]!.id, plan: joined[0]!.plan }
-            }
-          } catch {}
-        }
+        try {
+          const db = getDb()
+          // Check existing memberships
+          const membs = (await db
+            .select()
+            .from(organizationMembers)
+            .where(eq(organizationMembers.userEmail, profile.email))
+            .limit(25)) as any
+          if (!Array.isArray(membs) || membs.length === 0) {
+            // Auto-create org and membership on first login
+            const orgId = `org_${crypto.randomBytes(6).toString('hex')}`
+            const orgName = `${(profile.email || 'org').split('@')[0]}'s Org`
+            const trialEnt = { monthlyPostCredits: 1 }
+            await db.insert(organizations).values({ id: orgId, name: orgName, plan: 'starter', entitlementsJson: trialEnt as any }).onConflictDoNothing()
+            await db.insert(organizationMembers).values({ orgId, userEmail: profile.email, role: 'owner' }).onConflictDoNothing?.()
+            activeOrg = { id: orgId, plan: 'starter' }
+          } else {
+            const ids = new Set<string>(membs.map((m: any) => String(m.orgId)))
+            const all = (await db.select().from(organizations).limit(50)) as any
+            const joined = all.filter((o: any) => ids.has(String(o.id)))
+            if (joined.length) activeOrg = { id: joined[0]!.id, plan: joined[0]!.plan }
+          }
+        } catch {}
 
         let redirectOverride: string | null = null
         let activeProjectId: string | null = null

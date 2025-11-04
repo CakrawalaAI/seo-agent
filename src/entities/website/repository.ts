@@ -13,6 +13,7 @@ export const websitesRepo = {
       url: input.url,
       defaultLocale: input.defaultLocale || 'en-US',
       summary: input.summary ?? null,
+      seedKeywords: null,
       status: 'crawled',
       settings: input.settings ?? null,
       createdAt: now.toISOString(),
@@ -28,6 +29,7 @@ export const websitesRepo = {
           url: website.url,
           defaultLocale: website.defaultLocale,
           summary: website.summary ?? null,
+          seedKeywords: website.seedKeywords ?? null,
           settingsJson: (website.settings as any) ?? null,
           status: website.status,
           createdAt: now as any,
@@ -49,6 +51,7 @@ export const websitesRepo = {
       url: r.url,
       defaultLocale: r.defaultLocale,
       summary: r.summary ?? null,
+      seedKeywords: r.seedKeywords ?? null,
       settings: (r as any).settingsJson ?? null,
       status: r.status,
       createdAt: r.createdAt?.toISOString?.() || r.createdAt,
@@ -69,13 +72,14 @@ export const websitesRepo = {
       url: r.url,
       defaultLocale: r.defaultLocale,
       summary: r.summary ?? null,
+      seedKeywords: r.seedKeywords ?? null,
       settings: r.settingsJson ?? null,
       status: r.status,
       createdAt: r.createdAt?.toISOString?.() || r.createdAt,
       updatedAt: r.updatedAt?.toISOString?.() || r.updatedAt
     }))
   },
-  async patch(id: string, input: Partial<Pick<Website, 'url' | 'defaultLocale' | 'summary' | 'status' | 'settings'>>): Promise<Website | null> {
+  async patch(id: string, input: Partial<Pick<Website, 'url' | 'defaultLocale' | 'summary' | 'status' | 'settings' | 'seedKeywords'>>): Promise<Website | null> {
     if (!hasDatabase()) return null
     const db = getDb()
     const set: any = { updatedAt: new Date() as any }
@@ -84,6 +88,7 @@ export const websitesRepo = {
       if (v !== undefined) set[k] = v as any
     }
     if ('settings' in input) set.settingsJson = (input as any).settings ?? null
+    if ('seedKeywords' in input) set.seedKeywords = (input as any).seedKeywords ?? null
     await db.update(websites).set(set).where(eq(websites.id, id))
     return await this.get(id)
   }

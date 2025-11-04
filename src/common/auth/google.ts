@@ -1,5 +1,5 @@
 import crypto from 'crypto'
-import { hasDatabase, getDb } from '@common/infra/db'
+import { getDb } from '@common/infra/db'
 import { users, userAuthProviders } from '@entities/auth/db/schema'
 import { and, eq } from 'drizzle-orm'
 import { log } from '@src/common/logger'
@@ -134,7 +134,6 @@ export async function fetchGoogleUser(accessToken: string) {
 }
 
 export async function upsertUserFromGoogle(profile: { sub: string; email: string; name?: string; picture?: string | null }) {
-  if (!hasDatabase()) return { userId: profile.sub } // stateless fallback
   const db = getDb()
   // 1) try account link
   const acc = await db

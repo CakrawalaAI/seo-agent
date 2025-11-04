@@ -1,4 +1,18 @@
 import type { ArticleOutlineSection } from '@entities/article/domain/article'
+import { log } from '@src/common/logger'
+import { HTTP_TIMEOUT_MS } from '@src/common/http/timeout'
+import {
+  SUMMARIZE_SITE_SYSTEM_PROMPT,
+  buildSummarizeSiteUserPrompt,
+  SEED_KEYWORDS_SYSTEM_PROMPT,
+  buildSeedKeywordsUserPrompt,
+  DRAFT_OUTLINE_SYSTEM_PROMPT,
+  buildDraftOutlineUserPrompt,
+  GENERATE_BODY_SYSTEM_PROMPT,
+  buildGenerateBodyUserPrompt,
+  SUMMARIZE_PAGE_SYSTEM_PROMPT,
+  buildSummarizePageUserPrompt
+} from '@common/prompts'
 
 export type SiteSummary = {
   businessSummary: string
@@ -7,16 +21,31 @@ export type SiteSummary = {
   topicClusters: string[]
 }
 
+const DEFAULT_MODEL = process.env.OPENAI_MODEL || 'gpt-5-2025-08-07'
+async function getOpenAiClient() {
+  const key = process.env.OPENAI_API_KEY
+  if (!key) throw new Error('OPENAI_API_KEY missing')
+  const { OpenAI } = await import('openai')
+  return new OpenAI({ apiKey: key })
+}
+
+function containsRefusal(response: any): boolean {
+  const chunks = Array.isArray(response?.output) ? response.output : []
+  for (const chunk of chunks) {
+    const content = Array.isArray(chunk?.content) ? chunk.content : []
+    if (content.some((item: any) => item?.type === 'refusal')) return true
+  }
+  return false
+}
+
 function parseJsonLoose<T = any>(text: string): T {
   const t = String(text || '').trim()
   try { return JSON.parse(t) } catch {}
-  // code fence ```json ... ```
   const fence = t.match(/```\s*json\s*([\s\S]*?)```/i) || t.match(/```\s*([\s\S]*?)```/)
   if (fence?.[1]) {
     const inner = fence[1].trim()
     try { return JSON.parse(inner) } catch {}
   }
-  // fallback: first {...} block
   const start = t.indexOf('{')
   const end = t.lastIndexOf('}')
   if (start >= 0 && end > start) {
@@ -27,60 +56,100 @@ function parseJsonLoose<T = any>(text: string): T {
 }
 
 export async function summarizeSite(pages: Array<{ url: string; title?: string; text?: string }>): Promise<SiteSummary> {
-  const key = process.env.OPENAI_API_KEY
+  const client = await getOpenAiClient()
   const sample = pages.slice(0, 5)
-  if (!key) throw new Error('OPENAI_API_KEY missing')
+  const list = sample
+    .map((p, i) => `${i + 1}. ${p.title || ''} (${p.url})\n${(p.text || '').slice(0, 600)}`)
+    .join('\n\n')
+  log.debug('[llm.summarizeSite] dispatch', { sampleCount: sample.length, model: DEFAULT_MODEL })
   try {
-    const { OpenAI } = await import('openai')
-    const client = new OpenAI({ apiKey: key })
-    const list = sample
-      .map((p, i) => `${i + 1}. ${p.title || ''} (${p.url})\n${(p.text || '').slice(0, 600)}`)
-      .join('\n\n')
-    const prompt = `You are an SEO strategist. Read the page snippets below and summarize the business. Then propose exactly 5 topical clusters tightly aligned with the business (no generic outdoors/recipes/etc). Return strict JSON: {"businessSummary":"...","topicClusters":["..."]}. No markdown or code fences.\n\n${list}`
     const resp = await client.chat.completions.create({
-      model: 'gpt-4o-mini',
-      messages: [{ role: 'user', content: prompt }],
-      temperature: 0.2,
+      model: DEFAULT_MODEL,
+      messages: [
+        { role: 'system', content: SUMMARIZE_SITE_SYSTEM_PROMPT },
+        { role: 'user', content: buildSummarizeSiteUserPrompt(list) }
+      ],
       response_format: { type: 'json_object' as const }
-    })
+    }, { timeout: HTTP_TIMEOUT_MS })
     const text = resp.choices?.[0]?.message?.content || ''
     const parsed = parseJsonLoose<SiteSummary>(text)
     if (!parsed || !Array.isArray(parsed.topicClusters)) throw new Error('LLM summary invalid JSON')
+    log.debug('[llm.summarizeSite] success', { topicClusters: parsed.topicClusters.length })
     return parsed
   } catch (e) {
     throw new Error(`LLM summarize failed: ${(e as Error)?.message || String(e)}`)
   }
 }
 
-export async function expandSeeds(topicClusters: string[], locale = 'en-US'): Promise<string[]> {
-  if (!process.env.OPENAI_API_KEY) throw new Error('OPENAI_API_KEY missing')
+export async function expandSeeds(topicClusters: string[], locale = 'en-US', targetCount = 200): Promise<string[]> {
+  const client = await getOpenAiClient()
+  const target = Math.max(50, Math.min(targetCount, 200))
+  const minSeeds = 50
+  log.debug('[llm.expandSeeds] dispatch', { locale, target, clusters: topicClusters.length, model: DEFAULT_MODEL })
   try {
-    const { OpenAI } = await import('openai')
-    const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
-    const prompt = `Generate 30 SEO keywords for these topic clusters in ${locale}. Output JSON array of strings only. No markdown.`
-    const resp = await client.chat.completions.create({ model: 'gpt-4o-mini', messages: [{ role: 'user', content: `${prompt}\nClusters: ${topicClusters.join(', ')}` }], temperature: 0.5, response_format: { type: 'json_object' as const } }).catch(async () => {
-      // some models require array type; fallback without response_format
-      return await client.chat.completions.create({ model: 'gpt-4o-mini', messages: [{ role: 'user', content: `${prompt}\nClusters: ${topicClusters.join(', ')}` }], temperature: 0.5 })
-    })
-    const text = resp.choices?.[0]?.message?.content || '[]'
+    const resp = await client.chat.completions.create({
+      model: DEFAULT_MODEL,
+      messages: [
+        { role: 'system', content: SEED_KEYWORDS_SYSTEM_PROMPT },
+        { role: 'user', content: buildSeedKeywordsUserPrompt({ topicClusters, locale, targetCount: target }) }
+      ],
+      response_format: {
+        type: 'json_schema',
+        json_schema: {
+          name: 'seed_keyword_generation',
+          strict: true,
+          schema: {
+            type: 'object',
+            additionalProperties: false,
+            required: ['seeds'],
+            properties: {
+              seeds: {
+                type: 'array',
+                minItems: minSeeds,
+                maxItems: target,
+                items: {
+                  type: 'string',
+                  minLength: 2,
+                  maxLength: 60
+                }
+              }
+            }
+          }
+        }
+      }
+    }, { timeout: HTTP_TIMEOUT_MS })
+    const text = resp.choices?.[0]?.message?.content || ''
     const parsed = parseJsonLoose<any>(text)
-    const arr = Array.isArray(parsed) ? parsed : (Array.isArray(parsed?.keywords) ? parsed.keywords : [])
-    return Array.isArray(arr) ? arr.map(String) : []
+    const rawSeeds = Array.isArray(parsed?.seeds) ? (parsed.seeds as unknown[]) : []
+    if (!rawSeeds.length) throw new Error('LLM seed generation returned empty payload')
+    const unique = Array.from(new Set(rawSeeds.map((seed: any) => String(seed || '').trim().toLowerCase()).filter(Boolean)))
+    log.debug('[llm.expandSeeds] success', { requested: target, returned: rawSeeds.length, unique: unique.length })
+    return unique.slice(0, target)
   } catch (e) {
     throw new Error(`LLM expand failed: ${(e as Error)?.message || String(e)}`)
   }
 }
 
 export async function draftTitleOutline(keyword: string, locale = 'en-US'): Promise<{ title: string; outline: ArticleOutlineSection[] }> {
-  if (!process.env.OPENAI_API_KEY) throw new Error('OPENAI_API_KEY missing')
+  const client = await getOpenAiClient()
+  const prompt = buildDraftOutlineUserPrompt(keyword, locale)
+  log.debug('[llm.draftOutline] dispatch', { keyword, locale, model: DEFAULT_MODEL })
   try {
-    const { OpenAI } = await import('openai')
-    const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
-    const prompt = `Write an SEO-friendly article title and 5-7 H2 section headings (no descriptions) for the keyword: "${keyword}" in ${locale}. Return strict JSON: {"title":"...","outline":[{"heading":"..."}]}. No markdown.`
-    const resp = await client.chat.completions.create({ model: 'gpt-4o-mini', messages: [{ role: 'user', content: prompt }], temperature: 0.5, response_format: { type: 'json_object' as const } })
+    const resp = await client.chat.completions.create({
+      model: DEFAULT_MODEL,
+      messages: [
+        { role: 'system', content: DRAFT_OUTLINE_SYSTEM_PROMPT },
+        { role: 'user', content: `${prompt} Return strict JSON: {"title":"...","outline":[{"heading":"..."}]}.` }
+      ],
+      response_format: { type: 'json_object' as const }
+    }, { timeout: HTTP_TIMEOUT_MS })
     const text = resp.choices?.[0]?.message?.content || ''
     const parsed = parseJsonLoose<any>(text)
-    return { title: String(parsed.title || capitalize(keyword)), outline: Array.isArray(parsed.outline) ? parsed.outline.map((o: any) => ({ heading: String(o.heading || '') })) : [] }
+    log.debug('[llm.draftOutline] success', { keyword, outlineCount: Array.isArray(parsed.outline) ? parsed.outline.length : 0 })
+    return {
+      title: String(parsed.title || capitalize(keyword)),
+      outline: Array.isArray(parsed.outline) ? parsed.outline.map((o: any) => ({ heading: String(o.heading || '') })) : []
+    }
   } catch (e) {
     throw new Error(`LLM draft outline failed: ${(e as Error)?.message || String(e)}`)
   }
@@ -92,24 +161,49 @@ export async function generateBody(options: {
   keyword?: string
   locale?: string
 }): Promise<{ bodyHtml: string }> {
-  const key = process.env.OPENAI_API_KEY
-  if (!key) throw new Error('OPENAI_API_KEY missing')
-
+  const client = await getOpenAiClient()
+  const outlineHeadings = options.outline.map((s) => s.heading)
+  const userPrompt = buildGenerateBodyUserPrompt({
+    title: options.title,
+    outlineHeadings,
+    locale: options.locale ?? 'en-US'
+  })
   try {
-    const { OpenAI } = await import('openai')
-    const client = new OpenAI({ apiKey: key })
-    const outlineBullets = options.outline.map((s) => `- ${s.heading}`).join('\n')
-    const prompt = `Write an HTML article in ${options.locale ?? 'en-US'} titled "${options.title}" following this outline:\n${outlineBullets}. Output raw HTML only. No markdown.`
     const resp = await client.chat.completions.create({
-      model: 'gpt-4o-mini',
-      messages: [{ role: 'user', content: prompt }],
-      temperature: 0.7
-    })
+      model: DEFAULT_MODEL,
+      messages: [
+        { role: 'system', content: GENERATE_BODY_SYSTEM_PROMPT },
+        { role: 'user', content: userPrompt }
+      ]
+    }, { timeout: HTTP_TIMEOUT_MS })
     const text = resp.choices?.[0]?.message?.content ?? ''
     const html = text && /<\w+/.test(text) ? text : `<article><h1>${escapeHtml(options.title)}</h1><p>${escapeHtml(text || 'Draft content')}</p></article>`
+    log.debug('[llm.generateBody] completed', { title: options.title, locale: options.locale ?? 'en-US', outline: outlineHeadings.length })
     return { bodyHtml: html }
   } catch (e) {
     throw new Error(`LLM generate body failed: ${(e as Error)?.message || String(e)}`)
+  }
+}
+
+export async function summarizePage(text: string): Promise<string> {
+  const content = String(text || '').trim()
+  if (!content) return ''
+  const client = await getOpenAiClient().catch(() => null)
+  if (!client) return content.replace(/\s+/g, ' ').slice(0, 360)
+  try {
+    const resp = await client.chat.completions.create({
+      model: DEFAULT_MODEL,
+      messages: [
+        { role: 'system', content: SUMMARIZE_PAGE_SYSTEM_PROMPT },
+        { role: 'user', content: buildSummarizePageUserPrompt(content.slice(0, 4000)) }
+      ]
+    }, { timeout: HTTP_TIMEOUT_MS })
+    const textOut = resp.choices?.[0]?.message?.content || ''
+    const clean = String(textOut).trim()
+    log.debug('[llm.summarizePage] success', { length: clean.length })
+    return clean || content.replace(/\s+/g, ' ').slice(0, 360)
+  } catch (e) {
+    return content.replace(/\s+/g, ' ').slice(0, 360)
   }
 }
 
@@ -119,27 +213,4 @@ function escapeHtml(input: string) {
 
 function capitalize(s: string) {
   return s.slice(0, 1).toUpperCase() + s.slice(1)
-}
-
-// removed path-based stub fallback
-export async function summarizePage(text: string): Promise<string> {
-  const content = String(text || '').trim()
-  if (!process.env.OPENAI_API_KEY) {
-    return content.replace(/\s+/g, ' ').slice(0, 360)
-  }
-  try {
-    const { OpenAI } = await import('openai')
-    const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
-    const prompt = `Summarize the following web page content in 2-3 concise sentences. Output plain text only. No markdown.\n\n${content.slice(0, 4000)}`
-    const resp = await client.chat.completions.create({
-      model: 'gpt-4o-mini',
-      messages: [{ role: 'user', content: prompt }],
-      temperature: 0.2
-    })
-    const textOut = resp.choices?.[0]?.message?.content || ''
-    const clean = String(textOut).replace(/^\s+|\s+$/g, '')
-    return clean || content.replace(/\s+/g, ' ').slice(0, 360)
-  } catch (e) {
-    return content.replace(/\s+/g, ' ').slice(0, 360)
-  }
 }

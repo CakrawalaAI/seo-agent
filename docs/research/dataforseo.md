@@ -105,7 +105,7 @@ Mock output characteristics:
 
 ## Costs & Limits
 - Pricing (Nov 2025): `$0.012` per returned keyword idea.
-- With limit 100 → worst-case $1.20 per run.
+- With limit 1000 → worst-case $0.11 per run (0.01 task + 1000×0.0001).
 - Timeout: 20 seconds (abort + retry later via queue backoff).
 - Rate limit: 30 concurrent requests / 2000 per minute (well above worker throughput).
 
@@ -125,7 +125,7 @@ Mock output characteristics:
        https://api.dataforseo.com/v3/dataforseo_labs/google/keyword_ideas/live
   ```
 - Worker validation: `bun run worker` with `MOCK_KEYWORD_GENERATOR=true` should log `keyword generate mode` as mock and finish without hitting the real API.
-- Cost levers: set `MAX_SEED_KEYWORDS` (seed batch, ≤200 enforced) and `MAX_KEYWORDS_GENERATE` (result limit, ≤1000) to tune spend; defaults keep runs at 10 outputs for testing.
+- Cost levers: set `MAX_SEED_KEYWORDS` (seed batch, ≤200 enforced) and `MAX_KEYWORDS_GENERATE` (result limit, ≤1000) to tune spend; defaults set to 1200/1000 for production-like scale (clamped to API caps at runtime).
 
 ## Troubleshooting Cheatsheet
 

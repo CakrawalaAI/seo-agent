@@ -128,11 +128,11 @@ Keyword Generation Pipeline:
 │   Real: Playwright/fetch scraping
 │   Mock: PrepInterview.ai pages (5 hardcoded URLs)
 ├─ summarizeSite() → business summary + seed heuristics
-│   Real: OpenAI gpt-4o-mini
+│   Real: OpenAI (model from `OPENAI_MODEL`, structured JSON)
 ├─ seedExtractor() → ≤200 keywords
-│   Real: LLM + heading parser
+│   Real: LLM structured output (fails hard on refusal; no prompt fallback)
 ├─ provider.keywordIdeas() → expand seeds
-│   Real: DataForSEO keyword_ideas/live (limit≤100)
+│   Real: DataForSEO keyword_ideas/live (limit≤1000)
 │   Mock: 100 deterministic ideas w/ keyword_info, keyword_properties, impressions
 └─ persistKeywords() → write keywords rows
     Real: Drizzle UPSERT + metrics JSON snapshot
@@ -140,11 +140,11 @@ Keyword Generation Pipeline:
 
 Article Generation Pipeline:
 ├─ LLM.draftOutline() → title + outline
-│   Real: OpenAI gpt-4o-mini
+│   Real: OpenAI (model from `OPENAI_MODEL`)
 ├─ ensureSerp() → SERP data
 │   Real: DataForSEO SERP API or scraping (mock optional)
 ├─ LLM.generateBody() → article HTML
-│   Real: OpenAI gpt-4o-mini
+│   Real: OpenAI (model from `OPENAI_MODEL`)
 └─ LLM.factCheck() → quality score (optional)
 ```
 

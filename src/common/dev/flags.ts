@@ -16,7 +16,6 @@ function readNumber(key: string, defaultValue: number): number {
 }
 
 export const keywordConfig = {
-  llmSeedsMax: Math.max(1, readNumber('KEYWORD_LLM_SEEDS_MAX', 10)),
   seedLimit: Math.max(1, readNumber('MAX_SEED_KEYWORDS', 10)),
   keywordLimit: Math.max(1, readNumber('MAX_KEYWORDS_GENERATE', 10))
 }

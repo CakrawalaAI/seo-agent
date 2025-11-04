@@ -2,6 +2,7 @@ import type { SerpProvider, SerpSnapshot, SerpItem } from '../../interfaces/serp
 import { getAuthHeader } from './auth'
 import { log } from '@src/common/logger'
 import { DATAFORSEO_DEFAULT_LOCATION_CODE, languageNameFromCode } from './geo'
+import { HTTP_TIMEOUT_MS } from '@src/common/http/timeout'
 
 const BASE_URL = 'https://api.dataforseo.com'
 const ENDPOINT = '/v3/serp/google/organic/live/regular'
@@ -44,7 +45,7 @@ async function fetchSerpOrganic(params: FetchSerpParams): Promise<RawSerpItem[]>
   ])
 
   const controller = new AbortController()
-  const timer = setTimeout(() => controller.abort(), 20_000)
+  const timer = setTimeout(() => controller.abort(), HTTP_TIMEOUT_MS)
 
   try {
     const res = await fetch(`${BASE_URL}${ENDPOINT}`, {

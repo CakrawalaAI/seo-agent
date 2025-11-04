@@ -1,5 +1,6 @@
 import { config } from '@common/config'
 import * as bundle from '@common/bundle/store'
+import { HTTP_TIMEOUT_MS } from '@src/common/http/timeout'
 
 export type ArticleEval = {
   score: number
@@ -22,7 +23,10 @@ export async function evaluateArticle(websiteId: string, articleId: string, inpu
     const client = new OpenAI({ apiKey: key })
     const prompt = `Evaluate this draft article for SEO readiness. Return JSON {score:0-100,suggestions:["..."]}. Focus on coverage vs outline, on-page SEO basics, readability, internal/external links (if visible). Keep suggestions short, actionable.\nTitle: ${input.title}\nOutline: ${(input.outline || []).map((o) => `- ${o.heading}`).join('\n')}\nHTML:\n${input.bodyHtml.slice(0, 6000)}`
     try {
-      const resp = await client.chat.completions.create({ model: 'gpt-4o-mini', messages: [{ role: 'user', content: prompt }], temperature: 0, response_format: { type: 'json_object' as const } })
+      const resp = await client.chat.completions.create(
+        { model: 'gpt-4o-mini', messages: [{ role: 'user', content: prompt }], response_format: { type: 'json_object' as const } },
+        { timeout: HTTP_TIMEOUT_MS }
+      )
       const text = resp.choices?.[0]?.message?.content || '{}'
       const parsed = JSON.parse(text)
       score = Math.max(0, Math.min(100, Number(parsed?.score || 0)))

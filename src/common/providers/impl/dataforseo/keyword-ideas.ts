@@ -1,5 +1,6 @@
 import { getAuthHeader } from './auth'
 import { log } from '@src/common/logger'
+import { HTTP_TIMEOUT_MS } from '@src/common/http/timeout'
 
 const BASE_URL = 'https://api.dataforseo.com'
 const ENDPOINT = '/v3/dataforseo_labs/google/keyword_ideas/live'
@@ -45,12 +46,12 @@ export async function keywordIdeas(params: KeywordIdeasParams): Promise<KeywordI
   if (params.limit && params.limit > 0) task.limit = Math.floor(params.limit)
 
   const controller = new AbortController()
-  const timeout = setTimeout(() => controller.abort(), 20_000)
+  const timeout = setTimeout(() => controller.abort(), HTTP_TIMEOUT_MS)
   const payload = JSON.stringify([task])
   log.debug('[dfs.keywordIdeas] dispatch', {
     endpoint: ENDPOINT,
     payload: task,
-    timeoutMs: 20_000
+    timeoutMs: HTTP_TIMEOUT_MS
   })
 
   try {

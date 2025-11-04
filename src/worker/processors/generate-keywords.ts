@@ -31,25 +31,26 @@ export async function processGenerateKeywords(payload: { projectId?: string; web
   log.debug('[keywords.generate] site summary', { websiteId, topicClusters: summary.topicClusters?.length ?? 0 })
   try { await websitesRepo.patch(websiteId, { summary: summary.businessSummary || null, status: 'crawled' }) } catch {}
 
-  // 2) Seeds via LLM (10)
-  const maxLlmSeeds = Math.max(1, keywordConfig.llmSeedsMax)
-  const seedsLlm = (await expandSeeds(summary.topicClusters || [], locale)).slice(0, maxLlmSeeds)
+  // 2) Seeds via LLM
+  const seedTarget = Math.max(1, Math.min(keywordConfig.seedLimit, 200))
+  const seedsLlm = await expandSeeds(summary.topicClusters || [], locale, seedTarget)
+  await websitesRepo.patch(websiteId, { seedKeywords: seedsLlm })
   const seedInputs = new Set<string>(seedsLlm.map((s) => s.toLowerCase()))
-  const seedBatch = Array.from(seedInputs).slice(0, Math.max(1, keywordConfig.seedLimit))
-  log.debug('[keywords.generate] seeds prepared', { websiteId, llmSeeds: seedsLlm.length, uniqueSeeds: seedBatch.length, seeds: seedBatch })
+  const seedBatch = Array.from(seedInputs).slice(0, seedTarget)
+  log.debug('[keywords.generate] seeds prepared', { websiteId, llmSeeds: seedsLlm.length, uniqueSeeds: seedBatch.length })
   if (!seedBatch.length) throw new Error('No keyword seeds available after preprocessing')
 
   // 3) One call: keyword_ideas/live (no SERP info)
   const dfsLanguage = payload.languageCode || languageCodeFromLocale(website?.defaultLocale || payload.locale) || DATAFORSEO_DEFAULT_LANGUAGE_CODE
   const dfsLocation = Number(payload.locationCode || locationCodeFromLocale(website?.defaultLocale || payload.locale) || DATAFORSEO_DEFAULT_LOCATION_CODE)
-  const ideasLimit = Math.min(30, Math.max(1, keywordConfig.keywordLimit))
+  const ideasLimit = Math.min(1000, Math.max(1, keywordConfig.keywordLimit))
   const useMockKeywords = String(process.env.MOCK_KEYWORD_GENERATOR || '').trim().toLowerCase() === 'true'
-  log.debug('[keywords.generate] requesting keyword ideas', { websiteId, provider: useMockKeywords ? 'mock' : 'dataforseo', dfsLanguage, dfsLocation, limit: ideasLimit, seeds: seedBatch })
+  log.debug('[keywords.generate] requesting keyword ideas', { websiteId, provider: useMockKeywords ? 'mock' : 'dataforseo', dfsLanguage, dfsLocation, limit: ideasLimit, seedCount: seedBatch.length })
   const ideas = useMockKeywords
     ? await mockKeywordGenerator.keywordIdeasDetailed({ keywords: seedBatch, languageCode: dfsLanguage, locationCode: dfsLocation, limit: ideasLimit })
     : await fetchKeywordIdeas({ keywords: seedBatch, languageCode: dfsLanguage, locationCode: dfsLocation, limit: ideasLimit })
   if (!ideas.length) throw new Error('No keyword ideas returned')
-  log.debug('[keywords.generate] ideas received', { websiteId, total: ideas.length, keywords: ideas.map((idea) => idea.keyword) })
+  log.debug('[keywords.generate] ideas received', { websiteId, total: ideas.length })
 
   const providerName = useMockKeywords ? 'mock.keyword_ideas' : 'dataforseo.labs.keyword_ideas'
 
@@ -74,7 +75,7 @@ export async function processGenerateKeywords(payload: { projectId?: string; web
   const includeSet = new Set(withMetrics.slice(0, includeCount).map((c) => c.phrase.toLowerCase()))
 
   const filtered = filterSeeds(ideas.map((i) => String(i.keyword || '')), summary)
-  log.debug('[keywords.generate] ideas after filter', { websiteId, total: filtered.length, keywords: filtered })
+  log.debug('[keywords.generate] ideas after filter', { websiteId, total: filtered.length })
   let inserted = 0
   const limit = ideasLimit
   for (const phrase of filtered) {
@@ -87,7 +88,6 @@ export async function processGenerateKeywords(payload: { projectId?: string; web
       ? info.monthly_searches.map((m: any) => ({ month: `${m?.year ?? ''}-${String(m?.month ?? 1).padStart(2, '0')}`, searchVolume: Number(m?.search_volume ?? 0) }))
           .filter((x: any) => x.month && Number.isFinite(x.searchVolume))
       : null
-    log.debug('[keywords.generate] inserting keyword', { websiteId, keyword: phrase, include: includeSet.has(phrase.toLowerCase()) })
     await keywordsRepo.upsert({
       websiteId,
       phrase,

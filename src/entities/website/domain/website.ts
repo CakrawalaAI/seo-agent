@@ -6,6 +6,7 @@ export type Website = {
   url: string
   defaultLocale: string
   summary?: string | null
+  seedKeywords?: string[] | null
   settings?: {
     allowYoutube?: boolean
     maxImages?: number
