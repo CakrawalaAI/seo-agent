@@ -25,7 +25,7 @@ export const articlesRepo = {
     const rows = await db.select().from(articles).where(eq(articles.id, id)).limit(1)
     return (rows?.[0] as any) ?? null
   },
-  async createDraft(input: { websiteId?: string; planItemId: string; title: string; outline?: ArticleOutlineSection[] }): Promise<Article> {
+  async createDraft(input: { websiteId?: string; planItemId: string; title: string; targetKeyword?: string | null; outline?: ArticleOutlineSection[] }): Promise<Article> {
     const now = new Date()
     const targetId = input.planItemId
     // If a planned article exists with id = planItemId, convert it into a draft in place
@@ -39,6 +39,7 @@ export const articlesRepo = {
             .update(articles)
             .set({
               title: input.title,
+              targetKeyword: (input.targetKeyword ?? found.targetKeyword ?? input.title) as any,
               outlineJson: (input.outline ?? []) as any,
               status: (found.status as any) === 'scheduled' ? found.status : 'queued',
               language: 'en',
@@ -59,6 +60,7 @@ export const articlesRepo = {
       id: articleId,
       websiteId: (input.websiteId as any),
       title: input.title,
+      targetKeyword: input.targetKeyword ?? input.title,
       language: 'en',
       tone: 'neutral',
       status: 'queued',
@@ -76,6 +78,7 @@ export const articlesRepo = {
           id: article.id,
           websiteId: (article as any).websiteId ?? null,
           title: article.title,
+          targetKeyword: article.targetKeyword ?? null,
           language: article.language,
           tone: article.tone,
           status: article.status as any,
@@ -91,13 +94,34 @@ export const articlesRepo = {
     if (!hasDatabase()) return null
     const db = getDb()
     const set: any = { updatedAt: new Date() as any }
-    for (const k of ['websiteId','keywordId','scheduledDate','title','language','tone','status','outlineJson','bodyHtml','generationDate','publishDate','url'] as const) {
+    for (const k of [
+      'websiteId',
+      'keywordId',
+      'scheduledDate',
+      'title',
+      'targetKeyword',
+      'language',
+      'tone',
+      'status',
+      'outlineJson',
+      'bodyHtml',
+      'generationDate',
+      'publishDate',
+      'url',
+      'payloadJson',
+      'cmsExternalId'
+    ] as const) {
       const v = (patch as any)[k]
       if (v !== undefined) set[k] = v as any
     }
     await db.update(articles).set(set).where(eq(articles.id, id))
     const rows = await db.select().from(articles).where(eq(articles.id, id)).limit(1)
     return (rows?.[0] as any) ?? null
+  },
+  async remove(id: string): Promise<void> {
+    if (!hasDatabase()) return
+    const db = getDb()
+    await db.delete(articles).where(eq(articles.id, id))
   },
   async removeByProject(projectId: string) {
     if (!hasDatabase()) return

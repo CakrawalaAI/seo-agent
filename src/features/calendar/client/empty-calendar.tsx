@@ -24,7 +24,12 @@ function getMonthMatrix(base: Date): DayCell[] {
   return cells
 }
 
-export type CalendarChip = { date: string; title: string; status: 'published' | 'scheduled' | 'queued'; href?: string }
+export type CalendarChip = {
+  date: string
+  title: string
+  status: 'published' | 'scheduled' | 'queued' | 'unpublished'
+  href?: string
+}
 
 export function EmptyCalendar({ chips = [] }: { chips?: CalendarChip[] }): JSX.Element {
   const [cursor, setCursor] = useState(() => new Date())
@@ -99,7 +104,14 @@ export function EmptyCalendar({ chips = [] }: { chips?: CalendarChip[] }): JSX.E
 }
 
 function Chip({ title, status, href }: CalendarChip) {
-  const color = status === 'published' ? 'bg-emerald-600' : status === 'scheduled' ? 'bg-blue-600' : 'bg-amber-600'
+  const color =
+    status === 'published'
+      ? 'bg-emerald-600'
+      : status === 'scheduled'
+      ? 'bg-blue-600'
+      : status === 'unpublished'
+      ? 'bg-rose-600'
+      : 'bg-amber-600'
   const content = (
     <span className="inline-flex w-full items-center gap-2 truncate rounded px-2 py-0.5 text-[11px] font-medium text-white">
       <span className={`h-2 w-2 rounded-full ${color}`} />

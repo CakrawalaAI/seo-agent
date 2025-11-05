@@ -7,7 +7,8 @@ import {
   getSortedRowModel,
   getPaginationRowModel,
   SortingState,
-  useReactTable
+  useReactTable,
+  type Row
 } from '@tanstack/react-table'
 
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@src/common/ui/table'
@@ -18,9 +19,16 @@ export interface DataTableProps<TData, TValue> {
   data: TData[]
   paginate?: boolean
   initialSorting?: SortingState
+  onRowClick?: (row: Row<TData>) => void
 }
 
-export function DataTable<TData, TValue>({ columns, data, paginate = true, initialSorting = [] }: DataTableProps<TData, TValue>) {
+function DataTableComponent<TData, TValue>({
+  columns,
+  data,
+  paginate = true,
+  initialSorting = [],
+  onRowClick
+}: DataTableProps<TData, TValue>) {
   const [sorting, setSorting] = React.useState<SortingState>(initialSorting)
   const table = useReactTable({
     data,
@@ -54,7 +62,12 @@ export function DataTable<TData, TValue>({ columns, data, paginate = true, initi
           <TableBody>
             {table.getRowModel().rows?.length ? (
               table.getRowModel().rows.map((row) => (
-                <TableRow key={row.id} data-state={row.getIsSelected() && 'selected'}>
+                <TableRow
+                  key={row.id}
+                  data-state={row.getIsSelected() && 'selected'}
+                  onClick={onRowClick ? () => onRowClick(row) : undefined}
+                  className={onRowClick ? 'cursor-pointer hover:bg-muted/40' : undefined}
+                >
                   {row.getVisibleCells().map((cell) => (
                     <TableCell key={cell.id}>{flexRender(cell.column.columnDef.cell, cell.getContext())}</TableCell>
                   ))}
@@ -83,5 +96,7 @@ export function DataTable<TData, TValue>({ columns, data, paginate = true, initi
     </div>
   )
 }
+
+export const DataTable = React.memo(DataTableComponent) as typeof DataTableComponent
 
 export type { ColumnDef }

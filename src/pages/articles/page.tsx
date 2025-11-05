@@ -1,5 +1,6 @@
-import { useMemo } from 'react'
+import { useCallback, useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
+import { useNavigate } from '@tanstack/react-router'
 import { useActiveWebsite } from '@common/state/active-website'
 import { useMockData } from '@common/dev/mock-data-context'
 import { getPlanItems, getWebsiteArticles } from '@entities/website/service'
@@ -7,15 +8,29 @@ import type { Article } from '@entities'
 import type { PlanItem } from '@entities/article/planner'
 import { Button } from '@src/common/ui/button'
 import { Badge } from '@src/common/ui/badge'
-import { Table, TableBody, TableCaption, TableCell, TableHead, TableHeader, TableRow } from '@src/common/ui/table'
+import { DataTable, type ColumnDef } from '@src/common/ui/data-table'
+import type { Row } from '@tanstack/react-table'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger
+} from '@src/common/ui/dropdown-menu'
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from '@src/common/ui/empty'
+import { useArticleActions } from '@features/articles/shared/use-article-actions'
+import { ArrowUpDown, Ban, Eye, ExternalLink, Loader2, MoreHorizontal, Pencil, Trash2 } from 'lucide-react'
 
 type TimelineItem = {
   id: string
+  entityId: string
+  source: 'article' | 'plan'
   title: string
   date: string
   status: NonNullable<Article['status'] | PlanItem['status']>
   url?: string | null
+  scheduledDate?: string | null
+  publishDate?: string | null
 }
 
 const MOCK_ARTICLES: Article[] = [
@@ -51,6 +66,13 @@ const MOCK_PLAN: PlanItem[] = [
 export function Page(): JSX.Element {
   const { id: projectId } = useActiveWebsite()
   const { enabled: mockEnabled } = useMockData()
+  const navigate = useNavigate()
+  const {
+    deleteArticle: deleteArticleAction,
+    unpublishArticle: unpublishArticleAction,
+    deletingId,
+    statusMutatingId
+  } = useArticleActions()
 
   const articlesQuery = useQuery({
     queryKey: ['articles.list', projectId],
@@ -70,6 +92,171 @@ export function Page(): JSX.Element {
   const plan = mockEnabled ? MOCK_PLAN : planQuery.data ?? []
 
   const timeline = useMemo(() => buildTimeline(articles, plan), [articles, plan])
+  const openArticle = useCallback(
+    (articleId: string, mode: 'edit' | null = null) => {
+      navigate({
+        to: '/articles/$articleId',
+        params: { articleId },
+        search: mode ? { mode } : undefined
+      })
+    },
+    [navigate]
+  )
+  const columns = useMemo<ColumnDef<TimelineItem>[]>(() => {
+    const SortHeader = ({ column, label }: { column: any; label: string }) => (
+      <Button
+        type="button"
+        variant="ghost"
+        className="-ml-3 h-8 px-3 text-xs font-semibold"
+        onClick={() => column.toggleSorting(column.getIsSorted() === 'asc')}
+      >
+        {label}
+        <ArrowUpDown className="ml-1 h-3.5 w-3.5" />
+      </Button>
+    )
+    return [
+      {
+        accessorKey: 'title',
+        header: ({ column }) => <SortHeader column={column} label="Title" />,
+        cell: ({ row }) => (
+          <Button
+            type="button"
+            variant="link"
+            className="h-auto p-0 text-left text-sm font-semibold"
+            onClick={(event) => {
+              event.stopPropagation()
+              openArticle(row.original.entityId, null)
+            }}
+          >
+            <span className="line-clamp-2 text-left">{row.original.title}</span>
+          </Button>
+        ),
+        sortingFn: 'alphanumeric'
+      },
+      {
+        accessorKey: 'date',
+        header: ({ column }) => <SortHeader column={column} label="Date" />,
+        cell: ({ row }) => <span className="text-sm text-foreground/80">{formatDate(row.original.date)}</span>,
+        sortingFn: (rowA: any, rowB: any) => {
+          const a = new Date(rowA.original.date).getTime()
+          const b = new Date(rowB.original.date).getTime()
+          return a === b ? 0 : a > b ? 1 : -1
+        }
+      },
+      {
+        accessorKey: 'status',
+        header: ({ column }) => <SortHeader column={column} label="Status" />,
+        cell: ({ row }) => (
+          <Badge variant={statusVariant(row.original.status)} className="uppercase">
+            {statusLabel(row.original.status)}
+          </Badge>
+        ),
+        sortingFn: 'alphanumeric'
+      },
+      {
+        id: 'link',
+        header: () => <span className="sr-only">Link</span>,
+        cell: ({ row }) => {
+          if (!row.original.url) {
+            return <span className="text-xs text-muted-foreground">—</span>
+          }
+          return (
+            <a
+              href={row.original.url}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <ExternalLink className="h-3 w-3" />
+              View
+            </a>
+          )
+        },
+        enableSorting: false
+      },
+      {
+        id: 'actions',
+        header: () => <span className="sr-only">Actions</span>,
+        enableSorting: false,
+        cell: ({ row }) => {
+          const isDeleting = deletingId === row.original.entityId
+          const isStatusPending = statusMutatingId === row.original.entityId
+          const canMutate = !mockEnabled && !isDeleting && !isStatusPending
+          return (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="h-8 w-8"
+                  onClick={(event) => event.stopPropagation()}
+                  onMouseDown={(event) => event.stopPropagation()}
+                >
+                  <MoreHorizontal className="h-4 w-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" onClick={(event) => event.stopPropagation()}>
+                <DropdownMenuItem
+                  onClick={(event) => {
+                    event.stopPropagation()
+                    openArticle(row.original.entityId, null)
+                  }}
+                >
+                  <Eye className="h-4 w-4" />
+                  View
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={(event) => {
+                    event.stopPropagation()
+                    openArticle(row.original.entityId, 'edit')
+                  }}
+                >
+                  <Pencil className="h-4 w-4" />
+                  Edit
+                </DropdownMenuItem>
+                {row.original.status === 'published' ? (
+                  <DropdownMenuItem
+                    onClick={async (event) => {
+                      event.stopPropagation()
+                      if (isStatusPending || mockEnabled) return
+                      await unpublishArticleAction(row.original.entityId)
+                    }}
+                    disabled={!canMutate}
+                  >
+                    {isStatusPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Ban className="h-4 w-4" />}
+                    Unpublish
+                  </DropdownMenuItem>
+                ) : null}
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                  className="text-destructive"
+                  disabled={isDeleting || mockEnabled}
+                  onClick={async (event) => {
+                    event.stopPropagation()
+                    if (isDeleting || mockEnabled) return
+                    const confirmed = window.confirm('Delete this article and remove it from the schedule?')
+                    if (!confirmed) return
+                    await deleteArticleAction(row.original.entityId)
+                  }}
+                >
+                  {isDeleting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+                  Delete
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )
+        }
+      }
+    ]
+  }, [deleteArticleAction, deletingId, mockEnabled, openArticle, statusMutatingId, unpublishArticleAction])
+  const handleRowClick = useCallback(
+    (row: Row<TimelineItem>) => {
+      openArticle(row.original.entityId, null)
+    },
+    [openArticle]
+  )
 
   if (!projectId) {
     return (
@@ -125,44 +312,16 @@ export function Page(): JSX.Element {
         </Empty>
       ) : (
         <section className="rounded-lg border bg-card p-0 shadow-sm">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead className="w-[45%]">Title</TableHead>
-                <TableHead>Date</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead>Link</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {timeline.map((item) => (
-                <TableRow key={item.id}>
-                  <TableCell className="font-medium text-foreground">{item.title}</TableCell>
-                  <TableCell>{formatDate(item.date)}</TableCell>
-                  <TableCell>
-                    <Badge variant={statusVariant(item.status)} className="uppercase">
-                      {statusLabel(item.status)}
-                    </Badge>
-                  </TableCell>
-                  <TableCell>
-                    {item.url ? (
-                      <a
-                        href={item.url}
-                        className="text-xs font-medium text-primary underline"
-                        target="_blank"
-                        rel="noreferrer"
-                      >
-                        View
-                      </a>
-                    ) : (
-                      <span className="text-xs text-muted-foreground">—</span>
-                    )}
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-            <TableCaption>{timeline.length} item{timeline.length === 1 ? '' : 's'} in the timeline</TableCaption>
-          </Table>
+          <DataTable
+            columns={columns}
+            data={timeline}
+            paginate={false}
+            initialSorting={[{ id: 'date', desc: true }]}
+            onRowClick={handleRowClick}
+          />
+          <div className="border-t px-4 py-2 text-xs text-muted-foreground">
+            {timeline.length} item{timeline.length === 1 ? '' : 's'} in the timeline
+          </div>
         </section>
       )}
     </div>
@@ -170,30 +329,42 @@ export function Page(): JSX.Element {
 }
 
 function buildTimeline(articles: Article[], plan: PlanItem[]): TimelineItem[] {
-  const byId = new Map<string, Article>()
-  for (const article of articles) byId.set(article.id, article)
-
+  const seen = new Set<string>()
   const combined: TimelineItem[] = []
 
   for (const article of articles) {
-    const date = article.publishDate ?? (article as any).scheduledDate ?? article.createdAt ?? new Date().toISOString()
+    const scheduled = (article as any).scheduledDate ?? null
+    const publishDate = article.publishDate ?? null
+    const effectiveDate = publishDate ?? scheduled ?? article.createdAt ?? new Date().toISOString()
     combined.push({
-      id: `article-${article.id}`,
+      id: article.id,
+      entityId: article.id,
+      source: 'article',
       title: article.title ?? 'Untitled article',
-      date,
+      date: effectiveDate,
       status: (article.status ?? 'queued') as NonNullable<Article['status']>,
-      url: article.url
+      url: article.url ?? null,
+      scheduledDate: scheduled,
+      publishDate
     })
+    seen.add(article.id)
   }
 
   for (const item of plan) {
-    if (byId.has(item.id)) continue
+    if (seen.has(item.id)) continue
+    const scheduled = (item as any).scheduledDate ?? new Date().toISOString()
     combined.push({
-      id: `plan-${item.id}`,
+      id: item.id,
+      entityId: item.id,
+      source: 'plan',
       title: item.title ?? 'Untitled plan item',
-      date: (item as any).scheduledDate ?? new Date().toISOString(),
-      status: (item.status ?? 'queued') as NonNullable<PlanItem['status']>
+      date: scheduled,
+      status: (item.status ?? 'queued') as NonNullable<PlanItem['status']>,
+      url: null,
+      scheduledDate: scheduled,
+      publishDate: null
     })
+    seen.add(item.id)
   }
 
   return combined.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
@@ -209,6 +380,7 @@ function formatDate(value: string) {
 function statusVariant(status: string) {
   if (status === 'published') return 'default'
   if (status === 'scheduled') return 'secondary'
+  if (status === 'unpublished') return 'destructive'
   return 'outline'
 }
 
@@ -216,5 +388,6 @@ function statusLabel(status: string) {
   if (status === 'published') return 'Published'
   if (status === 'scheduled') return 'Scheduled'
   if (status === 'queued') return 'Queued'
+  if (status === 'unpublished') return 'Unpublished'
   return status.replace(/_/g, ' ')
 }

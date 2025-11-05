@@ -66,5 +66,6 @@ export function resolvePlanStatus(item: { status?: string }, articlesByPlanId: M
   const status = (art?.status || item.status || 'queued').toLowerCase()
   if (status === 'published') return { label: 'PUBLISHED', tone: 'emerald' }
   if (status === 'scheduled') return { label: 'SCHEDULED', tone: 'blue' }
+  if (status === 'unpublished') return { label: 'UNPUBLISHED', tone: 'rose' }
   return { label: 'QUEUED', tone: 'amber' }
 }

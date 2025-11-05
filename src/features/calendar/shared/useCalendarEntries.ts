@@ -9,7 +9,7 @@ export type CalendarEntry = {
   planItemId?: string
   date: string
   title: string
-  status: 'published' | 'scheduled' | 'queued'
+  status: 'published' | 'scheduled' | 'queued' | 'unpublished'
   articleId?: string
 }
 
@@ -46,8 +46,19 @@ export function useCalendarEntries(websiteId: string | null, monthCursor: Date) 
     })
     return within.map((i) => {
       const a = byPlan.get(i.id)
-      const status: CalendarEntry['status'] = a?.status === 'published' ? 'published' : a ? 'scheduled' : 'queued'
-      return { id: a?.id, articleId: a?.id, planItemId: i.id, date: (i as any).scheduledDate, title: i.title, status }
+      const rawStatus = (a?.status || i.status || 'queued').toLowerCase()
+      let status: CalendarEntry['status'] = 'queued'
+      if (rawStatus === 'published') status = 'published'
+      else if (rawStatus === 'scheduled') status = 'scheduled'
+      else if (rawStatus === 'unpublished') status = 'unpublished'
+      return {
+        id: a?.id,
+        articleId: a?.id,
+        planItemId: i.id,
+        date: (i as any).scheduledDate,
+        title: i.title,
+        status
+      }
     })
   }, [websiteId, plan.data?.items, arts.data?.items, start.getTime(), end.getTime()])
 
