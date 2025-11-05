@@ -10,7 +10,7 @@ Flow
 - Parse sitemap (fallback to basic homepage crawl). Robots.txt is ignored by default (can be enabled later).
 - Render pages (fetch or Playwright when needed).
 - Map: summarize each page → `crawl_pages.page_summary_json`.
-- Reduce: aggregate N highest-signal pages → `websites.summary`.
+ - Reduce: aggregate N highest-signal pages → `websites.summary` (executive memo style: 2–4 short paragraphs + Key Facts lines).
 - Record run in `crawl_jobs` with timing + providers.
 
 Notes

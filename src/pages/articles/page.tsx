@@ -1,8 +1,8 @@
 import { useCallback, useMemo } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery } from '@tanstack/react-query'
 import { useActiveWebsite } from '@common/state/active-website'
 import { useMockData } from '@common/dev/mock-data-context'
-import { getPlanItems, getWebsiteArticles } from '@entities/website/service'
+import { getPlanItems, getWebsiteArticles, getWebsiteSnapshot, publishArticle as publishArticleApi } from '@entities/website/service'
 import type { Article } from '@entities'
 import type { PlanItem } from '@entities/article/planner'
 import { Button } from '@src/common/ui/button'
@@ -74,6 +74,31 @@ export function Page(): JSX.Element {
     statusMutatingId
   } = useArticleActions()
   const { viewArticle } = useArticleNavigation()
+
+  const snapshotQuery = useQuery({
+    queryKey: ['integrations.snapshot', projectId],
+    queryFn: () => getWebsiteSnapshot(projectId!, { cache: 'no-store' }),
+    enabled: Boolean(projectId && !mockEnabled),
+    refetchInterval: 60_000
+  })
+
+  const activeWebhookId = useMemo(() => {
+    const list = (snapshotQuery.data?.integrations ?? []) as Array<any>
+    const w = list.find((i) => i.status === 'connected' && i.type === 'webhook')
+    return w?.id ? String(w.id) : null
+  }, [snapshotQuery.data])
+
+  const publishMutation = useMutation({
+    mutationFn: async (args: { articleId: string }) => {
+      const integrations = (snapshotQuery.data?.integrations ?? []) as Array<any>
+      const active = integrations.filter((i) => i.status === 'connected') as Array<any>
+      for (const integ of active) {
+        try {
+          await publishArticleApi(args.articleId, String(integ.id))
+        } catch {}
+      }
+    }
+  })
 
   const articlesQuery = useQuery({
     queryKey: ['articles.list', projectId],
@@ -208,6 +233,30 @@ export function Page(): JSX.Element {
                   <Eye className="h-4 w-4" />
                   Open
                 </DropdownMenuItem>
+                {row.original.status !== 'published' ? (
+                  <DropdownMenuItem
+                    onClick={async (event) => {
+                      event.stopPropagation()
+                      if (mockEnabled) return
+                      publishMutation.mutate({ articleId: row.original.entityId })
+                    }}
+                  >
+                    {publishMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowUpDown className="h-4 w-4" />}
+                    Publish now
+                  </DropdownMenuItem>
+                ) : null}
+                {row.original.status !== 'published' && activeWebhookId ? (
+                  <DropdownMenuItem
+                    onClick={async (event) => {
+                      event.stopPropagation()
+                      if (mockEnabled) return
+                      try { await publishArticleApi(row.original.entityId, activeWebhookId) } catch {}
+                    }}
+                  >
+                    <ArrowUpDown className="h-4 w-4" />
+                    Publish via Webhook
+                  </DropdownMenuItem>
+                ) : null}
                 {row.original.status === 'published' ? (
                   <DropdownMenuItem
                     onClick={async (event) => {

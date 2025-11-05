@@ -82,6 +82,7 @@ PostgreSQL
 - `bun run db:reset` drops `public`/`drizzle` schemas and replays migrations; only use `bun run db:generate` when you intentionally add a schema change.
 - Worker/CLI bootstraps no longer patch columns; if you see missing columns, fix via migrations instead of runtime ALTERs.
 - When executing project scripts from automations, pass an explicit timeout (`timeout_ms`) so hung processes can be surfaced quickly.
+- Migrations hygiene: never manually edit files in `drizzle/`. Use drizzle‑kit only — run `bun run db:generate` to create migrations.
 
 ### Stateless Runtime (DB‑only)
 - No filesystem/bundle artifacts. Workers must not write to `.data/**`.

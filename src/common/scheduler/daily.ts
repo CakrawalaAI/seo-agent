@@ -63,7 +63,7 @@ export async function runDailySchedules(opts: { websiteId?: string } = {}) {
         }
       } else if (article.status === 'scheduled' && plannedDate <= today && publishTarget) {
         if (queueEnabled()) {
-          await publishJob({ type: 'publish', payload: { articleId: article.id, integrationId: (publishTarget as any).id } })
+          await publishJob({ type: 'publish', payload: { articleId: article.id, integrationId: (publishTarget as any).id, trigger: 'auto' } })
           queuedPublishes++
         }
       }

@@ -4,7 +4,7 @@ import { json, httpError, requireSession, requireWebsiteAccess } from '@app/api-
 import { getDb, hasDatabase } from '@common/infra/db'
 import { keywords } from '@entities/keyword/db/schema.keywords'
 import { and, asc, desc, eq, ilike, inArray, sql } from 'drizzle-orm'
-import { keywordsRepo, shouldIncludeKeyword } from '@entities/keyword/repository'
+import { keywordsRepo, shouldActivateKeyword } from '@entities/keyword/repository'
 import { websitesRepo } from '@entities/website/repository'
 import {
   languageCodeFromLocale,
@@ -24,7 +24,7 @@ export const Route = createFileRoute('/api/websites/$websiteId/keywords')({
         if (!hasDatabase()) return httpError(500, 'Database not available')
         const db = getDb()
         const url = new URL(request.url)
-        const includeParam = url.searchParams.get('include')
+        const activeParam = url.searchParams.get('active')
         const searchParamRaw = String(url.searchParams.get('search') ?? '').trim()
         const limitParam = Number(url.searchParams.get('limit'))
         const pageParam = Number(url.searchParams.get('page'))
@@ -45,7 +45,7 @@ export const Route = createFileRoute('/api/websites/$websiteId/keywords')({
           db
             .select({ value: sql<number>`count(*)` })
             .from(keywords)
-            .where(and(...[...baseConditions, eq(keywords.include, true)]))
+            .where(and(...[...baseConditions, eq(keywords.active, true)]))
         ])
         let total = Number(totalRows?.[0]?.value ?? 0)
         let active = Number(activeRows?.[0]?.value ?? 0)
@@ -54,8 +54,8 @@ export const Route = createFileRoute('/api/websites/$websiteId/keywords')({
         const offset = Math.max(0, (safePage - 1) * limit)
 
         const rowConditions = [...baseConditions]
-        if (includeParam != null) {
-          rowConditions.push(eq(keywords.include, includeParam === 'true'))
+        if (activeParam != null) {
+          rowConditions.push(eq(keywords.active, activeParam === 'true'))
         }
         const rowsWhere = rowConditions.length === 1 ? rowConditions[0]! : and(...rowConditions)
 
@@ -64,7 +64,7 @@ export const Route = createFileRoute('/api/websites/$websiteId/keywords')({
           .from(keywords)
           .where(rowsWhere)
           .orderBy(
-            desc(keywords.include),
+            desc(keywords.active),
             desc(sql`CASE WHEN ${keywords.difficulty} IS NULL THEN 0 ELSE 1 END`),
             desc(sql`COALESCE(${keywords.searchVolume}, 0)`),
             asc(sql`COALESCE(${keywords.difficulty}, 100)`),
@@ -75,32 +75,32 @@ export const Route = createFileRoute('/api/websites/$websiteId/keywords')({
 
         let itemsAll = rows.map(shapeKeywordRow)
 
-        if (!searchParamRaw && includeParam == null && safePage === 1) {
+        if (!searchParamRaw && activeParam == null && safePage === 1) {
           const allRows = await db
             .select()
             .from(keywords)
             .where(eq(keywords.websiteId, params.websiteId))
           const shapedAll = allRows.map(shapeKeywordRow)
-          const autoSet = keywordsRepo.selectTopForAutoInclude(shapedAll)
+          const autoSet = keywordsRepo.selectTopForAutoActive(shapedAll)
           const desiredActiveIds = new Set<string>()
           for (const item of shapedAll) {
             if (autoSet.has(normalizeKeyword(item.phrase))) {
               desiredActiveIds.add(item.id)
             }
           }
-          const toActivate = shapedAll.filter((item) => desiredActiveIds.has(item.id) && !item.include).map((item) => item.id)
-          const toDeactivate = shapedAll.filter((item) => !desiredActiveIds.has(item.id) && item.include).map((item) => item.id)
+          const toActivate = shapedAll.filter((item) => desiredActiveIds.has(item.id) && !item.active).map((item) => item.id)
+          const toDeactivate = shapedAll.filter((item) => !desiredActiveIds.has(item.id) && item.active).map((item) => item.id)
           if (toActivate.length) {
-            await db.update(keywords).set({ include: true }).where(and(eq(keywords.websiteId, params.websiteId), inArray(keywords.id, toActivate)))
+            await db.update(keywords).set({ active: true }).where(and(eq(keywords.websiteId, params.websiteId), inArray(keywords.id, toActivate)))
           }
           if (toDeactivate.length) {
-            await db.update(keywords).set({ include: false }).where(and(eq(keywords.websiteId, params.websiteId), inArray(keywords.id, toDeactivate)))
+            await db.update(keywords).set({ active: false }).where(and(eq(keywords.websiteId, params.websiteId), inArray(keywords.id, toDeactivate)))
           }
           if (toActivate.length || toDeactivate.length) {
             itemsAll = rows.map((row) => {
               const shaped = shapeKeywordRow(row)
               const shouldInclude = desiredActiveIds.has(shaped.id)
-              return shouldInclude === shaped.include ? shaped : { ...shaped, include: shouldInclude }
+              return shouldInclude === shaped.active ? shaped : { ...shaped, active: shouldInclude }
             })
           }
           total = shapedAll.length
@@ -114,7 +114,7 @@ export const Route = createFileRoute('/api/websites/$websiteId/keywords')({
         await requireWebsiteAccess(request, params.websiteId)
         if (!hasDatabase()) return httpError(500, 'Database not available')
         const body = await request.json().catch(() => ({}))
-        const phrase = String(body?.phrase || '').trim()
+        const phrase = normalizeKeyword(String(body?.phrase || '').trim())
         if (!phrase) return httpError(400, 'Keyword phrase is required')
         const website = await websitesRepo.get(params.websiteId)
         if (!website) return httpError(404, 'Website not found')
@@ -168,10 +168,10 @@ export const Route = createFileRoute('/api/websites/$websiteId/keywords')({
           ? ((overview as any).impressions_info as Record<string, unknown>)
           : null
         const raw = cloneJson(overview)
-        const includeOverride = parseBoolean(body?.include)
-        const include = includeOverride == null
-          ? shouldIncludeKeyword({ include: includeOverride, metricsJson: { searchVolume, difficulty } })
-          : includeOverride
+        const activeOverride = parseBoolean(body?.active)
+        const active = activeOverride == null
+          ? shouldActivateKeyword({ active: activeOverride, metricsJson: { searchVolume, difficulty } })
+          : activeOverride
 
         if (previewOnly) {
           if (overview == null && searchVolume == null && difficulty == null && cpc == null && competition == null) {
@@ -205,7 +205,6 @@ export const Route = createFileRoute('/api/websites/$websiteId/keywords')({
           return json({
             preview: {
               phrase,
-              phraseNorm: normalizeKeyword(phrase),
               searchVolume,
               difficulty,
               cpc,
@@ -222,12 +221,11 @@ export const Route = createFileRoute('/api/websites/$websiteId/keywords')({
         const result = await keywordsRepo.upsert({
           websiteId: params.websiteId,
           phrase,
-          phraseNorm: normalizeKeyword(phrase),
           languageCode,
           languageName: languageNameFromCode(languageCode),
           locationCode,
           locationName: locationNameFromCode(locationCode),
-          include,
+          active,
           searchVolume,
           cpc,
           competition,
@@ -250,7 +248,7 @@ function shapeKeywordRow(row: any) {
     id: row.id,
     websiteId: row.websiteId,
     phrase: row.phrase,
-    include: Boolean(row.include),
+    active: Boolean(row.active),
     starred: Boolean(row.starred),
     metricsJson: {
       searchVolume: row.searchVolume == null ? null : Number(row.searchVolume),

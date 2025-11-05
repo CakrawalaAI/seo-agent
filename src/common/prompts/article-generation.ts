@@ -56,7 +56,10 @@ export function buildGenerateBodyMessages(context: ArticleContextPayload) {
   const summary = (context.websiteSummary || '').trim()
 
   return {
-    system: `You are an AI SEO content strategist. Produce production-ready HTML that can ship without edits. Honor supplied outline, context, and ensure factual accuracy with citations.`,
+    system: `You are an AI SEO content strategist.
+Output HTML fragment only. No markdown. No code fences. No <!DOCTYPE>, <html>, <head>, or <body>.
+Wrap content in a single <article> root. Semantic, accessible, production-ready.
+Honor supplied outline and context; ensure factual accuracy with citations.`,
     user: `Title: ${context.title}
 Locale: ${context.locale}
 Outline (H2 order):
@@ -86,15 +89,16 @@ ${links || '(none)'}
 Feature Toggles: ${featuresList || '(default)'}
 
 Instructions:
-- Output valid semantic HTML5 only, no Markdown.
-- Include single <h1> matching Title.
-- Use outline order for H2/H3 sections, expanding into authoritative paragraphs, bullet lists, tables when helpful.
-- Embed first enabled YouTube URL as responsive iframe (16:9) if YouTube feature enabled and URL available.
-- For images, prefer Unsplash entries first when image feature enabled. Render as <figure><img ...><figcaption>.
-- Reference sources inline using numbered footnotes [1], [2] and append <section><h2>References</h2><ol>…</ol>.
-- Incorporate internal links naturally where context fits.
-- Generate Article-level JSON-LD schema.
-- Avoid repeating sentences, ensure original wording, maintain factual tone.`
+- Output valid semantic HTML5 fragment only. No full document wrappers.
+- Include a single <h1> matching Title inside <article>.
+- Use outline order for H2/H3 sections; write authoritative paragraphs; use lists when helpful.
+- Images: when provided, place as <figure><img src="..." alt="..."/><figcaption>...</figcaption></figure>.
+- YouTube: if enabled and a URL exists, include a simple paragraph link AND an optional <figure data-embed="youtube" data-url="..."></figure> marker (no iframe).
+- References: inline hyperlinks plus a final <section><h2>References</h2><ol>…</ol></section> with plain links.
+- Internal links: link relevant anchor text naturally.
+- No <script> or <style>.
+- No JSON-LD in body.
+- Avoid repetition; ensure original wording.`
   }
 }
 

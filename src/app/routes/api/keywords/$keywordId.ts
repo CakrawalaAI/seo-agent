@@ -24,14 +24,14 @@ export const Route = createFileRoute('/api/keywords/$keywordId')({
         if (websiteId) await requireWebsiteAccess(request, websiteId)
         const patch: any = {}
         if (body?.starred !== undefined) patch.starred = Boolean(body.starred) ? 1 : 0
-        if (body?.include !== undefined) patch.include = Boolean(body.include)
+        if (body?.active !== undefined) patch.active = Boolean(body.active)
         if (hasDatabase() && Object.keys(patch).length) {
           try {
             const db = getDb()
             await db.update(keywords).set({ ...patch, updatedAt: new Date() as any }).where(eq(keywords.id, params.keywordId))
           } catch {}
         }
-        if (websiteId && (body?.scope !== undefined || body?.include !== undefined)) {
+        if (websiteId && (body?.scope !== undefined || body?.active !== undefined)) {
           try {
             const { publishJob, queueEnabled } = await import('@common/infra/queue')
             const days = 30

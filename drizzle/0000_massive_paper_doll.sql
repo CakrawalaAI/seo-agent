@@ -122,13 +122,12 @@ CREATE TABLE "keywords" (
 	"id" text PRIMARY KEY NOT NULL,
 	"website_id" text NOT NULL,
 	"phrase" text NOT NULL,
-	"phrase_norm" text NOT NULL,
 	"language_code" text NOT NULL,
 	"language_name" text NOT NULL,
 	"location_code" integer NOT NULL,
 	"location_name" text NOT NULL,
 	"provider" text DEFAULT 'dataforseo.labs.keyword_ideas' NOT NULL,
-	"include" boolean DEFAULT false NOT NULL,
+	"active" boolean DEFAULT false NOT NULL,
 	"starred" integer DEFAULT 0 NOT NULL,
 	"search_volume" integer,
 	"cpc" text,
@@ -215,7 +214,7 @@ CREATE INDEX "idx_crawl_jobs_site" ON "crawl_jobs" USING btree ("website_id");--
 CREATE INDEX "idx_crawl_pages_site_job" ON "crawl_pages" USING btree ("website_id","job_id");--> statement-breakpoint
 CREATE INDEX "idx_crawl_pages_site_url" ON "crawl_pages" USING btree ("website_id","url");--> statement-breakpoint
 CREATE INDEX "idx_integrations_site" ON "integrations" USING btree ("website_id");--> statement-breakpoint
-CREATE UNIQUE INDEX "uniq_keywords_geo_lang" ON "keywords" USING btree ("website_id","phrase_norm","language_code","location_code");--> statement-breakpoint
+CREATE UNIQUE INDEX "uniq_keywords_geo_lang" ON "keywords" USING btree ("website_id","phrase","language_code","location_code");--> statement-breakpoint
 CREATE UNIQUE INDEX "organization_members_org_user_unique" ON "organization_members" USING btree ("org_id","user_email");--> statement-breakpoint
 CREATE UNIQUE INDEX "subscriptions_user_unique" ON "subscriptions" USING btree ("user_id");--> statement-breakpoint
 CREATE INDEX "subscriptions_org_idx" ON "subscriptions" USING btree ("org_id");--> statement-breakpoint

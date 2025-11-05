@@ -1,4 +1,4 @@
-import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useActiveWebsite } from '@common/state/active-website'
 import { useMockData } from '@common/dev/mock-data-context'
@@ -22,7 +22,7 @@ import { cn } from '@src/common/ui/cn'
 import { ArrowUpDown, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Loader2, MoreHorizontal, Plus, RefreshCw, SlidersHorizontal, X as XIcon } from 'lucide-react'
 import { toast } from 'sonner'
 
-const MOCK_KEYWORDS: Array<Keyword & { include?: boolean | null }> = [
+const MOCK_KEYWORDS: Array<Keyword & { active?: boolean | null }> = [
   {
     id: 'kw-m-1',
     websiteId: 'proj_mock',
@@ -30,7 +30,7 @@ const MOCK_KEYWORDS: Array<Keyword & { include?: boolean | null }> = [
     phrase: 'interview questions for product managers',
     metricsJson: { searchVolume: 4400, difficulty: 36, cpc: 2.1, competition: 0.32, asOf: new Date().toISOString() },
     status: 'ready',
-    include: true
+    active: true
   },
   {
     id: 'kw-m-2',
@@ -39,7 +39,7 @@ const MOCK_KEYWORDS: Array<Keyword & { include?: boolean | null }> = [
     phrase: 'behavioral interview examples',
     metricsJson: { searchVolume: 6600, difficulty: 62, cpc: 1.45, competition: 0.58, asOf: new Date().toISOString() },
     status: 'in_review',
-    include: false
+    active: false
   },
   {
     id: 'kw-m-3',
@@ -48,11 +48,11 @@ const MOCK_KEYWORDS: Array<Keyword & { include?: boolean | null }> = [
     phrase: 'mock interview ai coach',
     metricsJson: { searchVolume: 1900, difficulty: 24, cpc: 3.4, competition: 0.41, asOf: new Date().toISOString() },
     status: 'starred',
-    include: false
+    active: false
   }
 ]
 
-type KeywordRow = Keyword & { include?: boolean | null }
+type KeywordRow = Keyword & { active?: boolean | null }
 
 type KeywordsResponse = {
   items: KeywordRow[]
@@ -64,7 +64,6 @@ type KeywordsResponse = {
 
 type KeywordPreview = {
   phrase: string
-  phraseNorm: string
   searchVolume: number | null
   difficulty: number | null
   cpc: number | null
@@ -86,7 +85,7 @@ type AddKeywordPayload = {
   overview?: Record<string, unknown> | null
   provider?: string | null
   metricsAsOf?: string | null
-  include?: boolean
+  active?: boolean
 }
 
 type FilterState = {
@@ -104,7 +103,7 @@ export function Page(): JSX.Element {
   const { enabled: mockEnabled } = useMockData()
   const queryClient = useQueryClient()
   const [deleteTarget, setDeleteTarget] = useState<KeywordRow | null>(null)
-  const [includePendingId, setIncludePendingId] = useState<string | null>(null)
+  const [activePendingId, setActivePendingId] = useState<string | null>(null)
   const [deletePendingId, setDeletePendingId] = useState<string | null>(null)
   const [searchInput, setSearchInput] = useState('')
   const [keywordDraft, setKeywordDraft] = useState('')
@@ -175,20 +174,20 @@ export function Page(): JSX.Element {
   const keywordsData = useMemo(() => {
     if (mockEnabled) {
       const items = MOCK_KEYWORDS
-      const activeMock = items.reduce((count, keyword) => (keyword.include ? count + 1 : count), 0)
+      const activeMock = items.reduce((count, keyword) => (keyword.active ? count + 1 : count), 0)
       return { items, total: items.length, active: activeMock, page: 1, pageCount: 1 }
     }
     const data = keywordsQuery.data
     const items = data?.items ?? []
     const total = data?.total ?? items.length
-    const active = data?.active ?? items.reduce((count, keyword) => (keyword.include ? count + 1 : count), 0)
+    const active = data?.active ?? items.reduce((count, keyword) => (keyword.active ? count + 1 : count), 0)
     const pageFromApi = data?.page ?? page
     const pageCount = data?.pageCount ?? Math.max(1, Math.ceil(Math.max(total, 0) / (debouncedSearch ? SEARCH_PAGE_SIZE : PAGE_SIZE)))
     return { items, total, active, page: pageFromApi, pageCount }
   }, [keywordsQuery.data, mockEnabled, page, debouncedSearch])
 
-  const deferredKeywords = useDeferredValue<KeywordRow[]>(keywordsData.items)
-  const keywords: KeywordRow[] = deferredKeywords
+  // no deferral: keep toggle snappy with optimistic updates
+  const keywords: KeywordRow[] = keywordsData.items
   const locale = (projectQuery.data as any)?.defaultLocale ?? 'en-US'
   const normalizedDraft = normalizeKeyword(keywordDraft)
   const normalizedSearch = debouncedSearch.trim().toLowerCase()
@@ -241,7 +240,7 @@ export function Page(): JSX.Element {
       setPreviewError(null)
     },
     onSuccess: (data) => {
-      if (data?.phraseNorm === normalizeKeyword(data.phrase)) {
+      if (normalizeKeyword(data?.phrase || '') === normalizeKeyword(keywordDraft)) {
         setPreview(data)
       } else {
         setPreview(null)
@@ -286,7 +285,7 @@ export function Page(): JSX.Element {
         if (difficulty == null || difficulty <= 0) return false
       }
       if (!filters.showHighDifficulty && difficulty != null && difficulty >= 70) return false
-      if (!filters.showInactive && !keyword.include) return false
+      if (!filters.showInactive && !keyword.active) return false
       return true
     })
   }, [keywords, normalizedSearch, filters, mockEnabled, debouncedSearch])
@@ -365,7 +364,7 @@ export function Page(): JSX.Element {
 
   const regenerateDisabled = !projectId || mockEnabled || regenerateMutation.isPending
 
-  const previewMatchesDraft = Boolean(preview && preview.phraseNorm === normalizedDraft)
+  const previewMatchesDraft = Boolean(preview && normalizeKeyword(preview.phrase) === normalizedDraft)
 
   const handleCheckKeyword = useCallback(() => {
     const phrase = keywordDraft.trim()
@@ -405,25 +404,55 @@ export function Page(): JSX.Element {
       overview: preview?.overview ?? null,
       provider: preview?.provider ?? null,
       metricsAsOf: preview?.metricsAsOf ?? null,
-      include: preview?.difficulty == null ? undefined : preview.difficulty < 70
+      active: preview?.difficulty == null ? undefined : preview.difficulty < 70
     }
     addKeywordMutation.mutate(payload)
   }, [keywordDraft, previewMatchesDraft, preview, addKeywordMutation])
 
-  const handleToggleInclude = useCallback(async (keywordId: string, include: boolean) => {
-    if (mockEnabled) return
-    setIncludePendingId(keywordId)
-    try {
-      await fetch(`/api/keywords/${keywordId}`, {
-        method: 'PATCH',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ include })
-      })
-      await refetchKeywords()
-    } finally {
-      setIncludePendingId(null)
+  const toggleActiveMutation = useMutation({
+    mutationFn: async ({ keywordId, active }: { keywordId: string; active: boolean }) => {
+      if (mockEnabled) return null
+      return await fetch(`/api/keywords/${keywordId}`, { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ active }) })
+    },
+    onMutate: async ({ keywordId, active }) => {
+      setActivePendingId(keywordId)
+      await queryClient.cancelQueries({ queryKey: ['keywords.list', projectId] })
+      const snapshots = queryClient.getQueriesData<KeywordsResponse>({ queryKey: ['keywords.list', projectId] })
+      for (const [key, prev] of snapshots) {
+        if (!prev) continue
+        const next: KeywordsResponse = {
+          ...prev,
+          items: prev.items.map((k) => (k.id === keywordId ? { ...k, active } : k)),
+          active:
+            prev.items.some((k) => k.id === keywordId && Boolean(k.active) !== active)
+              ? prev.active + (active ? 1 : -1)
+              : prev.active
+        }
+        // setQueryData for the exact key snapshot
+        queryClient.setQueryData(key as any, next, { updatedAt: Date.now() })
+      }
+      return { snapshots }
+    },
+    onError: (_err, _vars, ctx) => {
+      const entries = ctx?.snapshots || []
+      for (const [key, data] of entries) {
+        queryClient.setQueryData(key as any, data, { updatedAt: Date.now() })
+      }
+      toast.error('Failed to update keyword')
+    },
+    onSettled: async () => {
+      queryClient.invalidateQueries({ queryKey: ['keywords.list', projectId], exact: false })
+      setActivePendingId(null)
     }
-  }, [mockEnabled, refetchKeywords])
+  })
+
+  const handleToggleActive = useCallback(
+    (keywordId: string, active: boolean) => {
+      if (mockEnabled) return
+      toggleActiveMutation.mutate({ keywordId, active })
+    },
+    [mockEnabled, toggleActiveMutation]
+  )
 
   const confirmDelete = async () => {
     const target = deleteTarget
@@ -508,13 +537,13 @@ export function Page(): JSX.Element {
         }
       },
       {
-        id: 'include',
-        accessorFn: (kw) => (kw.include ? 1 : 0),
+        id: 'active',
+        accessorFn: (kw) => (kw.active ? 1 : 0),
         header: ({ column }) => <SortHeader column={column} label="Active" />,
         cell: ({ row }) => {
           const keyword = row.original
-          const included = Boolean(keyword.include)
-          const pending = includePendingId === keyword.id
+          const isActive = Boolean(keyword.active)
+          const pending = activePendingId === keyword.id
           return (
             <Tooltip>
               <TooltipTrigger asChild>
@@ -522,15 +551,15 @@ export function Page(): JSX.Element {
                   type="button"
                   size="icon"
                   variant="ghost"
-                  className={cn('h-8 w-8', included ? 'text-rose-500 hover:text-rose-600' : 'text-muted-foreground hover:text-foreground')}
-                  aria-label={included ? 'Remove keyword' : 'Include keyword'}
-                  onClick={() => handleToggleInclude(keyword.id, !included)}
+                  className={cn('h-8 w-8', isActive ? 'text-rose-500 hover:text-rose-600' : 'text-muted-foreground hover:text-foreground')}
+                  aria-label={isActive ? 'Deactivate keyword' : 'Activate keyword'}
+                  onClick={() => handleToggleActive(keyword.id, !isActive)}
                   disabled={mockEnabled || pending}
                 >
-                  {pending ? <Loader2 className="h-4 w-4 animate-spin" /> : included ? <XIcon className="h-4 w-4" /> : <Plus className="h-4 w-4" />}
+                  {pending ? <Loader2 className="h-4 w-4 animate-spin" /> : isActive ? <XIcon className="h-4 w-4" /> : <Plus className="h-4 w-4" />}
                 </Button>
               </TooltipTrigger>
-              <TooltipContent>{included ? 'Remove from active plan' : 'Include in active plan'}</TooltipContent>
+              <TooltipContent>{isActive ? 'Remove from active plan' : 'Include in active plan'}</TooltipContent>
             </Tooltip>
           )
         }
@@ -555,7 +584,7 @@ export function Page(): JSX.Element {
         enableSorting: false
       }
     ]
-  }, [handleToggleInclude, includePendingId, mockEnabled])
+  }, [handleToggleActive, activePendingId, mockEnabled])
 
   if (!projectId) {
     return (
@@ -884,7 +913,7 @@ function redactPayload(payload: AddKeywordPayload): Record<string, unknown> {
   if (payload.cpc != null) clone.cpc = payload.cpc
   if (payload.competition != null) clone.competition = payload.competition
   clone.skipLookup = Boolean(payload.skipLookup)
-  clone.include = payload.include ?? null
+  clone.active = payload.active ?? null
   clone.hasOverview = Boolean(payload.overview)
   clone.provider = payload.provider ?? null
   clone.metricsAsOf = payload.metricsAsOf ?? null

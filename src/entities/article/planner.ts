@@ -56,7 +56,7 @@ export const planRepo = {
       tone?: string | null
       createdAt?: unknown
       updatedAt?: unknown
-      include?: unknown
+      active?: unknown
       keywordPhrase?: string | null
       metricsCols?: Record<string, unknown> | null
     }> = []
@@ -76,7 +76,7 @@ export const planRepo = {
           tone: articlesTable.tone,
           createdAt: articlesTable.createdAt,
           updatedAt: articlesTable.updatedAt,
-          include: keywords.include,
+          active: (keywords as any).active,
           keywordPhrase: keywords.phrase,
           metricsCols: {
             searchVolume: keywords.searchVolume,
@@ -103,12 +103,12 @@ export const planRepo = {
       existingByDate.set(row.scheduledDate, bucket)
     }
 
-    if (!keywords.id || !keywords.phrase || !keywords.include) {
+    if (!keywords.id || !keywords.phrase || !(keywords as any).active) {
       log.debug('[planRepo.createPlan] keyword schema columns detected', {
         websiteId,
         hasId: Boolean(keywords.id),
         hasPhrase: Boolean(keywords.phrase),
-        hasInclude: Boolean(keywords.include),
+        hasActive: Boolean((keywords as any).active),
         hasDifficulty: Boolean((keywords as any).difficulty),
         hasMetricsAsOf: Boolean((keywords as any).metricsAsOf)
       })
@@ -117,7 +117,7 @@ export const planRepo = {
     let rawCandidates: Array<{
       id: string
       phrase: string | null
-      include: unknown
+      active: unknown
       starred: unknown
       metricsCols?: Record<string, unknown> | null
     }> = []
@@ -126,7 +126,7 @@ export const planRepo = {
         .select({
           id: keywords.id,
           phrase: keywords.phrase,
-          include: keywords.include,
+          active: (keywords as any).active,
           starred: keywords.starred,
           metricsCols: {
             searchVolume: keywords.searchVolume,
@@ -177,13 +177,13 @@ export const planRepo = {
         const difficultyScore = 1 - difficulty / 100
         const rankBonus = rankability !== null ? rankability / 100 : 0.25
         const score = volumeScore * 0.7 + difficultyScore * 0.25 + rankBonus * 0.05 + (row.starred ? 0.2 : 0)
-        return { id: row.id, phrase: row.phrase!.trim(), include: Boolean((row as any).include), score, cluster: safeCluster(row.phrase) }
+        return { id: row.id, phrase: row.phrase!.trim(), active: Boolean((row as any).active), score, cluster: safeCluster(row.phrase) }
       })
-      .filter((row): row is { id: string; phrase: string; include: boolean; score: number; cluster: string | null } => Boolean(row))
+      .filter((row): row is { id: string; phrase: string; active: boolean; score: number; cluster: string | null } => Boolean(row))
       .sort((a, b) => b.score - a.score)
 
-    const primary = rankedCandidates.filter((row) => row.include)
-    const secondary = rankedCandidates.filter((row) => !row.include)
+    const primary = rankedCandidates.filter((row) => row.active)
+    const secondary = rankedCandidates.filter((row) => !row.active)
     let candidates = [...primary]
     if (candidates.length < outlineDays) {
       const deficit = outlineDays - candidates.length
@@ -244,7 +244,7 @@ export const planRepo = {
       if (raw === 'scheduled' || raw === 'draft' || raw === 'ready' || raw === 'generating') return 'scheduled'
       return 'queued'
     }
-    const isIncluded = (row: typeof existingRows[number]) => Boolean((row as any).include ?? true)
+    const isActive = (row: typeof existingRows[number]) => Boolean((row as any).active ?? true)
 
     for (let idx = 0; idx < targetDates.length; idx++) {
       const date = targetDates[idx]
@@ -264,7 +264,7 @@ export const planRepo = {
       if (chosen) {
         const cluster = safeCluster(chosen.targetKeyword) ?? safeCluster(chosen.keywordPhrase) ?? safeCluster(chosen.title)
         if (!isDraftWindow) {
-          if (!isIncluded(chosen)) { removeIds.add(chosen.id); chosen = null }
+          if (!isActive(chosen)) { removeIds.add(chosen.id); chosen = null }
           else if (cluster && usedClusters.has(cluster)) { removeIds.add(chosen.id); chosen = null }
           else if (chosen.keywordId && usedKeywordIds.has(chosen.keywordId)) { removeIds.add(chosen.id); chosen = null }
         }

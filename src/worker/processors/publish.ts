@@ -2,12 +2,13 @@ import { articlesRepo } from '@entities/article/repository'
 import { connectorRegistry } from '@features/integrations/server/registry'
 import { log } from '@src/common/logger'
 import { ConnectorNotReadyError } from '@features/integrations/shared/errors'
+import { withPublishContext } from '@features/integrations/server/context'
 
 /**
  * Publish processor: publishes an article via the specified integration.
  * Uses the connector registry to dispatch to the appropriate CMS connector.
  */
-export async function processPublish(payload: { articleId: string; integrationId: string }) {
+export async function processPublish(payload: { articleId: string; integrationId: string; trigger?: 'auto' | 'manual' }) {
   const article = await articlesRepo.get(payload.articleId)
   // fetch integration configuration directly; publish jobs should ideally include the config payload
   const integration = await (async () => {
@@ -32,7 +33,9 @@ export async function processPublish(payload: { articleId: string; integrationId
   try { if (typeof cfg === 'string') cfg = JSON.parse(cfg) } catch {}
   let result
   try {
-    result = await connectorRegistry.publish(integration.type, article, cfg)
+    result = await withPublishContext({ integrationId: (integration as any).id, websiteId: (article as any).websiteId, trigger: payload.trigger ?? 'auto' }, () =>
+      connectorRegistry.publish(integration.type, article, cfg)
+    )
   } catch (error) {
     if (error instanceof ConnectorNotReadyError) {
       log.warn('[Publish] Connector not ready', {

@@ -15,6 +15,7 @@ export type Keyword = {
   status?: string | null
   scope?: KeywordScope | null
   starred?: boolean | null
+  active?: boolean | null
   opportunity?: number | null
   metricsJson?: KeywordMetrics | null
   createdAt?: string | null

@@ -10,10 +10,10 @@ import { withRetry } from '@common/async/retry'
 import { createHash } from 'node:crypto'
 import { config } from '@common/config'
 import { getLlmProvider } from '@common/providers/registry'
-import { summarizeSite, summarizePageBullets, selectUrlsFromList, reformatWebsiteProfile } from '@common/providers/llm'
+import { summarizePageBullets, selectUrlsFromList, reformatWebsiteProfile, summarizeSiteText } from '@common/providers/llm-helpers'
 // keyword persistence removed; summary written to websites
 import { log } from '@src/common/logger'
-import { publishDashboardProgress } from '@common/realtime/hub'
+// Realtime broadcast removed; dashboard polls snapshot
 
 type PlaywrightLease = { page: any; context: any; contextId: string }
 
@@ -302,18 +302,6 @@ export async function processCrawl(payload: { websiteId?: string; projectId?: st
   }
   const crawlStartedAt = new Date().toISOString()
   const initialStats = contextPool?.stats()
-  publishDashboardProgress(websiteId, {
-    crawlProgress: {
-      crawledCount: 0,
-      targetCount: visitLimit,
-      startedAt: crawlStartedAt,
-      completedAt: null
-    },
-    crawlStatus: 'running',
-    crawlCooldownExpiresAt: null,
-    lastCrawlAt: crawlStartedAt,
-    playwrightWorkers: initialStats ? { active: initialStats.active, max: initialStats.max } : undefined
-  })
 
   log.info('[crawler] seeds', { count: initialSeeds.length })
   log.debug('[crawler] visit loop', { websiteId, visitLimit, maxDepth, maxBreadth })
@@ -526,19 +514,7 @@ export async function processCrawl(payload: { websiteId?: string; projectId?: st
         }
       }
       seen.add(url)
-      const poolStats = contextPool?.stats()
-      publishDashboardProgress(websiteId, {
-        crawlProgress: {
-          crawledCount: seen.size,
-          targetCount: visitLimit,
-          startedAt: crawlStartedAt,
-          completedAt: null
-        },
-        crawlStatus: 'running',
-        crawlCooldownExpiresAt: null,
-        lastCrawlAt: crawlStartedAt,
-        playwrightWorkers: poolStats ? { active: poolStats.active, max: poolStats.max } : undefined
-      })
+      // progress push removed
     } catch {}
   }
 
@@ -612,10 +588,13 @@ export async function processCrawl(payload: { websiteId?: string; projectId?: st
       }
     }
     if (!businessSummary || !businessSummary.trim()) {
-      // Fallback: use first 50 page contents
-      const summaryInput = pages.slice(0, 50).map((p) => ({ url: p.url, text: (p as any)?.content || '' }))
-      const jsonSummary = await summarizeSite(summaryInput).catch(() => null)
-      businessSummary = jsonSummary?.businessSummary || (dump.slice(0, 2000) + ' ...')
+      // New fallback: concise executive-style summary (plain text), no legacy JSON
+      const summaryInput = pages.slice(0, 12).map((p) => ({ url: p.url, title: (p as any)?.title || '', text: (p as any)?.content || '' }))
+      try {
+        businessSummary = await summarizeSiteText(siteUrl, summaryInput)
+      } catch {
+        businessSummary = (dump.slice(0, 4000) + ' ...')
+      }
     }
 
     await websitesRepo.patch(websiteId, { summary: businessSummary })
@@ -626,23 +605,6 @@ export async function processCrawl(payload: { websiteId?: string; projectId?: st
   }
   const crawlCompletedAt = new Date().toISOString()
   const nextEligible = computeNextEligible(crawlCompletedAt, env.crawlCooldownHours)
-  publishDashboardProgress(websiteId, {
-    crawlProgress: {
-      crawledCount: seen.size,
-      targetCount: visitLimit,
-      startedAt: crawlStartedAt,
-      completedAt: crawlCompletedAt
-    },
-    crawlStatus: nextEligible ? 'cooldown' : 'idle',
-    crawlCooldownExpiresAt: nextEligible,
-    lastCrawlAt: crawlStartedAt,
-    playwrightWorkers: finalStats
-      ? {
-          active: Number.isFinite(finalStats.active ?? NaN) ? Number(finalStats.active) : 0,
-          max: Number.isFinite(finalStats.max ?? NaN) ? Number(finalStats.max) : 0
-        }
-      : undefined
-  })
   try { await crawlRepo.completeJob(jobId) } catch {}
   try { await websitesRepo.patch(websiteId, { status: 'crawled' }) } catch {}
 }

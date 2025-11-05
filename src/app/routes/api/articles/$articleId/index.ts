@@ -34,8 +34,22 @@ export const Route = createFileRoute('/api/articles/$articleId/')({
       },
       PATCH: safeHandler(async ({ params, request }) => {
         const patch = await request.json().catch(() => ({}))
+        if (typeof patch?.bodyHtml === 'string') {
+          patch.bodyHtml = sanitizeBodyHtml(patch.bodyHtml, String(patch?.title || ''))
+        }
         const current = await articlesRepo.get(params.articleId)
         if (!current) return httpError(404, 'Not found')
+        // Guard against accidental overwrites with near-empty content (e.g., client autosave before generation completes)
+        const strip = (html?: string | null) => String(html || '').replace(/<!DOCTYPE[\s\S]*?>/gi, '').replace(/<script[\s\S]*?<\/script>/gi, '').replace(/<style[\s\S]*?<\/style>/gi, '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim()
+        const minLen = 30
+        if (typeof patch.bodyHtml === 'string') {
+          const incomingLen = strip(patch.bodyHtml).length
+          const existingLen = Math.max(strip((current as any).bodyHtml).length, strip((current as any)?.payloadJson?.bodyHtml).length)
+          if (incomingLen < minLen && existingLen >= minLen) {
+            // Drop bodyHtml from patch to preserve substantive existing content
+            delete (patch as any).bodyHtml
+          }
+        }
         await requireWebsiteAccess(request, String((current as any).websiteId))
         if (hasDatabase()) {
           try {
@@ -75,3 +89,50 @@ export const Route = createFileRoute('/api/articles/$articleId/')({
     }
   }
 })
+
+// Minimal server-side sanitizer to keep bodyHtml a safe fragment
+function sanitizeBodyHtml(input: string, title?: string) {
+  const stripFence = (t: string) => {
+    const m = t.match(/```[a-zA-Z]*\n([\s\S]*?)```/)
+    return m && m[1] ? m[1].trim() : t.trim()
+  }
+  const extractBody = (t: string) => {
+    const m = t.match(/<body[^>]*>([\s\S]*?)<\/body>/i)
+    return m && m[1] ? m[1].trim() : t
+  }
+  const dropBlocks = (t: string) =>
+    t
+      .replace(/<!DOCTYPE[\s\S]*?>/gi, '')
+      .replace(/<script[\s\S]*?<\/script>/gi, '')
+      .replace(/<style[\s\S]*?<\/style>/gi, '')
+      .replace(/<iframe[\s\S]*?<\/iframe>/gi, '')
+      .replace(/<head[\s\S]*?<\/head>/gi, '')
+      .replace(/<html[^>]*>/gi, '')
+      .replace(/<\/html>/gi, '')
+  const harden = (t: string) =>
+    t
+      .replace(/<a\s+([^>]*href=\s*\"[^\"]+\"[^>]*)>/gi, (m, attrs) => {
+        const hasRel = /\brel\s*=\s*/i.test(attrs)
+        return `<a ${attrs}${hasRel ? '' : ' rel=\\"noopener noreferrer\\"'}>`
+      })
+      .replace(/\son[a-z]+\s*=\s*\"[^\"]*\"/gi, '')
+      .replace(/\son[a-z]+\s*=\s*'[^']*'/gi, '')
+      .replace(/\sstyle\s*=\s*\"[^\"]*\"/gi, '')
+      .replace(/\sstyle\s*=\s*'[^']*'/gi, '')
+  const ensureArticle = (t: string) => {
+    const s = t.trim()
+    if (/^<article[\s>]/i.test(s)) return s
+    if (!/<[a-z][\s\S]*>/i.test(s)) {
+      return `<article>${title ? `<h1>${escapeHtml(title)}</h1>` : ''}<p>${escapeHtml(s)}</p></article>`
+    }
+    return `<article>${s}</article>`
+  }
+  const escapeHtml = (x: string) => String(x || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+  let s = stripFence(String(input || ''))
+  s = extractBody(s)
+  s = dropBlocks(s)
+  s = harden(s)
+  s = s.trim()
+  if (!s) return `<article>${title ? `<h1>${escapeHtml(title)}</h1>` : ''}<p>Draft content pending.</p></article>`
+  return ensureArticle(s)
+}

@@ -77,6 +77,10 @@ export function Page(): JSX.Element {
   const [targetUrl, setTargetUrl] = useState('')
   const [secret, setSecret] = useState('')
   const [banner, setBanner] = useState<{ tone: 'success' | 'error'; text: string } | null>(null)
+  const [subsPublished, setSubsPublished] = useState(true)
+  const [subsUpdated, setSubsUpdated] = useState(true)
+  const [scheduleMode, setScheduleMode] = useState<'auto' | 'manual' | 'both'>('both')
+  const [testing, setTesting] = useState(false)
 
   const snapshotQuery = useQuery({
     queryKey: ['integrations.snapshot', projectId],
@@ -103,6 +107,11 @@ export function Page(): JSX.Element {
     const nextSecret = typeof config?.secret === 'string' ? config.secret : ''
     setTargetUrl(nextTarget)
     setSecret(nextSecret)
+    const subs = Array.isArray(config?.subscribedEvents) ? (config?.subscribedEvents as string[]) : ['article.published', 'article.updated']
+    setSubsPublished(subs.includes('article.published'))
+    setSubsUpdated(subs.includes('article.updated'))
+    const mode = (config?.scheduleMode as any) || 'both'
+    setScheduleMode(mode === 'auto' || mode === 'manual' ? mode : 'both')
   }, [integrationView?.integration?.configJson])
 
   const saveMutation = useMutation({
@@ -111,11 +120,12 @@ export function Page(): JSX.Element {
       if (!targetUrl.trim() || !secret.trim()) {
         throw new Error('Provide both Target URL and Shared Secret.')
       }
+      const configPayload = { targetUrl: targetUrl.trim(), secret: secret.trim(), subscribedEvents: [subsPublished && 'article.published', subsUpdated && 'article.updated'].filter(Boolean), scheduleMode }
       if (integrationView?.id) {
         const res = await fetch(`/api/integrations/${integrationView.id}`, {
           method: 'PATCH',
           headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ config: { targetUrl: targetUrl.trim(), secret: secret.trim() }, status: 'connected' as IntegrationStatus })
+          body: JSON.stringify({ config: configPayload, status: 'connected' as IntegrationStatus })
         })
         if (!res.ok) throw new Error('Failed to save integration')
         return
@@ -123,7 +133,7 @@ export function Page(): JSX.Element {
       const res = await fetch(`/api/integrations`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ projectId, type: 'webhook', config: { targetUrl: targetUrl.trim(), secret: secret.trim() }, status: 'connected' as IntegrationStatus })
+        body: JSON.stringify({ projectId, type: 'webhook', config: configPayload, status: 'connected' as IntegrationStatus })
       })
       if (!res.ok) throw new Error('Failed to create integration')
       return
@@ -263,17 +273,27 @@ export function Page(): JSX.Element {
             <Label className="text-xs font-medium text-muted-foreground" htmlFor="webhook-secret">
               Shared secret
             </Label>
-            <Input
-              id="webhook-secret"
-              type="text"
-              placeholder="Generated secret"
-              value={secret}
-              onChange={(event) => setSecret(event.target.value)}
-              autoComplete="off"
-              disabled={!canMutate}
-            />
+            <div className="flex items-center gap-2">
+              <Input
+                id="webhook-secret"
+                type="text"
+                placeholder="Generated secret"
+                value={secret}
+                onChange={(event) => setSecret(event.target.value)}
+                autoComplete="off"
+                disabled={!canMutate}
+              />
+              <Button
+                type="button"
+                variant="outline"
+                disabled={!canMutate}
+                onClick={() => setSecret(genSecret())}
+              >
+                Generate
+              </Button>
+            </div>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-3">
             <Button type="submit" disabled={!targetUrl || !secret || saveMutation.isPending || !canMutate}>
               {saveMutation.isPending ? 'Saving…' : 'Save connection'}
             </Button>
@@ -287,6 +307,27 @@ export function Page(): JSX.Element {
                 {disconnectMutation.isPending ? 'Disconnecting…' : 'Disconnect'}
               </Button>
             ) : null}
+            {integrationView?.id ? (
+              <Button
+                type="button"
+                variant="outline"
+                disabled={!canMutate || testing}
+                onClick={async () => {
+                  try {
+                    setTesting(true)
+                    const res = await fetch(`/api/integrations/${integrationView.id}/events/test`, { method: 'POST' })
+                    if (!res.ok) throw new Error('Test failed')
+                    setBanner({ tone: 'success', text: 'Test ping sent.' })
+                  } catch (e) {
+                    setBanner({ tone: 'error', text: 'Test failed.' })
+                  } finally {
+                    setTesting(false)
+                  }
+                }}
+              >
+                {testing ? 'Testing…' : 'Send test ping'}
+              </Button>
+            ) : null}
           </div>
         </form>
 
@@ -297,6 +338,12 @@ export function Page(): JSX.Element {
             </div>
             <div>
               Shared secret: <span className="font-medium text-foreground">{secretPreview ?? '—'}</span>
+            </div>
+            <div>
+              Subscriptions: <span className="font-medium text-foreground">{Array.isArray(config?.subscribedEvents) ? (config?.subscribedEvents as string[]).join(', ') : 'article.published, article.updated'}</span>
+            </div>
+            <div>
+              Schedule: <span className="font-medium text-foreground">{String((config as any)?.scheduleMode || 'both')}</span>
             </div>
           </div>
         ) : null}
@@ -319,6 +366,44 @@ export function Page(): JSX.Element {
           ))}
         </div>
       </section>
+
+      <section className="rounded-lg border bg-card p-5 shadow-sm">
+        <div className="flex items-center justify-between">
+          <h2 className="text-lg font-semibold text-foreground">Subscriptions</h2>
+          <span className="text-xs text-muted-foreground">Choose events + schedule</span>
+        </div>
+        <div className="mt-4 grid gap-3">
+          <div className="flex items-center gap-2 text-sm">
+            <input id="evt-published" type="checkbox" className="h-4 w-4" checked={subsPublished} onChange={(e) => setSubsPublished(e.target.checked)} disabled={!canMutate} />
+            <Label className="text-xs" htmlFor="evt-published">article.published</Label>
+          </div>
+          <div className="flex items-center gap-2 text-sm">
+            <input id="evt-updated" type="checkbox" className="h-4 w-4" checked={subsUpdated} onChange={(e) => setSubsUpdated(e.target.checked)} disabled={!canMutate} />
+            <Label className="text-xs" htmlFor="evt-updated">article.updated</Label>
+          </div>
+          <div className="mt-2 grid gap-2">
+            <Label className="text-xs text-muted-foreground">Deliver on</Label>
+            <div className="flex flex-wrap items-center gap-4 text-sm">
+              <label className="inline-flex items-center gap-2">
+                <input type="radio" name="scheduleMode" value="auto" checked={scheduleMode === 'auto'} onChange={() => setScheduleMode('auto')} disabled={!canMutate} /> Auto-publish only
+              </label>
+              <label className="inline-flex items-center gap-2">
+                <input type="radio" name="scheduleMode" value="manual" checked={scheduleMode === 'manual'} onChange={() => setScheduleMode('manual')} disabled={!canMutate} /> Manual only
+              </label>
+              <label className="inline-flex items-center gap-2">
+                <input type="radio" name="scheduleMode" value="both" checked={scheduleMode === 'both'} onChange={() => setScheduleMode('both')} disabled={!canMutate} /> Both
+              </label>
+            </div>
+          </div>
+          <div>
+            <Button type="button" onClick={() => saveMutation.mutate()} disabled={saveMutation.isPending || !canMutate}>{saveMutation.isPending ? 'Saving…' : 'Save subscriptions'}</Button>
+          </div>
+        </div>
+      </section>
+
+      {integrationView?.id ? (
+        <DeliveryLogs integrationId={integrationView.id} canTrigger={isConnected && canMutate} />
+      ) : null}
     </div>
   )
 }
@@ -335,4 +420,146 @@ function StatusPill({ connected }: { connected: boolean }) {
       {connected ? 'Connected' : 'Not connected'}
     </span>
   )
+}
+
+function DeliveryLogs({ integrationId, canTrigger }: { integrationId: string; canTrigger: boolean }) {
+  const deliveriesQuery = useQuery({
+    queryKey: ['webhook.deliveries', integrationId],
+    queryFn: async () => {
+      const res = await fetch(`/api/integrations/${integrationId}/deliveries?limit=50`)
+      if (!res.ok) throw new Error('Failed to load deliveries')
+      const data = await res.json()
+      return (data?.items ?? []) as Array<any>
+    },
+    refetchInterval: 30_000
+  })
+
+  const testMutation = useMutation({
+    mutationFn: async () => {
+      const res = await fetch(`/api/integrations/${integrationId}/events/test`, { method: 'POST' })
+      if (!res.ok) throw new Error('Test failed')
+    },
+    onSuccess: () => deliveriesQuery.refetch().catch(() => undefined)
+  })
+
+  const retryMutation = useMutation({
+    mutationFn: async (deliveryId: string) => {
+      const res = await fetch(`/api/integrations/${integrationId}/deliveries/${deliveryId}/retry`, { method: 'POST' })
+      if (!res.ok) throw new Error('Retry failed')
+    },
+    onSuccess: () => deliveriesQuery.refetch().catch(() => undefined)
+  })
+
+  return (
+    <section className="rounded-lg border bg-card p-5 shadow-sm">
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <h2 className="text-lg font-semibold text-foreground">Delivery logs</h2>
+        <div className="flex items-center gap-2">
+          <Button type="button" variant="outline" size="sm" disabled={deliveriesQuery.isFetching} onClick={() => deliveriesQuery.refetch()}>
+            {deliveriesQuery.isFetching ? 'Refreshing…' : 'Refresh'}
+          </Button>
+          <Button type="button" size="sm" disabled={!canTrigger || testMutation.isPending} onClick={() => testMutation.mutate()}>
+            {testMutation.isPending ? 'Sending…' : 'Send test ping'}
+          </Button>
+        </div>
+      </div>
+      {deliveriesQuery.isLoading ? (
+        <p className="text-xs text-muted-foreground">Loading…</p>
+      ) : deliveriesQuery.data?.length ? (
+        <div className="overflow-hidden rounded-md border">
+          <table className="w-full text-left text-sm">
+            <thead className="bg-muted/40 text-xs text-muted-foreground">
+              <tr>
+                <th className="px-3 py-2">Time</th>
+                <th className="px-3 py-2">Status</th>
+                <th className="px-3 py-2">Code</th>
+                <th className="px-3 py-2">Latency</th>
+                <th className="px-3 py-2">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {deliveriesQuery.data.map((d) => (
+                <DetailsRow key={d.id} d={d} canTrigger={canTrigger} onRetry={(id) => retryMutation.mutate(id)} retryPending={retryMutation.isPending} />
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        <p className="text-xs text-muted-foreground">No deliveries yet.</p>
+      )}
+    </section>
+  )
+}
+
+function formatUtc(value?: string | null) {
+  if (!value) return '—'
+  const d = new Date(value)
+  if (Number.isNaN(d.getTime())) return '—'
+  return d.toISOString().replace('T', ' ').replace('Z', 'Z')
+}
+
+function DetailsRow({ d, canTrigger, onRetry, retryPending }: { d: any; canTrigger: boolean; onRetry: (id: string) => void; retryPending: boolean }) {
+  const [open, setOpen] = useState(false)
+  const req = useMemo(() => {
+    try { return d.requestHeadersJson ? JSON.parse(d.requestHeadersJson) : null } catch { return null }
+  }, [d.requestHeadersJson])
+  const hasDetail = Boolean(req) || Boolean(d.responseBody) || Boolean(d.error)
+  return (
+    <>
+      <tr className="border-t text-xs">
+        <td className="px-3 py-2">
+          <button className="underline underline-offset-2" onClick={() => setOpen((v) => !v)}>{formatUtc(d.createdAt)}</button>
+        </td>
+        <td className="px-3 py-2">{d.status}</td>
+        <td className="px-3 py-2">{d.httpCode ?? '—'}</td>
+        <td className="px-3 py-2">{d.durationMs ? `${d.durationMs}ms` : '—'}</td>
+        <td className="px-3 py-2">
+          <div className="flex items-center gap-2">
+            <Button type="button" variant="outline" size="sm" disabled={retryPending || !canTrigger} onClick={() => onRetry(d.id)}>
+              {retryPending ? 'Retrying…' : 'Retry'}
+            </Button>
+            {hasDetail ? (
+              <Button type="button" variant="ghost" size="sm" onClick={() => setOpen((v) => !v)}>
+                {open ? 'Hide' : 'View'}
+              </Button>
+            ) : null}
+          </div>
+        </td>
+      </tr>
+      {open ? (
+        <tr className="border-t bg-muted/20 text-xs">
+          <td className="px-3 py-2" colSpan={5}>
+            <div className="grid gap-2">
+              {req ? (
+                <div>
+                  <div className="mb-1 font-medium text-foreground">Request headers</div>
+                  <pre className="max-h-40 overflow-auto rounded bg-background p-2 text-[11px]">{JSON.stringify(req, null, 2)}</pre>
+                </div>
+              ) : null}
+              {d.responseBody ? (
+                <div>
+                  <div className="mb-1 font-medium text-foreground">Response</div>
+                  <pre className="max-h-40 overflow-auto rounded bg-background p-2 text-[11px]">{String(d.responseBody).slice(0, 4000)}</pre>
+                </div>
+              ) : null}
+              {d.error ? (
+                <div className="text-destructive">Error: {String(d.error)}</div>
+              ) : null}
+            </div>
+          </td>
+        </tr>
+      ) : null}
+    </>
+  )
+}
+
+function genSecret(): string {
+  try {
+    const u8 = new (typeof Uint8Array !== 'undefined' ? Uint8Array : (require('node:buffer').Buffer))(24) as Uint8Array
+    const webcrypto: Crypto | undefined = (globalThis as any)?.crypto || (require('node:crypto').webcrypto as any)
+    webcrypto?.getRandomValues?.(u8)
+    return Array.from(u8).map((n: number) => n.toString(16).padStart(2, '0')).join('')
+  } catch {
+    return Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2)
+  }
 }

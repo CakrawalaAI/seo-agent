@@ -8,7 +8,16 @@ import { log } from '@src/common/logger'
  * Used when LLM mocking is enabled in dev
  */
 
-const PREPINTERVIEW_BUSINESS_SUMMARY = `PrepInterview.ai is an AI-powered interview preparation platform that helps job seekers master behavioral, technical, and system design interviews. The platform offers personalized mock interviews, real-time feedback using the STAR method, and comprehensive resources for FAANG interview preparation. Target audience includes software engineers, product managers, and other tech professionals preparing for competitive job interviews.`
+const PREPINTERVIEW_BUSINESS_SUMMARY = `PrepInterview.ai provides AI-driven mock interviews that simulate realistic scenarios with voice interaction and structured feedback. Candidates practice on demand across behavioral, technical, system design, product, and consulting tracks. The platform targets job seekers at startups and large technology companies who want faster, repeatable practice and concrete guidance.
+
+Key Facts
+Audience/ICP: candidates preparing for SWE, PM, data, and consulting interviews
+Offering: AI mock interviews with voice; personalized feedback; real interview questions
+Pricing: free trial visible; subscription mentioned; no public tiers listed
+Proof/Traction: active social presence; references to FAANG preparation use cases
+GTM: English primary; Indonesian variant present; regions include US, GB, AU, SG, MY, ID
+Integrations: LiveKit (voice), Firebase (backend), PostHog (analytics)
+Contact/Presence: X (@prepinterview); Instagram profiles; site contact point`
 
 const PREPINTERVIEW_TOPIC_CLUSTERS = [
   'Interview Preparation',

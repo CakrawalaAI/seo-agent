@@ -10,14 +10,13 @@ import { articles as articlesTable } from '@entities/article/db/schema'
 import { crawlJobs, crawlPages } from '@entities/crawl/db/schema.website'
 import { env } from '@common/infra/env'
 import { buildIntegrationViews } from '@integrations/shared/catalog'
-import { ensureRealtimeHub, publishDashboardProgress } from '@common/realtime/hub'
+// Realtime hub removed; snapshot serves polling
 import { getSubscriptionEntitlementByOrg } from '@entities/subscription/service'
 import { getEntitlements } from '@common/infra/entitlements'
 import { planRepo } from '@entities/article/planner'
 
 const DEFAULT_PLAN_DAYS = 30
 
-ensureRealtimeHub()
 
 function safeParse(value: string) {
   try {
@@ -147,16 +146,6 @@ export const Route = createFileRoute('/api/websites/$websiteId/snapshot')({
           targetCount: Math.max(generatedCount, DEFAULT_PLAN_DAYS)
         }
         const billingState = await buildBillingState(website.orgId)
-        publishDashboardProgress(params.websiteId, {
-          crawlProgress,
-          keywordProgress,
-          articleProgress,
-          queueDepth,
-          crawlStatus,
-          crawlCooldownExpiresAt,
-          lastCrawlAt,
-          playwrightWorkers: playwrightWorkers || undefined
-        })
         return json({
           website,
           keywords: keywordRows,

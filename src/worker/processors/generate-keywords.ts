@@ -1,4 +1,4 @@
-import { summarizeSite, expandSeeds } from '@common/providers/llm'
+import { summarizeSite, expandSeeds } from '@common/providers/llm-helpers'
 import { websitesRepo } from '@entities/website/repository'
 import { filterSeeds } from '@features/keyword/server/seedFilter'
 import { mockKeywordGenerator } from '@common/providers/impl/mock/keyword-generator'
@@ -15,7 +15,7 @@ import {
 import { log } from '@src/common/logger'
 import { crawlRepo } from '@entities/crawl/repository'
 import { keywordsRepo } from '@entities/keyword/repository'
-import { publishDashboardProgress } from '@common/realtime/hub'
+// Realtime broadcast removed; dashboard polls snapshot
 import { getKeywordRegenerateConfig, setKeywordRegenerateConfig } from '@entities/keyword/config'
 
 type GenerateKeywordPayload = {
@@ -123,7 +123,7 @@ export async function processGenerateKeywords(payload: GenerateKeywordPayload) {
       })
     }
 
-    const autoIncludeSet = keywordsRepo.selectTopForAutoInclude(
+    const autoIncludeSet = keywordsRepo.selectTopForAutoActive(
       filtered
         .map((phrase) => {
           const key = norm(phrase)
@@ -153,14 +153,13 @@ export async function processGenerateKeywords(payload: GenerateKeywordPayload) {
         : null
       await keywordsRepo.upsert({
         websiteId,
-        phrase,
-        phraseNorm: norm(phrase),
+        phrase: norm(phrase),
         languageCode: dfsLanguage,
         languageName: langName,
         locationCode: dfsLocation,
         locationName,
         provider: providerName,
-        include: autoIncludeSet.has(norm(phrase)),
+        active: autoIncludeSet.has(norm(phrase)),
         searchVolume: Number(info?.search_volume ?? 0) || 0,
         cpc: typeof info?.cpc === 'number' ? Number(info.cpc) : null,
         competition: typeof info?.competition === 'number' ? Number(info.competition) : null,
@@ -172,11 +171,10 @@ export async function processGenerateKeywords(payload: GenerateKeywordPayload) {
       })
       inserted++
     }
-    log.debug('[keywords.generate] persisted keywords', { websiteId, inserted, includeCount: autoIncludeSet.size, mode })
+    log.debug('[keywords.generate] persisted keywords', { websiteId, inserted, activeCount: autoIncludeSet.size, mode })
 
     try { await websitesRepo.patch(websiteId, { status: 'keyword_generated' }) } catch {}
     const totalKeywords = await keywordsRepo.count(websiteId)
-    publishDashboardProgress(websiteId, { keywordProgress: { total: totalKeywords } })
     log.debug('[keywords.generate] completed', { websiteId, mode, totalKeywords })
 
     if (mode === 'regenerate') {

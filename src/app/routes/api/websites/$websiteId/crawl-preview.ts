@@ -4,7 +4,7 @@ import { json, httpError, requireSession, requireWebsiteAccess } from '@app/api-
 import { websitesRepo } from '@entities/website/repository'
 import { fetchAndParseSitemapUrlsFlex } from '@common/crawl/sitemap'
 import { env } from '@common/infra/env'
-import { selectUrlsFromList } from '@common/providers/llm'
+import { selectUrlsFromList } from '@common/providers/llm-helpers'
 
 export const Route = createFileRoute('/api/websites/$websiteId/crawl-preview')({
   server: {
@@ -33,4 +33,3 @@ export const Route = createFileRoute('/api/websites/$websiteId/crawl-preview')({
     }
   }
 })
-

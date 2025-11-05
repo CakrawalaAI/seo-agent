@@ -5,7 +5,7 @@ export type PortableArticle = {
   excerpt?: string | null
   bodyHtml?: string | null
   outline?: Array<{ level: number; text: string }>
-  seo?: { metaTitle?: string; metaDescription?: string; primaryKeyword?: string }
+  seo?: { metaTitle?: string; metaDescription?: string; primaryKeyword?: string; jsonLd?: any }
   locale?: string | null
   slug?: string | null
 }
@@ -14,21 +14,39 @@ export async function publishViaWebhook(options: {
   article: Article
   targetUrl: string
   secret?: string | null
-}): Promise<{ externalId?: string; url?: string } | null> {
+  event?: 'article.published' | 'article.updated' | 'test.ping'
+  eventId?: string
+  meta?: { integrationId: string; projectId: string; articleId?: string | null }
+}): Promise<{ externalId?: string; url?: string; status: number; sentHeaders: Record<string, string>; responseBody?: string } | null> {
   const payload: PortableArticle = buildPortable(options.article)
-  const body = JSON.stringify(payload)
+  const envelope = {
+    id: options.eventId || options.article.id,
+    event: options.event || 'article.published',
+    created_at: new Date().toISOString(),
+    meta: options.meta ?? { integrationId: 'unknown', projectId: String((options.article as any).websiteId || 'unknown'), articleId: options.article.id },
+    article: payload
+  }
+  const body = JSON.stringify(envelope)
+  const ts = Math.floor(Date.now() / 1000)
   const headers: Record<string, string> = {
     'content-type': 'application/json',
-    'X-SEOA-Idempotency': options.article.id
+    'X-SEOA-Idempotency': String(envelope.id),
+    'X-SEOA-Event': String(envelope.event),
+    'X-SEOA-Timestamp': String(ts),
+    'X-SEOA-Version': '2025-11-01'
   }
   if (options.secret) {
-    headers['X-SEOA-Signature'] = signHmacSha256(body, options.secret)
+    headers['X-SEOA-Signature'] = signHmacSha256(`${ts}.${body}`, options.secret)
   }
-  const res = await fetch(options.targetUrl, { method: 'POST', headers, body })
-  if (!res.ok) return null
   try {
-    const data = (await res.json()) as { externalId?: string; url?: string }
-    return data ?? null
+    const res = await fetch(options.targetUrl, { method: 'POST', headers, body })
+    const text = await res.text().catch(() => '')
+    if (!res.ok) {
+      return { status: res.status, sentHeaders: headers, responseBody: text }
+    }
+    let data: any = null
+    try { data = JSON.parse(text) } catch {}
+    return { externalId: data?.externalId, url: data?.url, status: res.status, sentHeaders: headers, responseBody: text }
   } catch {
     return null
   }
@@ -36,11 +54,17 @@ export async function publishViaWebhook(options: {
 
 function buildPortable(article: Article): PortableArticle {
   const outline = (article.outlineJson ?? []).map((s) => ({ level: 2, text: s.heading }))
+  // JSON-LD preview (optional, no URL resolution)
+  let jsonLd: any = undefined
+  try {
+    const { buildArticleJsonLd } = require('../seo/jsonld') as typeof import('../seo/jsonld')
+    jsonLd = buildArticleJsonLd(article)
+  } catch {}
   return {
     title: article.title ?? '',
     bodyHtml: article.bodyHtml ?? '',
     outline,
-    seo: { metaTitle: article.title ?? undefined },
+    seo: { metaTitle: article.title ?? undefined, jsonLd },
     locale: article.language ?? 'en'
   }
 }

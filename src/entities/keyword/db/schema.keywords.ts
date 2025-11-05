@@ -8,14 +8,14 @@ export const keywords = pgTable(
     websiteId: text('website_id')
       .notNull()
       .references(() => websites.id, { onDelete: 'cascade' }),
+    // Store normalized phrase only (lowercased, single spaces)
     phrase: text('phrase').notNull(),
-    phraseNorm: text('phrase_norm').notNull(),
     languageCode: text('language_code').notNull(),
     languageName: text('language_name').notNull(),
     locationCode: integer('location_code').notNull(),
     locationName: text('location_name').notNull(),
     provider: text('provider').notNull().default('dataforseo.labs.keyword_ideas'),
-    include: boolean('include').notNull().default(false),
+    active: boolean('active').notNull().default(false),
     starred: integer('starred').notNull().default(0),
     // metrics columns
     searchVolume: integer('search_volume'),
@@ -29,5 +29,6 @@ export const keywords = pgTable(
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow()
   },
-  (t) => ({ uniq: uniqueIndex('uniq_keywords_geo_lang').on(t.websiteId, t.phraseNorm, t.languageCode, t.locationCode) })
+  // Unique on normalized phrase directly
+  (t) => ({ uniq: uniqueIndex('uniq_keywords_geo_lang').on(t.websiteId, t.phrase, t.languageCode, t.locationCode) })
 )

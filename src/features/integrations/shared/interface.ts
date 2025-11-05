@@ -122,6 +122,16 @@ export function buildPortableArticle(article: Article): PortableArticle {
         if (id) youtube.push({ id })
         if (youtube.length >= 2) break
       }
+      // YouTube markers: <figure data-embed="youtube" data-url="...">
+      const figRe = /<figure[^>]*data-embed=\"youtube\"[^>]*data-url=\"([^\"]+)\"[^>]*><\/figure>/gi
+      let f: RegExpExecArray | null
+      while ((f = figRe.exec(html))) {
+        const url = f[1]
+        const idM = url.match(idRe)
+        const id = idM ? idM[1] : null
+        if (id) youtube.push({ id })
+        if (youtube.length >= 2) break
+      }
     } catch {}
     return images.length || youtube.length ? { images, youtube } : undefined
   })()

@@ -62,14 +62,13 @@ export const env: {
   crawlAllowSubdomains: boolean
   crawlExcludePaths?: string[]
   summaryTokenBudget: number
-  realtimePort: number
-  realtimeEndpoint: string | null
-  realtimeDisableServer: boolean
   blobTtlDays: number
   competitorFetchFallback: boolean
   keywordRegenerateCooldownHours: number
   externalRetryAttempts: number
   keywordAutoIncludeLimit: number
+  // Controls per-website concurrent article generation workers
+  articleGenerateConcurrency: number
   articleFeatures: ArticleFeatureFlags
 } = {
   publicationAllowed: ['webhook'],
@@ -86,14 +85,12 @@ export const env: {
     .map((s) => s.trim())
     .filter(Boolean),
   summaryTokenBudget: readNumber('SUMMARY_TOKEN_BUDGET', 60000),
-  realtimePort: readNumber('SEOA_REALTIME_PORT', 4173),
-  realtimeEndpoint: readEnv('SEOA_REALTIME_ENDPOINT') || null,
-  realtimeDisableServer: (readEnv('SEOA_REALTIME_DISABLE_SERVER') || '0') === '1',
   blobTtlDays: readNumber('BLOB_TTL_DAYS', 30),
   competitorFetchFallback: true,
   keywordRegenerateCooldownHours: readNonNegative('GENERATE_KEYWORD_COOLDOWN_HOURS', 24),
   externalRetryAttempts: readPositiveInt('MAX_RETRY_ATTEMPTS', 3, 10),
   keywordAutoIncludeLimit: readPositiveInt('NUM_ACTIVE_KEYWORDS', 30, 1000),
+  articleGenerateConcurrency: readPositiveInt('NUM_GENERATED_ARTICLE_BUFFER', 3, 32),
   articleFeatures: {
     serp: readBoolean('ENABLE_ARTICLE_SERP', true),
     youtube: readBoolean('ENABLE_ARTICLE_YOUTUBE', true),

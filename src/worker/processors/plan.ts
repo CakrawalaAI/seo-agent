@@ -3,7 +3,7 @@ import { websitesRepo } from '@entities/website/repository'
 import { publishJob, queueEnabled } from '@common/infra/queue'
 import { getLlmProvider } from '@common/providers/registry'
 import { log } from '@src/common/logger'
-import { publishDashboardProgress } from '@common/realtime/hub'
+// Realtime broadcast removed; dashboard polls snapshot
 
 export async function processPlan(payload: { projectId?: string; websiteId?: string; days: number }) {
   const websiteId = String(payload.websiteId || payload.projectId)
@@ -29,18 +29,32 @@ export async function processPlan(payload: { projectId?: string; websiteId?: str
   const itemMap = new Map(planItems.map((item) => [item.id, item]))
   if (result.outlineIds.length) {
     log.debug('[plan] drafting outlines', { websiteId, count: result.outlineIds.length })
-  }
-
-  for (const id of result.outlineIds) {
-    const known = itemMap.get(id) ?? (await planRepo.findById(id))?.item ?? null
-    if (!known) continue
-    try {
-      const seedTitle = known.title || known.outlineJson?.[0]?.heading || 'Draft article'
-      const res = await llm.draftOutline(seedTitle, locale)
-      await planRepo.updateFields(id, { title: res.title, outlineJson: res.outline, status: known.status === 'scheduled' ? 'scheduled' : 'queued' })
-    } catch (error) {
-      log.error('[plan] outline generation failed', { websiteId, planItemId: id, error: (error as Error)?.message || String(error) })
-      throw error
+    // Parallelize outline drafting. Concurrency == number of articles to generate.
+    const targetConcurrency = Math.max(1, result.draftIds.length || 1)
+    const queue = result.outlineIds.slice()
+    const errors: Array<{ id: string; message: string }> = []
+    const worker = async () => {
+      for (;;) {
+        const id = queue.shift()
+        if (!id) break
+        const known = itemMap.get(id) ?? (await planRepo.findById(id))?.item ?? null
+        if (!known) continue
+        try {
+          const seedTitle = known.title || known.outlineJson?.[0]?.heading || 'Draft article'
+          const res = await llm.draftOutline(seedTitle, locale)
+          await planRepo.updateFields(id, { title: res.title, outlineJson: res.outline, status: known.status === 'scheduled' ? 'scheduled' : 'queued' })
+        } catch (error) {
+          const message = (error as Error)?.message || String(error)
+          log.error('[plan] outline generation failed', { websiteId, planItemId: id, error: message })
+          errors.push({ id, message })
+        }
+      }
+    }
+    const workers = Array.from({ length: Math.min(targetConcurrency, queue.length) }, () => worker())
+    await Promise.all(workers)
+    if (errors.length) {
+      // Surface the first failure (others already logged)
+      throw new Error(`outline_generation_failed: ${errors[0]!.id}: ${errors[0]!.message}`)
     }
   }
   if (queueEnabled() && result.draftIds.length) {
@@ -62,13 +76,5 @@ export async function processPlan(payload: { projectId?: string; websiteId?: str
   }
   try { await websitesRepo.patch(websiteId, { status: 'articles_scheduled' }) } catch {}
   const counts = await planRepo.counts(String(websiteId))
-  publishDashboardProgress(websiteId, {
-    articleProgress: {
-      generatedCount: counts.total,
-      scheduledCount: counts.scheduled,
-      targetCount: outlineDays
-    },
-    queueDepth: counts.queued
-  })
   log.debug('[plan] completed', { websiteId })
 }

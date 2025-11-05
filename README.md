@@ -64,8 +64,8 @@ Website crawl produces an informative `websites.summary` via a simple, token‑a
 - Generate exhaustive, concise bullets (≤140 chars) and store them as `crawl_pages.summary`.
 
 3) Final profile (reformat, no new facts)
-- Concatenate all bullet blocks; run one "reformat without information loss" pass.
-- Output sections: Overview; Products/Services; Pricing; Customers/Proof; Content/Resources; Integrations; Compliance; Locations/Contact; Unknowns.
+- Concatenate all bullet blocks; run one memo‑style "reformat without information loss" pass.
+- Output: executive summary (2–4 short paragraphs) + Key Facts as short labeled lines (Audience/ICP, Offering, Pricing signals, Proof/Traction, GTM, Integrations, Contact). Missing items are omitted (no "Unknowns").
 - Save as `websites.summary`.
 
 ### Env knobs

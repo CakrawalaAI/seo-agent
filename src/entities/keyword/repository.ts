@@ -4,7 +4,7 @@ import { keywords } from './db/schema.keywords'
 import { and, eq, sql } from 'drizzle-orm'
 
 export const keywordsRepo = {
-  selectTopForAutoInclude(keywords: Array<{ include?: boolean | null; metricsJson?: any; searchVolume?: number | null; difficulty?: number | null; phrase: string }>, limit = env.keywordAutoIncludeLimit) {
+  selectTopForAutoActive(keywords: Array<{ active?: boolean | null; metricsJson?: any; searchVolume?: number | null; difficulty?: number | null; phrase: string }>, limit = env.keywordAutoIncludeLimit) {
     if (!Array.isArray(keywords) || keywords.length === 0) return new Set<string>()
     const normalize = (value: string) => value.trim().toLowerCase().replace(/\s+/g, ' ')
     const eligible = keywords
@@ -39,13 +39,12 @@ export const keywordsRepo = {
   async upsert(input: {
     websiteId: string
     phrase: string
-    phraseNorm: string
     languageCode: string
     languageName: string
     locationCode: number
     locationName: string
     provider?: string
-    include?: boolean
+    active?: boolean
     searchVolume?: number | null
     cpc?: number | null
     competition?: number | null
@@ -69,13 +68,12 @@ export const keywordsRepo = {
           id,
           websiteId: input.websiteId,
           phrase: input.phrase,
-          phraseNorm: input.phraseNorm,
           languageCode: input.languageCode,
           languageName: input.languageName,
           locationCode: input.locationCode,
           locationName: input.locationName,
           provider,
-          include: Boolean(input.include) as any,
+          active: Boolean(input.active) as any,
           searchVolume: input.searchVolume == null ? null : Math.trunc(Number(input.searchVolume)),
           cpc: input.cpc == null ? null : String(input.cpc),
           competition: input.competition == null ? null : String(input.competition),
@@ -88,10 +86,10 @@ export const keywordsRepo = {
           updatedAt: now
         } as any)
         .onConflictDoUpdate?.({
-          target: [keywords.websiteId, keywords.phraseNorm, keywords.languageCode, keywords.locationCode],
+          target: [keywords.websiteId, keywords.phrase, keywords.languageCode, keywords.locationCode],
           set: {
             provider,
-            // do not touch include on updates; preserve user choice
+            // do not touch active on updates; preserve user choice
             searchVolume: input.searchVolume == null ? null : Math.trunc(Number(input.searchVolume)),
             cpc: input.cpc == null ? null : String(input.cpc),
             competition: input.competition == null ? null : String(input.competition),
@@ -103,7 +101,7 @@ export const keywordsRepo = {
             updatedAt: now
           }
         })
-      return await this.getByKey(input.websiteId, input.phraseNorm, input.languageCode, input.locationCode)
+      return await this.getByKey(input.websiteId, input.phrase, input.languageCode, input.locationCode)
     } catch {
       // Fallback: delete existing then insert
       await db
@@ -111,7 +109,7 @@ export const keywordsRepo = {
         .where(
           and(
             eq(keywords.websiteId, input.websiteId),
-            eq(keywords.phraseNorm, input.phraseNorm),
+            eq(keywords.phrase, input.phrase),
             eq(keywords.languageCode, input.languageCode),
             eq(keywords.locationCode, input.locationCode as any)
           )
@@ -120,13 +118,12 @@ export const keywordsRepo = {
         id,
         websiteId: input.websiteId,
         phrase: input.phrase,
-        phraseNorm: input.phraseNorm,
         languageCode: input.languageCode,
         languageName: input.languageName,
         locationCode: input.locationCode,
         locationName: input.locationName,
         provider,
-        include: Boolean(input.include) as any,
+        active: Boolean(input.active) as any,
         searchVolume: input.searchVolume == null ? null : Math.trunc(Number(input.searchVolume)),
         cpc: input.cpc == null ? null : String(input.cpc),
         competition: input.competition == null ? null : String(input.competition),
@@ -138,11 +135,11 @@ export const keywordsRepo = {
         createdAt: now,
         updatedAt: now
       } as any)
-      return await this.getByKey(input.websiteId, input.phraseNorm, input.languageCode, input.locationCode)
+      return await this.getByKey(input.websiteId, input.phrase, input.languageCode, input.locationCode)
     }
   },
 
-  async getByKey(websiteId: string, phraseNorm: string, languageCode: string, locationCode: number) {
+  async getByKey(websiteId: string, phrase: string, languageCode: string, locationCode: number) {
     if (!hasDatabase()) return null
     const db = getDb()
     const rows = await db
@@ -151,7 +148,7 @@ export const keywordsRepo = {
       .where(
         and(
           eq(keywords.websiteId, websiteId),
-          eq(keywords.phraseNorm, phraseNorm),
+          eq(keywords.phrase, phrase),
           eq(keywords.languageCode, languageCode),
           eq(keywords.locationCode, locationCode as any)
         )
@@ -185,8 +182,8 @@ export const keywordsRepo = {
 
 function genId(prefix: string) { return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}` }
 
-export function shouldIncludeKeyword(keyword: { include?: boolean | null; metricsJson?: any; searchVolume?: number | null; difficulty?: number | null }): boolean {
-  if (keyword.include != null) return Boolean(keyword.include)
+export function shouldActivateKeyword(keyword: { active?: boolean | null; metricsJson?: any; searchVolume?: number | null; difficulty?: number | null }): boolean {
+  if (keyword.active != null) return Boolean(keyword.active)
   const metrics = keyword.metricsJson || {}
   const volume = metrics.searchVolume ?? keyword.searchVolume
   const difficulty = metrics.difficulty ?? keyword.difficulty

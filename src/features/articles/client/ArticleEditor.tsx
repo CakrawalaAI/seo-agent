@@ -21,6 +21,11 @@ import { useEditor, EditorContent } from '@tiptap/react'
 import StarterKit from '@tiptap/starter-kit'
 import Link from '@tiptap/extension-link'
 import Placeholder from '@tiptap/extension-placeholder'
+import Image from '@tiptap/extension-image'
+import { Table } from '@tiptap/extension-table'
+import TableRow from '@tiptap/extension-table-row'
+import TableHeader from '@tiptap/extension-table-header'
+import TableCell from '@tiptap/extension-table-cell'
 import { useEffect, useState } from 'react'
 
 export type ArticleEditorProps = {
@@ -58,6 +63,11 @@ export function ArticleEditor({
           target: '_blank'
         }
       }),
+      Image.configure({ inline: false, allowBase64: false }),
+      Table.configure({ resizable: true }),
+      TableRow,
+      TableHeader,
+      TableCell,
       Placeholder.configure({
         placeholder
       })
@@ -165,23 +175,44 @@ export function ArticleEditor({
           • List
         </ToolbarButton>
 
-        <ToolbarButton
-          onClick={() => editor.chain().focus().toggleOrderedList().run()}
-          isActive={editor.isActive('orderedList')}
-          title="Numbered List"
-        >
-          1. List
-        </ToolbarButton>
+      <ToolbarButton
+        onClick={() => editor.chain().focus().toggleOrderedList().run()}
+        isActive={editor.isActive('orderedList')}
+        title="Numbered List"
+      >
+        1. List
+      </ToolbarButton>
 
-        <ToolbarButton
-          onClick={() => editor.chain().focus().toggleBlockquote().run()}
-          isActive={editor.isActive('blockquote')}
-          title="Blockquote"
-        >
-          &ldquo; Quote
-        </ToolbarButton>
+      <ToolbarButton
+        onClick={() => editor.chain().focus().toggleBlockquote().run()}
+        isActive={editor.isActive('blockquote')}
+        title="Blockquote"
+      >
+        &ldquo; Quote
+      </ToolbarButton>
 
-        <div className="w-px h-6 bg-gray-300 mx-1" />
+      <div className="w-px h-6 bg-gray-300 mx-1" />
+
+      <ToolbarButton
+        onClick={() => {
+          const url = window.prompt('Image URL')?.trim()
+          if (!url) return
+          const alt = window.prompt('Alt text')?.trim() || ''
+          editor.commands.setImage({ src: url, alt })
+        }}
+        title="Insert Image"
+      >
+        Img
+      </ToolbarButton>
+
+      <ToolbarButton
+        onClick={() => editor.commands.insertTable({ rows: 3, cols: 3, withHeaderRow: true })}
+        title="Insert Table"
+      >
+        Table
+      </ToolbarButton>
+
+      <div className="w-px h-6 bg-gray-300 mx-1" />
 
         <ToolbarButton onClick={() => editor.chain().focus().undo().run()} title="Undo">
           ↶ Undo

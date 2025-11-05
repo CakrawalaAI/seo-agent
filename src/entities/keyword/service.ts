@@ -26,7 +26,7 @@ export function fetchKeywords(websiteId: string, options: FetchKeywordOptions = 
 
 export function patchKeyword(
   keywordId: string,
-  payload: Partial<Pick<Keyword, 'phrase' | 'status' | 'starred' | 'scope'>>
+  payload: Partial<Pick<Keyword, 'phrase' | 'status' | 'starred' | 'scope' | 'active'>>
 ) {
   return patchJson<Keyword>(`/api/keywords/${keywordId}`, payload)
 }

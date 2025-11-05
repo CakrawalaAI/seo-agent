@@ -34,6 +34,9 @@ export async function runWorker(options: WorkerOptions = {}) {
     const cleanupInterval = setInterval(() => {
       cleanupMetricCache().catch(() => {})
       try { cleanupOldBlobs(env.blobTtlDays) } catch {}
+      import('@entities/webhook/service')
+        .then(({ webhookService }) => webhookService.prune(90))
+        .catch(() => {})
     }, 15 * 60 * 1000)
 
     // Daily scheduler guarded by Postgres advisory lock
@@ -66,21 +69,24 @@ export async function runWorker(options: WorkerOptions = {}) {
     }, SCHEDULE_EVERY_MS)
     log.info('[worker] scheduler enabled', { intervalMs: SCHEDULE_EVERY_MS })
     log.info('[worker] DB available?', { hasDb: hasDatabase() })
-    const perWebsiteRunning = new Map<string, number>()
-    const projectConcurrency = 1
+    // Track per-website, per-type concurrency (e.g., 'site123:generate')
+    const perKeyRunning = new Map<string, number>()
+    const limitFor = (type: string) => (type === 'generate' ? Math.max(1, env.articleGenerateConcurrency || 1) : 1)
     const maxRetries = 2
     const baseDelayMs = 1000
     await consumeJobs(async (msg) => {
       const websiteId = String((msg.payload as any).websiteId ?? (msg.payload as any).projectId ?? '')
-      // simple per-website concurrency: if saturated, requeue with small delay
-      if (websiteId) {
-        const cur = perWebsiteRunning.get(websiteId) ?? 0
-        if (cur >= projectConcurrency) {
-          log.warn('[worker] website concurrency saturated; requeueing', { websiteId, type: msg.type, current: cur, limit: projectConcurrency })
+      const key = websiteId ? `${websiteId}:${msg.type}` : ''
+      // per-website, per-type concurrency: gate 'generate' by NUM_GENERATED_ARTICLE_BUFFER
+      if (key) {
+        const cur = perKeyRunning.get(key) ?? 0
+        const limit = limitFor(msg.type)
+        if (cur >= limit) {
+          log.warn('[worker] website concurrency saturated; requeueing', { websiteId, type: msg.type, current: cur, limit })
           setTimeout(() => publishJob({ type: msg.type, payload: msg.payload, retries: msg.retries ?? 0 }).catch(() => {}), 300)
           return
         }
-        perWebsiteRunning.set(websiteId, cur + 1)
+        perKeyRunning.set(key, cur + 1)
       }
       if (websiteId) recordJobRunning(websiteId, msg.id)
       log.info('[worker] processing', { id: msg.id, type: msg.type, websiteId, retries: msg.retries ?? 0 })
@@ -150,9 +156,9 @@ export async function runWorker(options: WorkerOptions = {}) {
         }
       }
       finally {
-        if (websiteId) {
-          const cur = perWebsiteRunning.get(websiteId) ?? 1
-          perWebsiteRunning.set(websiteId, Math.max(0, cur - 1))
+        if (key) {
+          const cur = perKeyRunning.get(key) ?? 1
+          perKeyRunning.set(key, Math.max(0, cur - 1))
         }
       }
     })

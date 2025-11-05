@@ -6,6 +6,7 @@ import { connectorRegistry } from '@features/integrations/server/registry'
 import { queueEnabled, publishJob } from '@common/infra/queue'
 import { recordJobQueued } from '@common/infra/jobs'
 import { ConnectorNotReadyError } from '@features/integrations/shared/errors'
+import { withPublishContext } from '@features/integrations/server/context'
 
 export const Route = createFileRoute('/api/articles/$articleId/publish')({
   server: {
@@ -46,7 +47,7 @@ export const Route = createFileRoute('/api/articles/$articleId/publish')({
         if (queueEnabled()) {
           const jobId = await publishJob({
             type: 'publish',
-            payload: { articleId: article.id, integrationId }
+            payload: { articleId: article.id, integrationId, trigger: 'manual' }
           })
           recordJobQueued(String((article as any).websiteId), 'publish', jobId)
           log.info('[API /articles/:id/publish] Queued:', { jobId })
@@ -68,7 +69,9 @@ export const Route = createFileRoute('/api/articles/$articleId/publish')({
 
         let result
         try {
-          result = await connectorRegistry.publish((integration as any).type, article, config)
+          result = await withPublishContext({ integrationId: (integration as any).id, websiteId: (article as any).websiteId, trigger: 'manual' }, () =>
+            connectorRegistry.publish((integration as any).type, article, config)
+          )
         } catch (error) {
           if (error instanceof ConnectorNotReadyError) {
             return json(

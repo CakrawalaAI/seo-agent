@@ -11,7 +11,7 @@ import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from '@src/common/ui
 import { Textarea } from '@src/common/ui/textarea'
 import { OnboardingForm } from '@features/onboarding/client/onboarding-form'
 import { Progress } from '@src/common/ui/progress'
-import { useDashboardEvents } from '@features/dashboard/shared/use-dashboard-events'
+// Realtime WS disabled; polling-only via snapshot query
 
 type DashboardData = { website: any | null; snapshot: any | null }
 
@@ -110,7 +110,9 @@ export function Page(): JSX.Element {
     queryKey: ['dashboard.snapshot', projectId],
     queryFn: () => getWebsiteSnapshot(projectId!),
     enabled: Boolean(projectId && !mockEnabled),
-    refetchInterval: 30_000
+    // Polling-only: fixed 5s interval
+    refetchInterval: 5_000,
+    refetchOnWindowFocus: true
   })
 
   const project = mockEnabled ? MOCK_DASHBOARD.website : projectQuery.data
@@ -132,7 +134,7 @@ export function Page(): JSX.Element {
 
   const insight = useMemo(() => buildInsights(project, snapshot), [project, snapshot])
 
-  useDashboardEvents(projectId, { enabled: Boolean(projectId && !mockEnabled) })
+  // WS updates removed; rely on polling above
 
   const [billingMessage, setBillingMessage] = useState<string | null>(null)
   const [isEditingSummary, setIsEditingSummary] = useState(false)
@@ -407,7 +409,7 @@ const reCrawlMutation = useMutation({
         <div className="flex items-start justify-between gap-3">
           <div>
             <h2 className="text-lg font-semibold text-foreground">Website Summary</h2>
-            <p className="text-sm text-muted-foreground">Business context of the website: products, services, audience, positioning.</p>
+            <p className="text-sm text-muted-foreground">Executive summary + key facts for the website; concise, factual, plain text.</p>
           </div>
           <div className="flex flex-col items-end gap-2">
             <div className="flex gap-2">

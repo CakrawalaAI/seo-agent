@@ -3,6 +3,7 @@ import type { ArticleOutlineSection } from '@entities/article/domain/article'
 import { buildPickTopFromSitemapPrompt, buildWebsiteSummaryPrompt } from '@common/prompts/summarize-website'
 import { buildDraftOutlineMessages, buildGenerateBodyMessages, buildFactCheckMessages } from '@common/prompts/article-generation'
 import { HTTP_TIMEOUT_MS } from '@src/common/http/timeout'
+import { sanitizeGeneratedHtml } from '@common/html/sanitize'
 
 export const openAiLlm: LlmProvider = {
   async summarize(pages) {
@@ -92,14 +93,9 @@ export const openAiLlm: LlmProvider = {
       },
       { timeout: HTTP_TIMEOUT_MS }
     )
-    const html = resp.choices?.[0]?.message?.content || ''
-    const trimmed = html.trim()
-    if (!/<[a-z][\s\S]*>/i.test(trimmed)) {
-      return {
-        bodyHtml: `<article><h1>${args.title}</h1><p>${trimmed || 'Draft content pending.'}</p></article>`
-      }
-    }
-    return { bodyHtml: trimmed }
+    const raw = resp.choices?.[0]?.message?.content || ''
+    const cleaned = sanitizeGeneratedHtml(raw, args.title)
+    return { bodyHtml: cleaned }
   },
 
   async factCheck({ title, bodyPreview, citations }) {

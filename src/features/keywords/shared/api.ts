@@ -3,6 +3,7 @@ export type KeywordStatus = 'recommended' | 'planned' | 'generated' | 'all'
 type FetchKeywordOptions = {
   status?: KeywordStatus
   scope?: 'auto' | 'include' | 'exclude' | 'all'
+  active?: boolean | 'all'
   limit?: number
 }
 
@@ -15,6 +16,9 @@ export async function fetchKeywords(websiteId: string, options: FetchKeywordOpti
   }
   if (options.scope && options.scope !== 'all') {
     params.set('scope', options.scope)
+  }
+  if (options.active !== undefined && options.active !== 'all') {
+    params.set('active', String(Boolean(options.active)))
   }
   const response = await fetch(`/api/websites/${websiteId}/keywords?${params.toString()}`, {
     credentials: 'include'

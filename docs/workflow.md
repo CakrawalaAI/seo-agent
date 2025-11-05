@@ -30,6 +30,5 @@ Stateless
 - All artifacts in Postgres; no filesystem bundles.
 
 Realtime Dashboard
-- API process hosts websocket hub unless `SEOA_REALTIME_DISABLE_SERVER=1`.
-- Workers on separate hosts set `SEOA_REALTIME_ENDPOINT=https://api-host` to relay updates.
-- Client connects via `/api/websites/:id/events`; `/progress` endpoint accepts relay POSTs.
+- Poll-only updates (no WebSocket). Client polls `GET /api/websites/:id/snapshot`.
+- Interval: 5s fixed.
