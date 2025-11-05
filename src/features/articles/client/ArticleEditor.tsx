@@ -21,20 +21,26 @@ import { useEditor, EditorContent } from '@tiptap/react'
 import StarterKit from '@tiptap/starter-kit'
 import Link from '@tiptap/extension-link'
 import Placeholder from '@tiptap/extension-placeholder'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 
 export type ArticleEditorProps = {
   initialContent?: string | null
   onSave?: (html: string) => void | Promise<void>
   placeholder?: string
   className?: string
+  onChange?: (html: string) => void
+  showSaveButton?: boolean
+  readOnly?: boolean
 }
 
 export function ArticleEditor({
   initialContent,
   onSave,
   placeholder = 'Write your article here...',
-  className = ''
+  className = '',
+  onChange,
+  showSaveButton = true,
+  readOnly = false
 }: ArticleEditorProps) {
   const [isSaving, setIsSaving] = useState(false)
 
@@ -57,12 +63,34 @@ export function ArticleEditor({
       })
     ],
     content: initialContent ?? '',
+    editable: !readOnly,
+    onUpdate({ editor }) {
+      onChange?.(editor.getHTML())
+    },
     editorProps: {
       attributes: {
         class: 'prose prose-sm sm:prose lg:prose-lg xl:prose-xl focus:outline-none min-h-[400px] p-4'
       }
     }
   })
+
+  useEffect(() => {
+    if (!editor) return
+    const next = initialContent ?? ''
+    if (editor.getHTML() !== next) {
+      editor.commands.setContent(next, { emitUpdate: false })
+    }
+  }, [editor, initialContent])
+
+  useEffect(() => {
+    if (!editor) return
+    onChange?.(editor.getHTML())
+  }, [editor, onChange])
+
+  useEffect(() => {
+    if (!editor) return
+    editor.setEditable(!readOnly)
+  }, [editor, readOnly])
 
   const handleSave = async () => {
     if (!editor || !onSave) return
@@ -81,7 +109,10 @@ export function ArticleEditor({
   return (
     <div className={`border rounded-lg ${className}`}>
       {/* Toolbar */}
-      <div className="flex flex-wrap gap-1 p-2 border-b bg-gray-50">
+      <div
+        className={`flex flex-wrap gap-1 p-2 border-b bg-gray-50 ${readOnly ? 'pointer-events-none opacity-60' : ''}`}
+        aria-disabled={readOnly}
+      >
         <ToolbarButton
           onClick={() => editor.chain().focus().toggleBold().run()}
           isActive={editor.isActive('bold')}
@@ -160,15 +191,17 @@ export function ArticleEditor({
           ↷ Redo
         </ToolbarButton>
 
-        <div className="ml-auto flex gap-2">
-          <button
-            onClick={handleSave}
-            disabled={isSaving}
-            className="px-4 py-1 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
-          >
-            {isSaving ? 'Saving...' : 'Save'}
-          </button>
-        </div>
+        {showSaveButton && onSave && !readOnly ? (
+          <div className="ml-auto flex gap-2">
+            <button
+              onClick={handleSave}
+              disabled={isSaving}
+              className="px-4 py-1 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
+            >
+              {isSaving ? 'Saving...' : 'Save'}
+            </button>
+          </div>
+        ) : null}
       </div>
 
       {/* Editor Content */}

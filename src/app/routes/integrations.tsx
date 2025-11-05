@@ -1,14 +1,11 @@
 import { createFileRoute, redirect } from '@tanstack/react-router'
 import { Page } from '@pages/integrations/page'
+import { fetchSession } from '@entities/org/service'
 
 export const Route = createFileRoute('/integrations')({
   beforeLoad: async ({ location }) => {
     try {
-      const res = await fetch('/api/me', {
-        headers: { accept: 'application/json' },
-        credentials: 'include'
-      })
-      const data = res.ok ? await res.json() : null
+      const data = await fetchSession()
       if (!data?.user) {
         throw redirect({ to: '/' })
       }

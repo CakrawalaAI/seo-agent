@@ -1,6 +1,8 @@
 import { getAuthHeader } from './auth'
 import { log } from '@src/common/logger'
 import { HTTP_TIMEOUT_MS } from '@src/common/http/timeout'
+import { withRetry } from '@common/async/retry'
+import { isRetryableDataForSeo } from './retry'
 
 const BASE_URL = 'https://api.dataforseo.com'
 const ENDPOINT = '/v3/dataforseo_labs/google/keyword_ideas/live'
@@ -30,8 +32,8 @@ export async function keywordIdeas(params: KeywordIdeasParams): Promise<KeywordI
   const keywords = sanitizeKeywords(params.keywords)
   const auth = getAuthHeader()
   if (!auth) throw new Error('DataForSEO credentials missing')
-  log.debug('[dfs.keywordIdeas] sanitized keywords', {
-    keywords,
+  log.debug('[dfs.keywordIdeas] request', {
+    keywordCount: keywords.length,
     locationCode: params.locationCode,
     languageCode: params.languageCode,
     limit: params.limit ?? null
@@ -45,64 +47,71 @@ export async function keywordIdeas(params: KeywordIdeasParams): Promise<KeywordI
   }
   if (params.limit && params.limit > 0) task.limit = Math.floor(params.limit)
 
-  const controller = new AbortController()
-  const timeout = setTimeout(() => controller.abort(), HTTP_TIMEOUT_MS)
   const payload = JSON.stringify([task])
-  log.debug('[dfs.keywordIdeas] dispatch', {
-    endpoint: ENDPOINT,
-    payload: task,
-    timeoutMs: HTTP_TIMEOUT_MS
+
+  const json = await withRetry(async () => {
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), HTTP_TIMEOUT_MS)
+    try {
+      const res = await fetch(`${BASE_URL}${ENDPOINT}`, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          Authorization: auth
+        },
+        body: payload,
+        signal: controller.signal
+      })
+
+      const text = await res.text()
+      if (!res.ok) {
+        log.error('[dfs] keywordIdeas http_error', { status: res.status, response: summarizeBody(text) })
+        const error = new Error(`DataForSEO HTTP ${res.status}`)
+        ;(error as any).status = res.status
+        throw error
+      }
+
+      const parsed = safeParseJson(text)
+      if (!parsed) {
+        log.warn('[dfs] keywordIdeas invalid_json')
+        return null
+      }
+
+      return parsed
+    } finally {
+      clearTimeout(timeout)
+    }
+  }, {
+    label: 'dfs.keywordIdeas',
+    retryOn: (error) => isRetryableDataForSeo(error),
+    onRetry: ({ attempt, delayMs, error }) => {
+      log.warn('[dfs.keywordIdeas] retry', { attempt, delayMs, message: (error as Error)?.message })
+    }
   })
 
-  try {
-    const res = await fetch(`${BASE_URL}${ENDPOINT}`, {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        Authorization: auth
-      },
-      body: payload,
-      signal: controller.signal
-    })
-    log.debug('[dfs.keywordIdeas] response received', { status: res.status })
+  if (!json) {
+    return []
+  }
 
-    const text = await res.text()
-    if (!res.ok) {
-      log.error('[dfs] keywordIdeas http_error', { status: res.status, response: summarizeBody(text) })
-      throw new Error(`DataForSEO HTTP ${res.status}`)
-    }
-
-    const json = safeParseJson(text)
-    if (!json) {
-      log.warn('[dfs] keywordIdeas invalid_json')
-      return []
-    }
-
-    const items: KeywordIdeaItem[] = []
-    for (const task of Array.isArray(json?.tasks) ? json.tasks : []) {
-      const results = Array.isArray(task?.result) ? task.result : []
-      for (const block of results) {
-        const rawItems = Array.isArray(block?.items) ? block.items : []
-        for (const raw of rawItems) {
-          const keyword = String(raw?.keyword || raw?.keyword_data?.keyword || '').trim()
-          if (!keyword) continue
-          items.push({
-            keyword,
-            keyword_info: normalizeObject(raw?.keyword_info),
-            keyword_properties: normalizeObject(raw?.keyword_properties),
-            impressions_info: normalizeObject(raw?.impressions_info)
-          })
-        }
+  const items: KeywordIdeaItem[] = []
+  for (const task of Array.isArray(json?.tasks) ? json.tasks : []) {
+    const results = Array.isArray(task?.result) ? task.result : []
+    for (const block of results) {
+      const rawItems = Array.isArray(block?.items) ? block.items : []
+      for (const raw of rawItems) {
+        const keyword = String(raw?.keyword || raw?.keyword_data?.keyword || '').trim()
+        if (!keyword) continue
+        items.push({
+          keyword,
+          keyword_info: normalizeObject(raw?.keyword_info),
+          keyword_properties: normalizeObject(raw?.keyword_properties),
+          impressions_info: normalizeObject(raw?.impressions_info)
+        })
       }
     }
-    log.debug('[dfs.keywordIdeas] parsed items', {
-      total: items.length,
-      keywords: items.map((item) => item.keyword)
-    })
-    return items
-  } finally {
-    clearTimeout(timeout)
   }
+  log.debug('[dfs.keywordIdeas] completed', { total: items.length })
+  return items
 }
 
 function normalizeObject(value: unknown): Record<string, unknown> | null {
@@ -131,6 +140,7 @@ function summarizeBody(text: string): Record<string, unknown> {
   }
   return { raw: truncate(text) }
 }
+
 
 function truncate(value: string, max = 240) {
   return value.length <= max ? value : `${value.slice(0, max)}…`

@@ -3,6 +3,8 @@ import { getAuthHeader } from './auth'
 import { log } from '@src/common/logger'
 import { DATAFORSEO_DEFAULT_LOCATION_CODE, languageNameFromCode } from './geo'
 import { HTTP_TIMEOUT_MS } from '@src/common/http/timeout'
+import { withRetry } from '@common/async/retry'
+import { isRetryableDataForSeo } from './retry'
 
 const BASE_URL = 'https://api.dataforseo.com'
 const ENDPOINT = '/v3/serp/google/organic/live/regular'
@@ -44,46 +46,61 @@ async function fetchSerpOrganic(params: FetchSerpParams): Promise<RawSerpItem[]>
     }
   ])
 
-  const controller = new AbortController()
-  const timer = setTimeout(() => controller.abort(), HTTP_TIMEOUT_MS)
+  const json = await withRetry(async () => {
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), HTTP_TIMEOUT_MS)
+    try {
+      const res = await fetch(`${BASE_URL}${ENDPOINT}`, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          Authorization: auth
+        },
+        body: payload,
+        signal: controller.signal
+      })
 
-  try {
-    const res = await fetch(`${BASE_URL}${ENDPOINT}`, {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        Authorization: auth
-      },
-      body: payload,
-      signal: controller.signal
-    })
+      const text = await res.text()
+      if (!res.ok) {
+        log.error('[dfs] serp http_error', { status: res.status, response: summarizeBody(text), device })
+        const error = new Error(`DataForSEO HTTP ${res.status}`)
+        ;(error as any).status = res.status
+        throw error
+      }
 
-    const text = await res.text()
-    if (!res.ok) {
-      log.error('[dfs] serp http_error', { status: res.status, response: summarizeBody(text), device })
-      throw new Error(`DataForSEO HTTP ${res.status}`)
+      const parsed = safeParseJson(text)
+      if (!parsed || !Array.isArray(parsed.tasks) || !parsed.tasks.length) {
+        log.warn('[dfs] serp empty', { keyword, location_code: location, language_name: languageName, device })
+        return null
+      }
+
+      return parsed
+    } finally {
+      clearTimeout(timer)
     }
-
-    const json = safeParseJson(text)
-    if (!json || !Array.isArray(json.tasks) || !json.tasks.length) {
-      log.warn('[dfs] serp empty', { keyword, location_code: location, language_name: languageName, device })
-      return []
+  }, {
+    label: 'dfs.serp',
+    retryOn: (error) => isRetryableDataForSeo(error),
+    onRetry: ({ attempt, delayMs, error }) => {
+      log.warn('[dfs] serp retry', { attempt, delayMs, message: (error as Error)?.message, device })
     }
+  })
 
-    const items: RawSerpItem[] = []
-    for (const task of json.tasks) {
-      const resultBlocks = Array.isArray(task?.result) ? task.result : []
-      for (const block of resultBlocks) {
-        const blockItems = Array.isArray(block?.items) ? block.items : []
-        for (const raw of blockItems) {
-          items.push(raw)
-        }
+  if (!json) {
+    return []
+  }
+
+  const items: RawSerpItem[] = []
+  for (const task of json.tasks) {
+    const resultBlocks = Array.isArray(task?.result) ? task.result : []
+    for (const block of resultBlocks) {
+      const blockItems = Array.isArray(block?.items) ? block.items : []
+      for (const raw of blockItems) {
+        items.push(raw)
       }
     }
-    return items
-  } finally {
-    clearTimeout(timer)
   }
+  return items
 }
 
 function toTextDump(items: SerpItem[]) {

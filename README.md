@@ -50,6 +50,33 @@ Documentation
 - docs/pages.md – Route inventory and UI layouts
 - docs/notes.md – Ad-hoc development notes
 
+## Crawl pipeline (overview)
+
+Website crawl produces an informative `websites.summary` via a simple, token‑aware flow:
+
+1) Sitemap‑first selection (structured LLM)
+- Parse sitemap (index‑aware). Optionally include curated subdomains when `CRAWL_ALLOW_SUBDOMAINS=1`.
+- LLM returns up to `MAX_PAGES_CRAWLED` URLs strictly from the input list.
+- If no sitemap: shallow BFS from homepage until budget is met.
+
+2) Per‑page bullets (structured LLM)
+- Render SPA pages if needed. Extract main content (`main/article/[role=main]`).
+- Generate exhaustive, concise bullets (≤140 chars) and store them as `crawl_pages.summary`.
+
+3) Final profile (reformat, no new facts)
+- Concatenate all bullet blocks; run one "reformat without information loss" pass.
+- Output sections: Overview; Products/Services; Pricing; Customers/Proof; Content/Resources; Integrations; Compliance; Locations/Contact; Unknowns.
+- Save as `websites.summary`.
+
+### Env knobs
+- `MAX_PAGES_CRAWLED` (N; dev 5, prod 100)
+- `CRAWL_ALLOW_SUBDOMAINS` = "true" | "false" (default "true") — include sitemap subdomains; LLM still filters
+- `LLM_CONCURRENCY` (default 3; optional) — limit in‑flight LLM calls
+
+Notes
+- BFS exclude list is empty by default; no env required.
+- Final summary token budget defaults to 60000; no env required.
+
 Notes
 - Auth/Billing are dev-mocked; providers (crawler/metrics) are seeded; repos are in-memory
 - Swap to Drizzle/Postgres and real providers for production

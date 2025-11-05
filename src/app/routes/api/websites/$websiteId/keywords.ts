@@ -3,8 +3,8 @@ import { createFileRoute } from '@tanstack/react-router'
 import { json, httpError, requireSession, requireWebsiteAccess } from '@app/api-utils'
 import { getDb, hasDatabase } from '@common/infra/db'
 import { keywords } from '@entities/keyword/db/schema.keywords'
-import { eq } from 'drizzle-orm'
-import { keywordsRepo } from '@entities/keyword/repository'
+import { and, asc, desc, eq, ilike, inArray, sql } from 'drizzle-orm'
+import { keywordsRepo, shouldIncludeKeyword } from '@entities/keyword/repository'
 import { websitesRepo } from '@entities/website/repository'
 import {
   languageCodeFromLocale,
@@ -25,14 +25,89 @@ export const Route = createFileRoute('/api/websites/$websiteId/keywords')({
         const db = getDb()
         const url = new URL(request.url)
         const includeParam = url.searchParams.get('include')
+        const searchParamRaw = String(url.searchParams.get('search') ?? '').trim()
+        const limitParam = Number(url.searchParams.get('limit'))
+        const pageParam = Number(url.searchParams.get('page'))
+        const limit = Number.isFinite(limitParam) ? Math.max(1, Math.min(limitParam, 1000)) : 300
+        const requestedPage = Number.isFinite(pageParam) && pageParam > 0 ? pageParam : 1
+
+        const baseConditions = [eq(keywords.websiteId, params.websiteId)]
+        if (searchParamRaw) {
+          baseConditions.push(ilike(keywords.phrase, `%${escapeIlike(searchParamRaw)}%`))
+        }
+        const totalWhere = baseConditions.length === 1 ? baseConditions[0]! : and(...baseConditions)
+
+        const [totalRows, activeRows] = await Promise.all([
+          db
+            .select({ value: sql<number>`count(*)` })
+            .from(keywords)
+            .where(totalWhere),
+          db
+            .select({ value: sql<number>`count(*)` })
+            .from(keywords)
+            .where(and(...[...baseConditions, eq(keywords.include, true)]))
+        ])
+        let total = Number(totalRows?.[0]?.value ?? 0)
+        let active = Number(activeRows?.[0]?.value ?? 0)
+        const pageCount = Math.max(1, Math.ceil(Math.max(total, 0) / limit))
+        const safePage = Math.min(Math.max(requestedPage, 1), pageCount)
+        const offset = Math.max(0, (safePage - 1) * limit)
+
+        const rowConditions = [...baseConditions]
+        if (includeParam != null) {
+          rowConditions.push(eq(keywords.include, includeParam === 'true'))
+        }
+        const rowsWhere = rowConditions.length === 1 ? rowConditions[0]! : and(...rowConditions)
+
         const rows = await db
           .select()
           .from(keywords)
-          .where(eq(keywords.websiteId, params.websiteId))
-          .limit(300)
-        const itemsAll = rows.map(shapeKeywordRow)
-        const filtered = includeParam == null ? itemsAll : itemsAll.filter((i) => Boolean(i.include) === (includeParam === 'true'))
-        return json({ items: filtered })
+          .where(rowsWhere)
+          .orderBy(
+            desc(keywords.include),
+            desc(sql`CASE WHEN ${keywords.difficulty} IS NULL THEN 0 ELSE 1 END`),
+            desc(sql`COALESCE(${keywords.searchVolume}, 0)`),
+            asc(sql`COALESCE(${keywords.difficulty}, 100)`),
+            desc(keywords.createdAt)
+          )
+          .limit(limit)
+          .offset(offset)
+
+        let itemsAll = rows.map(shapeKeywordRow)
+
+        if (!searchParamRaw && includeParam == null && safePage === 1) {
+          const allRows = await db
+            .select()
+            .from(keywords)
+            .where(eq(keywords.websiteId, params.websiteId))
+          const shapedAll = allRows.map(shapeKeywordRow)
+          const autoSet = keywordsRepo.selectTopForAutoInclude(shapedAll)
+          const desiredActiveIds = new Set<string>()
+          for (const item of shapedAll) {
+            if (autoSet.has(normalizeKeyword(item.phrase))) {
+              desiredActiveIds.add(item.id)
+            }
+          }
+          const toActivate = shapedAll.filter((item) => desiredActiveIds.has(item.id) && !item.include).map((item) => item.id)
+          const toDeactivate = shapedAll.filter((item) => !desiredActiveIds.has(item.id) && item.include).map((item) => item.id)
+          if (toActivate.length) {
+            await db.update(keywords).set({ include: true }).where(and(eq(keywords.websiteId, params.websiteId), inArray(keywords.id, toActivate)))
+          }
+          if (toDeactivate.length) {
+            await db.update(keywords).set({ include: false }).where(and(eq(keywords.websiteId, params.websiteId), inArray(keywords.id, toDeactivate)))
+          }
+          if (toActivate.length || toDeactivate.length) {
+            itemsAll = rows.map((row) => {
+              const shaped = shapeKeywordRow(row)
+              const shouldInclude = desiredActiveIds.has(shaped.id)
+              return shouldInclude === shaped.include ? shaped : { ...shaped, include: shouldInclude }
+            })
+          }
+          total = shapedAll.length
+          active = desiredActiveIds.size
+        }
+
+        return json({ items: itemsAll, total, active, page: safePage, pageCount })
       },
       POST: async ({ params, request }) => {
         await requireSession(request)
@@ -47,8 +122,15 @@ export const Route = createFileRoute('/api/websites/$websiteId/keywords')({
         const languageCode = String(body?.languageCode || languageCodeFromLocale(locale))
         const locationCode = Number.isFinite(Number(body?.locationCode)) ? Number(body.locationCode) : locationCodeFromLocale(locale)
         const useMock = String(process.env.MOCK_KEYWORD_GENERATOR || '').trim().toLowerCase() === 'true'
-        let overview: Awaited<ReturnType<typeof keywordOverview>> = null
-        if (!useMock) {
+        const previewOnly = Boolean(body?.preview)
+        const skipLookup = Boolean(body?.skipLookup)
+
+        let overview: Awaited<ReturnType<typeof keywordOverview>> | Record<string, unknown> | null = null
+        if (skipLookup && isPlainObject(body?.overview)) {
+          overview = body.overview as Record<string, unknown>
+        } else if (useMock) {
+          overview = buildMockOverview(phrase)
+        } else {
           try {
             overview = await keywordOverview({ keyword: phrase, languageCode, locationCode })
           } catch (error) {
@@ -75,9 +157,67 @@ export const Route = createFileRoute('/api/websites/$websiteId/keywords')({
               .map((m: any) => ({ month: `${m?.year ?? ''}-${String(m?.month ?? 1).padStart(2, '0')}`, searchVolume: Number(m?.search_volume ?? 0) }))
               .filter((entry: any) => entry.month && Number.isFinite(entry.searchVolume))
           : null
-        const providerName = useMock ? 'mock.manual_keyword' : 'dataforseo.labs.keyword_overview'
-        const raw = overview || null
-        const metricsAsOf = new Date().toISOString()
+        const providerNameDefault = useMock ? 'mock.manual_keyword' : 'dataforseo.labs.keyword_overview'
+        const providerName = typeof body?.provider === 'string' && body.provider ? String(body.provider) : providerNameDefault
+        const metricsAsOf = typeof body?.metricsAsOf === 'string' && body.metricsAsOf
+          ? body.metricsAsOf
+          : typeof (info as any)?.last_updated_time === 'string'
+            ? String((info as any).last_updated_time)
+            : new Date().toISOString()
+        const impressions = isPlainObject((overview as any)?.impressions_info)
+          ? ((overview as any).impressions_info as Record<string, unknown>)
+          : null
+        const raw = cloneJson(overview)
+        const includeOverride = parseBoolean(body?.include)
+        const include = includeOverride == null
+          ? shouldIncludeKeyword({ include: includeOverride, metricsJson: { searchVolume, difficulty } })
+          : includeOverride
+
+        if (previewOnly) {
+          if (overview == null && searchVolume == null && difficulty == null && cpc == null && competition == null) {
+            log.debug('[api.keywords.manual] preview_empty', {
+              websiteId: params.websiteId,
+              phrase,
+              languageCode,
+              locationCode,
+              provider: providerName,
+              useMock,
+              skipLookup,
+              rawOverview: summarizeForLog(overview)
+            })
+            log.debug('[api.keywords.manual] preview_unavailable', {
+              websiteId: params.websiteId,
+              phrase,
+              languageCode,
+              locationCode,
+              provider: providerName,
+              useMock,
+              skipLookup,
+              hasOverview: Boolean(overview),
+              manualVolume,
+              manualDifficulty,
+              manualCpc,
+              manualCompetition,
+              summary: summarizeForLog(overview)
+            })
+            return httpError(502, 'Keyword metrics unavailable')
+          }
+          return json({
+            preview: {
+              phrase,
+              phraseNorm: normalizeKeyword(phrase),
+              searchVolume,
+              difficulty,
+              cpc,
+              competition,
+              impressions,
+              vol12m: monthly,
+              provider: providerName,
+              metricsAsOf,
+              overview: raw
+            }
+          })
+        }
 
         const result = await keywordsRepo.upsert({
           websiteId: params.websiteId,
@@ -87,13 +227,13 @@ export const Route = createFileRoute('/api/websites/$websiteId/keywords')({
           languageName: languageNameFromCode(languageCode),
           locationCode,
           locationName: locationNameFromCode(locationCode),
-          include: Boolean(body?.include),
+          include,
           searchVolume,
           cpc,
           competition,
           difficulty,
           vol12m: monthly,
-          impressions: overview?.impressions_info || null,
+          impressions,
           raw,
           provider: providerName,
           metricsAsOf
@@ -138,4 +278,96 @@ function pickNumber(primary: unknown, fallback: number | null | undefined): numb
     if (Number.isFinite(num)) return num
   }
   return fallback ?? null
+}
+
+function escapeIlike(value: string): string {
+  return value.replace(/[%_]/g, (match) => `\\${match}`)
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return value != null && typeof value === 'object' && !Array.isArray(value)
+}
+
+function parseBoolean(value: unknown): boolean | null {
+  if (value === undefined || value === null) return null
+  if (typeof value === 'boolean') return value
+  if (typeof value === 'number') return value !== 0
+  if (typeof value === 'string') {
+    const norm = value.trim().toLowerCase()
+    if (!norm) return null
+    if (['true', '1', 'yes', 'y'].includes(norm)) return true
+    if (['false', '0', 'no', 'n'].includes(norm)) return false
+  }
+  return null
+}
+
+function cloneJson<T>(value: T): T | null {
+  if (value == null) return null
+  try {
+    return JSON.parse(JSON.stringify(value)) as T
+  } catch {
+    return null
+  }
+}
+
+function summarizeForLog(value: unknown): string | null {
+  if (value == null) return null
+  try {
+    const json = JSON.stringify(value)
+    return json.length > 480 ? `${json.slice(0, 480)}…` : json
+  } catch {
+    return '[unserializable]'
+  }
+}
+
+function buildMockOverview(keyword: string): Record<string, unknown> {
+  const norm = normalizeKeyword(keyword) || keyword
+  const seed = hashString(norm)
+  const baseVolume = 600 + (seed % 6400)
+  const difficulty = Math.max(18, Math.min(80, 20 + (seed % 65)))
+  const cpc = Number((1.1 + (seed % 450) / 100).toFixed(2))
+  const competition = Number((0.25 + ((seed >> 5) % 55) / 100).toFixed(2))
+  const now = new Date()
+  const monthly_searches = Array.from({ length: 12 }).map((_, index) => {
+    const date = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - index, 1))
+    const variance = 0.7 + (((seed >> (index % 12)) % 55) / 100)
+    const searchVolume = Math.max(25, Math.round((baseVolume / 12) * variance))
+    return {
+      year: date.getUTCFullYear(),
+      month: date.getUTCMonth() + 1,
+      search_volume: searchVolume
+    }
+  })
+  const timestamp = new Date().toISOString()
+  return {
+    keyword,
+    keyword_info: {
+      keyword,
+      search_volume: baseVolume,
+      cpc,
+      competition,
+      keyword_difficulty: difficulty,
+      last_updated_time: timestamp,
+      monthly_searches
+    },
+    keyword_properties: {
+      keyword_difficulty: difficulty
+    },
+    impressions_info: {
+      last_updated_time: timestamp,
+      ad_position_min: 1,
+      ad_position_max: 3,
+      ad_position_prominence: Number((0.62 + ((seed >> 7) % 30) / 100).toFixed(2)),
+      ad_impressions_share: Number((0.3 + ((seed >> 9) % 35) / 100).toFixed(2))
+    }
+  }
+}
+
+function hashString(input: string): number {
+  let hash = 2166136261
+  for (let i = 0; i < input.length; i++) {
+    hash ^= input.charCodeAt(i)
+    hash = Math.imul(hash, 16777619)
+  }
+  return hash >>> 0
 }

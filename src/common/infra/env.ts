@@ -59,12 +59,17 @@ export const env: {
   crawlRender: 'playwright' | 'fetch'
   crawlCooldownHours: number
   crawlConcurrency: number
+  crawlAllowSubdomains: boolean
+  crawlExcludePaths?: string[]
+  summaryTokenBudget: number
   realtimePort: number
   realtimeEndpoint: string | null
   realtimeDisableServer: boolean
   blobTtlDays: number
   competitorFetchFallback: boolean
   keywordRegenerateCooldownHours: number
+  externalRetryAttempts: number
+  keywordAutoIncludeLimit: number
   articleFeatures: ArticleFeatureFlags
 } = {
   publicationAllowed: ['webhook'],
@@ -75,12 +80,20 @@ export const env: {
   crawlRender: readString<'playwright' | 'fetch'>('CRAWL_RENDER', 'playwright', ['playwright', 'fetch']),
   crawlCooldownHours: readNonNegative('CRAWL_COOLDOWN_HOURS', 24),
   crawlConcurrency: readPositiveInt('MAX_CRAWL_CONCURRENCY', 6, 32),
+  crawlAllowSubdomains: readBoolean('CRAWL_ALLOW_SUBDOMAINS', true),
+  crawlExcludePaths: (readEnv('CRAWL_EXCLUDE') || '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean),
+  summaryTokenBudget: readNumber('SUMMARY_TOKEN_BUDGET', 60000),
   realtimePort: readNumber('SEOA_REALTIME_PORT', 4173),
   realtimeEndpoint: readEnv('SEOA_REALTIME_ENDPOINT') || null,
   realtimeDisableServer: (readEnv('SEOA_REALTIME_DISABLE_SERVER') || '0') === '1',
   blobTtlDays: readNumber('BLOB_TTL_DAYS', 30),
   competitorFetchFallback: true,
   keywordRegenerateCooldownHours: readNonNegative('GENERATE_KEYWORD_COOLDOWN_HOURS', 24),
+  externalRetryAttempts: readPositiveInt('MAX_RETRY_ATTEMPTS', 3, 10),
+  keywordAutoIncludeLimit: readPositiveInt('NUM_ACTIVE_KEYWORDS', 30, 1000),
   articleFeatures: {
     serp: readBoolean('ENABLE_ARTICLE_SERP', true),
     youtube: readBoolean('ENABLE_ARTICLE_YOUTUBE', true),

@@ -1,4 +1,5 @@
 import { createFileRoute, redirect, useNavigate, useSearch } from '@tanstack/react-router'
+import { fetchSession } from '@entities/org/service'
 
 function EnsureComponent(): null {
   const search = useSearch({ from: '/dashboard/ensure' }) as { site?: string | null }
@@ -17,8 +18,7 @@ function EnsureComponent(): null {
 const routeConfig: any = {
   beforeLoad: async () => {
     try {
-      const res = await fetch('/api/me', { headers: { accept: 'application/json' } })
-      const data = res.ok ? await res.json() : null
+      const data = await fetchSession()
       if (!data?.user) throw redirect({ to: '/' })
     } catch {
       throw redirect({ to: '/' })

@@ -55,6 +55,16 @@ export const crawlRepo = {
       .orderBy(desc(crawlPages.createdAt as any))
       .limit(limit)
   },
+  async listPagesByJob(jobId: string, limit = 500) {
+    if (!hasDatabase()) return []
+    const db = getDb()
+    return await db
+      .select()
+      .from(crawlPages)
+      .where(eq(crawlPages.jobId, jobId))
+      .orderBy(desc(crawlPages.createdAt as any))
+      .limit(limit)
+  },
   async findActiveJob(websiteId: string) {
     if (!hasDatabase()) return null
     const db = getDb()

@@ -1,5 +1,5 @@
-import { useCallback, useDeferredValue, useEffect, useMemo, useState } from 'react'
-import { useMutation, useQuery } from '@tanstack/react-query'
+import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useActiveWebsite } from '@common/state/active-website'
 import { useMockData } from '@common/dev/mock-data-context'
 import { getWebsite } from '@entities/website/service'
@@ -7,16 +7,19 @@ import type { Keyword } from '@entities'
 import { DataTable, type ColumnDef } from '@src/common/ui/data-table'
 import { Badge } from '@src/common/ui/badge'
 import { Button } from '@src/common/ui/button'
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@src/common/ui/dropdown-menu'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@src/common/ui/card'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@src/common/ui/dialog'
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@src/common/ui/dropdown-menu'
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from '@src/common/ui/empty'
 import { Input } from '@src/common/ui/input'
 import { Label } from '@src/common/ui/label'
 import { Skeleton } from '@src/common/ui/skeleton'
+import { Switch } from '@src/common/ui/switch'
+import { Popover, PopoverContent, PopoverTrigger } from '@src/common/ui/popover'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@src/common/ui/tooltip'
 import { formatCurrency, formatNumber, extractErrorMessage } from '@src/common/ui/format'
 import { cn } from '@src/common/ui/cn'
-import { ArrowUpDown, Loader2, MoreHorizontal, Plus, RefreshCw, X as XIcon } from 'lucide-react'
+import { ArrowUpDown, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Loader2, MoreHorizontal, Plus, RefreshCw, SlidersHorizontal, X as XIcon } from 'lucide-react'
 import { toast } from 'sonner'
 
 const MOCK_KEYWORDS: Array<Keyword & { include?: boolean | null }> = [
@@ -51,25 +54,94 @@ const MOCK_KEYWORDS: Array<Keyword & { include?: boolean | null }> = [
 
 type KeywordRow = Keyword & { include?: boolean | null }
 
+type KeywordsResponse = {
+  items: KeywordRow[]
+  total: number
+  active: number
+  page: number
+  pageCount: number
+}
+
+type KeywordPreview = {
+  phrase: string
+  phraseNorm: string
+  searchVolume: number | null
+  difficulty: number | null
+  cpc: number | null
+  competition: number | null
+  impressions: Record<string, unknown> | null
+  vol12m: Array<{ month: string; searchVolume: number }> | null
+  provider: string | null
+  metricsAsOf: string | null
+  overview: Record<string, unknown> | null
+}
+
 type AddKeywordPayload = {
   phrase: string
   searchVolume?: number | null
   difficulty?: number | null
   cpc?: number | null
   competition?: number | null
+  skipLookup?: boolean
+  overview?: Record<string, unknown> | null
+  provider?: string | null
+  metricsAsOf?: string | null
+  include?: boolean
 }
+
+type FilterState = {
+  showInactive: boolean
+  showZeroMetrics: boolean
+  showHighDifficulty: boolean
+}
+
+const FILTER_STORAGE_KEY = 'seo-agent.keywords.filters'
+const PAGE_SIZE = 100
+const SEARCH_PAGE_SIZE = 1000
 
 export function Page(): JSX.Element {
   const { id: projectId } = useActiveWebsite()
   const { enabled: mockEnabled } = useMockData()
-  const [addOpen, setAddOpen] = useState(false)
-  const [formValues, setFormValues] = useState({ phrase: '', volume: '', difficulty: '', cpc: '', competition: '' })
-  const [formError, setFormError] = useState<string | null>(null)
+  const queryClient = useQueryClient()
   const [deleteTarget, setDeleteTarget] = useState<KeywordRow | null>(null)
   const [includePendingId, setIncludePendingId] = useState<string | null>(null)
   const [deletePendingId, setDeletePendingId] = useState<string | null>(null)
   const [searchInput, setSearchInput] = useState('')
+  const [keywordDraft, setKeywordDraft] = useState('')
+  const [page, setPage] = useState(1)
+  const [filters, setFilters] = useState<FilterState>({ showInactive: true, showZeroMetrics: false, showHighDifficulty: true })
+  const [preview, setPreview] = useState<KeywordPreview | null>(null)
+  const [previewError, setPreviewError] = useState<string | null>(null)
   const debouncedSearch = useDebouncedValue(searchInput, 500)
+  const filtersLoadedRef = useRef(false)
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    try {
+      const raw = window.localStorage.getItem(FILTER_STORAGE_KEY)
+      if (raw) {
+        const parsed = JSON.parse(raw) as Partial<FilterState>
+        setFilters((prev) => ({
+          showInactive: typeof parsed.showInactive === 'boolean' ? parsed.showInactive : prev.showInactive,
+          showZeroMetrics: typeof parsed.showZeroMetrics === 'boolean' ? parsed.showZeroMetrics : prev.showZeroMetrics,
+          showHighDifficulty: typeof parsed.showHighDifficulty === 'boolean' ? parsed.showHighDifficulty : prev.showHighDifficulty
+        }))
+      }
+    } catch (error) {
+      console.warn('[keywords.filters] unable to restore filters', error)
+    } finally {
+      filtersLoadedRef.current = true
+    }
+  }, [])
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || !filtersLoadedRef.current) return
+    try {
+      window.localStorage.setItem(FILTER_STORAGE_KEY, JSON.stringify(filters))
+    } catch (error) {
+      console.warn('[keywords.filters] unable to persist filters', error)
+    }
+  }, [filters])
 
   const projectQuery = useQuery({
     queryKey: ['keywords.project', projectId],
@@ -79,62 +151,179 @@ export function Page(): JSX.Element {
     gcTime: Number.POSITIVE_INFINITY
   })
 
-  const keywordsQuery = useQuery({
-    queryKey: ['keywords.list', projectId],
-    queryFn: async () => (await (await fetch(`/api/websites/${projectId}/keywords?limit=200`)).json()).items,
+  const keywordsQuery = useQuery<KeywordsResponse>({
+    queryKey: ['keywords.list', projectId, page, debouncedSearch],
+    queryFn: async () => {
+      const effectiveLimit = debouncedSearch ? SEARCH_PAGE_SIZE : PAGE_SIZE
+      const params = new URLSearchParams({
+        limit: String(effectiveLimit),
+        page: String(page)
+      })
+      if (debouncedSearch) params.set('search', debouncedSearch)
+      const response = await fetch(`/api/websites/${projectId}/keywords?${params.toString()}`)
+      if (!response.ok) {
+        throw new Error('Failed to load keywords')
+      }
+      return await response.json()
+    },
     enabled: Boolean(projectId && !mockEnabled),
     staleTime: Number.POSITIVE_INFINITY,
     gcTime: Number.POSITIVE_INFINITY,
     refetchOnWindowFocus: false
   })
 
-  const refetchKeywords = keywordsQuery.refetch
-
-  const deferredKeywords = useDeferredValue<KeywordRow[]>(mockEnabled ? MOCK_KEYWORDS : keywordsQuery.data ?? [])
-  const initialSorting = useMemo(() => [{ id: 'phrase', desc: false }], [])
-  const keywords: KeywordRow[] = deferredKeywords
-  const filteredKeywords = useMemo(() => {
-    const term = debouncedSearch.trim().toLowerCase()
-    if (!term) return keywords
-    return keywords.filter((keyword) => keyword.phrase.toLowerCase().includes(term))
-  }, [keywords, debouncedSearch])
-  const counts = useMemo(() => {
-    let active = 0
-    for (const kw of keywords) {
-      if (kw?.include) active += 1
+  const keywordsData = useMemo(() => {
+    if (mockEnabled) {
+      const items = MOCK_KEYWORDS
+      const activeMock = items.reduce((count, keyword) => (keyword.include ? count + 1 : count), 0)
+      return { items, total: items.length, active: activeMock, page: 1, pageCount: 1 }
     }
-    return { total: keywords.length, active }
-  }, [keywords])
+    const data = keywordsQuery.data
+    const items = data?.items ?? []
+    const total = data?.total ?? items.length
+    const active = data?.active ?? items.reduce((count, keyword) => (keyword.include ? count + 1 : count), 0)
+    const pageFromApi = data?.page ?? page
+    const pageCount = data?.pageCount ?? Math.max(1, Math.ceil(Math.max(total, 0) / (debouncedSearch ? SEARCH_PAGE_SIZE : PAGE_SIZE)))
+    return { items, total, active, page: pageFromApi, pageCount }
+  }, [keywordsQuery.data, mockEnabled, page, debouncedSearch])
 
+  const deferredKeywords = useDeferredValue<KeywordRow[]>(keywordsData.items)
+  const keywords: KeywordRow[] = deferredKeywords
   const locale = (projectQuery.data as any)?.defaultLocale ?? 'en-US'
+  const normalizedDraft = normalizeKeyword(keywordDraft)
+  const normalizedSearch = debouncedSearch.trim().toLowerCase()
 
-  const resetForm = () => {
-    setFormValues({ phrase: '', volume: '', difficulty: '', cpc: '', competition: '' })
-    setFormError(null)
-  }
+  useEffect(() => {
+    if (!keywordDraft) {
+      setPreview(null)
+      setPreviewError(null)
+    }
+  }, [keywordDraft])
 
-  const addKeywordMutation = useMutation({
-    mutationFn: async (payload: AddKeywordPayload) => {
+  useEffect(() => {
+    if (!projectId) return
+    setPage(1)
+  }, [projectId])
+
+  useEffect(() => {
+    if (keywordsData.pageCount && page > keywordsData.pageCount) {
+      setPage(Math.max(1, keywordsData.pageCount))
+    }
+  }, [keywordsData.pageCount, page])
+
+  useEffect(() => {
+    if (!mockEnabled && keywordsQuery.data?.page && keywordsQuery.data.page !== page) {
+      setPage(keywordsQuery.data.page)
+    }
+  }, [keywordsQuery.data?.page, mockEnabled, page])
+
+  useEffect(() => {
+    setPage(1)
+  }, [debouncedSearch])
+
+  const checkKeywordMutation = useMutation({
+    mutationFn: async (phrase: string): Promise<KeywordPreview> => {
       if (!projectId) throw new Error('Select a website to add keywords')
       if (mockEnabled) throw new Error('Mock data is read-only')
       const response = await fetch(`/api/websites/${projectId}/keywords`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ ...payload, locale })
+        body: JSON.stringify({ phrase, locale, preview: true })
       })
       if (!response.ok) {
+        throw new Error('FAILED')
+      }
+      const data = await response.json()
+      return data?.preview as KeywordPreview
+    },
+    onMutate: () => {
+      setPreview(null)
+      setPreviewError(null)
+    },
+    onSuccess: (data) => {
+      if (data?.phraseNorm === normalizeKeyword(data.phrase)) {
+        setPreview(data)
+      } else {
+        setPreview(null)
+      }
+    },
+    onError: () => {
+      setPreview(null)
+      setPreviewError('Error fetching keyword metrics')
+    }
+  })
+
+  const refetchKeywords = keywordsQuery.refetch
+
+  const normalizedKeywords = useMemo(() => {
+    const set = new Set<string>()
+    for (const kw of keywords) {
+      set.add(normalizeKeyword(kw.phrase))
+    }
+    return set
+  }, [keywords])
+
+  const draftAlreadyExists = Boolean(normalizedDraft && normalizedKeywords.has(normalizedDraft))
+
+  const counts = useMemo(() => {
+    return {
+      total: keywordsData.total,
+      active: keywordsData.active
+    }
+  }, [keywordsData.total, keywordsData.active])
+
+  const effectivePageSize = debouncedSearch ? SEARCH_PAGE_SIZE : PAGE_SIZE
+
+  const filteredKeywords = useMemo(() => {
+    const applySearchFilter = mockEnabled || !debouncedSearch
+    return keywords.filter((keyword) => {
+      if (applySearchFilter && normalizedSearch && !keyword.phrase.toLowerCase().includes(normalizedSearch)) return false
+      const metrics = keyword.metricsJson || {}
+      const volume = safeNumber(metrics.searchVolume)
+      const difficulty = safeNumber(metrics.difficulty)
+      if (!filters.showZeroMetrics) {
+        if (volume == null || volume <= 0) return false
+        if (difficulty == null || difficulty <= 0) return false
+      }
+      if (!filters.showHighDifficulty && difficulty != null && difficulty >= 70) return false
+      if (!filters.showInactive && !keyword.include) return false
+      return true
+    })
+  }, [keywords, normalizedSearch, filters, mockEnabled, debouncedSearch])
+
+  const initialSorting = useMemo(() => [{ id: 'searchVolume', desc: true }], [])
+
+  const addKeywordMutation = useMutation({
+    mutationFn: async (payload: AddKeywordPayload) => {
+      if (!projectId) throw new Error('Select a website to add keywords')
+      if (mockEnabled) throw new Error('Mock data is read-only')
+      logDebug('add_keyword.submit', { projectId, payload: redactPayload(payload) })
+      const response = await fetch(`/api/websites/${projectId}/keywords`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ ...payload, locale, skipLookup: Boolean(payload.skipLookup) })
+      })
+      if (!response.ok) {
+        logDebug('add_keyword.error_response', { status: response.status })
         const errorText = await response.text()
         throw new Error(errorText || 'Failed to add keyword')
       }
-      return await response.json()
+      const result = await response.json()
+      logDebug('add_keyword.success_response', { item: result?.item ?? null })
+      return result
     },
     onSuccess: () => {
-      resetForm()
-      setAddOpen(false)
+      toast.success('Keyword added')
+      setKeywordDraft('')
+      setPreview(null)
+      setPreviewError(null)
+      setPage(1)
+      queryClient.invalidateQueries({ queryKey: ['keywords.list', projectId], exact: false })
       refetchKeywords()
     },
     onError: (error) => {
-      setFormError(extractErrorMessage(error))
+      logDebug('add_keyword.mutate_error', { message: extractErrorMessage(error) })
+      toast.error(extractErrorMessage(error))
     }
   })
 
@@ -175,6 +364,51 @@ export function Page(): JSX.Element {
   })
 
   const regenerateDisabled = !projectId || mockEnabled || regenerateMutation.isPending
+
+  const previewMatchesDraft = Boolean(preview && preview.phraseNorm === normalizedDraft)
+
+  const handleCheckKeyword = useCallback(() => {
+    const phrase = keywordDraft.trim()
+    if (!phrase) {
+      toast.error('Keyword is required')
+      return
+    }
+    if (draftAlreadyExists) {
+      toast.error('Keyword already exists')
+      return
+    }
+    if (checkKeywordMutation.isPending || mockEnabled) return
+    checkKeywordMutation.mutate(phrase)
+  }, [keywordDraft, checkKeywordMutation, mockEnabled, draftAlreadyExists])
+
+  const handleAddKeyword = useCallback(() => {
+    const phrase = keywordDraft.trim()
+    if (!phrase) {
+      toast.error('Keyword is required')
+      return
+    }
+    if (!previewMatchesDraft) {
+      toast.error('Check keyword metrics before adding')
+      return
+    }
+    if (draftAlreadyExists) {
+      toast.error('Keyword already exists')
+      return
+    }
+    const payload: AddKeywordPayload = {
+      phrase,
+      searchVolume: preview?.searchVolume ?? null,
+      difficulty: preview?.difficulty ?? null,
+      cpc: preview?.cpc ?? null,
+      competition: preview?.competition ?? null,
+      skipLookup: true,
+      overview: preview?.overview ?? null,
+      provider: preview?.provider ?? null,
+      metricsAsOf: preview?.metricsAsOf ?? null,
+      include: preview?.difficulty == null ? undefined : preview.difficulty < 70
+    }
+    addKeywordMutation.mutate(payload)
+  }, [keywordDraft, previewMatchesDraft, preview, addKeywordMutation])
 
   const handleToggleInclude = useCallback(async (keywordId: string, include: boolean) => {
     if (mockEnabled) return
@@ -341,6 +575,8 @@ export function Page(): JSX.Element {
   }
 
   const isLoading = !mockEnabled && keywordsQuery.isLoading
+  const checkDisabled = checkKeywordMutation.isPending || !normalizedDraft || !projectId || mockEnabled || draftAlreadyExists
+  const addDisabled = addKeywordMutation.isPending || checkKeywordMutation.isPending || !previewMatchesDraft || mockEnabled || draftAlreadyExists
 
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-col gap-6">
@@ -362,12 +598,90 @@ export function Page(): JSX.Element {
             {regenerateMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
             Regenerate keywords
           </Button>
-          <Button type="button" onClick={() => { resetForm(); setAddOpen(true) }} disabled={!projectId || mockEnabled}>
-            <Plus className="h-4 w-4" />
-            Add Keyword
-          </Button>
         </div>
       </div>
+
+      <section className="rounded-lg border bg-card p-4 shadow-sm">
+        <div className="flex flex-col gap-3">
+          <Label htmlFor="manual-keyword" className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Add keyword</Label>
+          <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:gap-3">
+            <Input
+              id="manual-keyword"
+              value={keywordDraft}
+              onChange={(event) => {
+                setKeywordDraft(event.target.value)
+                setPreview(null)
+                setPreviewError(null)
+                checkKeywordMutation.reset()
+              }}
+              placeholder="Type a keyword..."
+              disabled={mockEnabled}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter' && !event.shiftKey) {
+                  event.preventDefault()
+                  handleCheckKeyword()
+                }
+              }}
+            />
+            <div className="flex items-center gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={handleCheckKeyword}
+                disabled={checkDisabled}
+              >
+                {checkKeywordMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                Check metrics
+              </Button>
+              <Button
+                type="button"
+                onClick={handleAddKeyword}
+                disabled={addDisabled}
+              >
+                {addKeywordMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Plus className="mr-2 h-4 w-4" />}
+                Add keyword
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={() => {
+                  setKeywordDraft('')
+                  setPreview(null)
+                  setPreviewError(null)
+                  checkKeywordMutation.reset()
+                }}
+                disabled={!keywordDraft && !preview && !previewError}
+              >
+                Clear
+              </Button>
+            </div>
+          </div>
+          {draftAlreadyExists ? (
+            <p className="text-sm text-muted-foreground">Keyword already exists in your backlog.</p>
+          ) : null}
+          {checkKeywordMutation.isPending && !preview ? (
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              Checking keyword metrics…
+            </div>
+          ) : null}
+          {previewError ? <p className="text-sm text-destructive">{previewError}</p> : null}
+          {previewMatchesDraft ? (
+            <Card className="border-dashed">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-base font-semibold">{preview?.phrase}</CardTitle>
+                <CardDescription>Live keyword metrics</CardDescription>
+              </CardHeader>
+              <CardContent className="grid gap-4 md:grid-cols-4">
+                <MetricStat label="Search volume" value={preview?.searchVolume ?? null} formatter={formatNumber} />
+                <MetricDifficulty score={preview?.difficulty ?? null} asOf={preview?.metricsAsOf ?? null} />
+                <MetricStat label="CPC" value={preview?.cpc ?? null} formatter={formatCurrency} />
+                <MetricStat label="Competition" value={preview?.competition ?? null} formatter={formatCompetition} />
+              </CardContent>
+            </Card>
+          ) : null}
+        </div>
+      </section>
 
       {isLoading ? (
         <KeywordTableSkeleton />
@@ -376,148 +690,239 @@ export function Page(): JSX.Element {
           <EmptyHeader>
             <EmptyTitle>No keywords yet</EmptyTitle>
             <EmptyDescription>
-              {mockEnabled ? 'Toggle mock data off to view the live queue.' : 'Use Add Keyword to bring in targets from recent research.'}
+              {mockEnabled ? 'Toggle mock data off to view the live queue.' : 'Check metrics above to add your first keyword.'}
             </EmptyDescription>
           </EmptyHeader>
         </Empty>
       ) : (
         <section className="rounded-lg border bg-card p-0 shadow-sm">
           <div className="flex flex-col gap-4 p-4">
-            <Input
-              value={searchInput}
-              onChange={(event) => setSearchInput(event.target.value)}
-              placeholder="Filter keywords..."
-              aria-label="Filter keywords"
-            />
+            <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
+              <Input
+                value={searchInput}
+                onChange={(event) => setSearchInput(event.target.value)}
+                placeholder="Search keywords..."
+                aria-label="Search keywords"
+              />
+              <div className="flex items-center gap-2">
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button type="button" variant="outline" className="gap-2">
+                      <SlidersHorizontal className="h-4 w-4" />
+                      Filters
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent align="end" className="w-64 space-y-3">
+                    <FilterToggle
+                      label="Show zero metrics"
+                      checked={filters.showZeroMetrics}
+                      onChange={(value) => setFilters((prev) => ({ ...prev, showZeroMetrics: value }))}
+                    />
+                    <FilterToggle
+                      label="Show inactive keywords"
+                      checked={filters.showInactive}
+                      onChange={(value) => setFilters((prev) => ({ ...prev, showInactive: value }))}
+                    />
+                    <FilterToggle
+                      label="Show high-difficulty keywords"
+                      checked={filters.showHighDifficulty}
+                      onChange={(value) => setFilters((prev) => ({ ...prev, showHighDifficulty: value }))}
+                    />
+                  </PopoverContent>
+                </Popover>
+              </div>
+            </div>
             <TooltipProvider>
-              <DataTable columns={columns} data={filteredKeywords} paginate={false} initialSorting={initialSorting} />
+              <div className="max-h-[540px] overflow-y-auto rounded-md border">
+                <DataTable columns={columns} data={filteredKeywords} paginate={false} initialSorting={initialSorting} />
+              </div>
             </TooltipProvider>
+            {!mockEnabled ? (
+              <PaginationControls
+                page={keywordsData.page}
+                pageCount={keywordsData.pageCount}
+                onPageChange={setPage}
+                pageSize={effectivePageSize}
+                total={counts.total}
+                currentCount={filteredKeywords.length}
+              />
+            ) : null}
           </div>
         </section>
       )}
 
-      <Dialog open={addOpen} onOpenChange={(next) => { setAddOpen(next); if (!next) resetForm() }}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Add keyword</DialogTitle>
-            <DialogDescription>Manually add a keyword with optional performance metrics.</DialogDescription>
-          </DialogHeader>
-          <form className="space-y-4" onSubmit={(event) => {
-            event.preventDefault()
-            const phrase = formValues.phrase.trim()
-            if (!phrase) {
-              setFormError('Keyword phrase is required')
-              return
-            }
-            setFormError(null)
-            addKeywordMutation.mutate({
-              phrase,
-              searchVolume: toOptionalInt(formValues.volume),
-              difficulty: toOptionalInt(formValues.difficulty),
-              cpc: toOptionalFloat(formValues.cpc),
-              competition: toOptionalFloat(formValues.competition)
-            })
-          }}>
-            <div className="space-y-2">
-              <Label htmlFor="keyword-phrase">Keyword</Label>
-              <Input
-                id="keyword-phrase"
-                placeholder="e.g. behavioral interview framework"
-                value={formValues.phrase}
-                onChange={(event) => setFormValues((prev) => ({ ...prev, phrase: event.target.value }))}
-                disabled={addKeywordMutation.isPending}
-              />
-            </div>
-            <div className="grid gap-3 md:grid-cols-2">
-              <div className="space-y-2">
-                <Label htmlFor="keyword-volume">Search volume</Label>
-                <Input
-                  id="keyword-volume"
-                  type="number"
-                  inputMode="numeric"
-                  min="0"
-                  placeholder="e.g. 5400"
-                  value={formValues.volume}
-                  onChange={(event) => setFormValues((prev) => ({ ...prev, volume: event.target.value }))}
-                  disabled={addKeywordMutation.isPending}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="keyword-difficulty">Difficulty (0-100)</Label>
-                <Input
-                  id="keyword-difficulty"
-                  type="number"
-                  inputMode="numeric"
-                  min="0"
-                  max="100"
-                  placeholder="e.g. 45"
-                  value={formValues.difficulty}
-                  onChange={(event) => setFormValues((prev) => ({ ...prev, difficulty: event.target.value }))}
-                  disabled={addKeywordMutation.isPending}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="keyword-cpc">CPC (USD)</Label>
-                <Input
-                  id="keyword-cpc"
-                  type="number"
-                  inputMode="decimal"
-                  min="0"
-                  step="0.01"
-                  placeholder="e.g. 2.15"
-                  value={formValues.cpc}
-                  onChange={(event) => setFormValues((prev) => ({ ...prev, cpc: event.target.value }))}
-                  disabled={addKeywordMutation.isPending}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="keyword-competition">Competition (0-1)</Label>
-                <Input
-                  id="keyword-competition"
-                  type="number"
-                  inputMode="decimal"
-                  min="0"
-                  max="1"
-                  step="0.01"
-                  placeholder="e.g. 0.42"
-                  value={formValues.competition}
-                  onChange={(event) => setFormValues((prev) => ({ ...prev, competition: event.target.value }))}
-                  disabled={addKeywordMutation.isPending}
-                />
-              </div>
-            </div>
-            {formError ? <p className="text-sm text-destructive">{formError}</p> : null}
-            <DialogFooter>
-              <Button type="button" variant="outline" onClick={() => { resetForm(); setAddOpen(false) }} disabled={addKeywordMutation.isPending}>
-                Cancel
-              </Button>
-              <Button type="submit" disabled={addKeywordMutation.isPending}>
-                {addKeywordMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-                Add keyword
-              </Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
-
-      <Dialog open={Boolean(deleteTarget)} onOpenChange={(next) => { if (!next) setDeleteTarget(null) }}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Delete keyword?</DialogTitle>
-            <DialogDescription>This removes {deleteTarget?.phrase || 'the keyword'} from the backlog. This action cannot be undone.</DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => setDeleteTarget(null)} disabled={Boolean(deletePendingId)}>
-              Cancel
-            </Button>
-            <Button type="button" variant="destructive" onClick={confirmDelete} disabled={Boolean(deletePendingId)}>
-              {deletePendingId ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-              Delete
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <KeywordDeleteDialog
+        deleteTarget={deleteTarget}
+        setDeleteTarget={setDeleteTarget}
+        confirmDelete={confirmDelete}
+        deletePendingId={deletePendingId}
+      />
     </div>
+  )
+}
+
+function KeywordDeleteDialog({ deleteTarget, setDeleteTarget, confirmDelete, deletePendingId }: {
+  deleteTarget: KeywordRow | null
+  setDeleteTarget: (value: KeywordRow | null) => void
+  confirmDelete: () => void
+  deletePendingId: string | null
+}): JSX.Element {
+  return (
+    <Dialog open={Boolean(deleteTarget)} onOpenChange={(next) => { if (!next) setDeleteTarget(null) }}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Delete keyword?</DialogTitle>
+          <DialogDescription>This removes {deleteTarget?.phrase || 'the keyword'} from the backlog. This action cannot be undone.</DialogDescription>
+        </DialogHeader>
+        <DialogFooter>
+          <Button type="button" variant="outline" onClick={() => setDeleteTarget(null)} disabled={Boolean(deletePendingId)}>
+            Cancel
+          </Button>
+          <Button type="button" variant="destructive" onClick={confirmDelete} disabled={Boolean(deletePendingId)}>
+            {deletePendingId ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+            Delete
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+function PaginationControls({
+  page,
+  pageCount,
+  pageSize,
+  total,
+  currentCount,
+  onPageChange
+}: {
+  page: number
+  pageCount: number
+  pageSize: number
+  total: number
+  currentCount: number
+  onPageChange: (next: number) => void
+}): JSX.Element {
+  if (pageCount <= 1) {
+    return (
+      <div className="flex flex-wrap items-center justify-between gap-3 pt-2 text-xs text-muted-foreground">
+        <span>Showing all {total} keywords</span>
+      </div>
+    )
+  }
+
+  const clampedPage = Math.min(Math.max(page, 1), pageCount)
+  const windowSize = 5
+  const halfWindow = Math.floor(windowSize / 2)
+  let start = Math.max(1, clampedPage - halfWindow)
+  let end = start + windowSize - 1
+  if (end > pageCount) {
+    end = pageCount
+    start = Math.max(1, end - windowSize + 1)
+  }
+  const pages: number[] = []
+  for (let p = start; p <= end; p++) pages.push(p)
+
+  const goTo = (next: number) => {
+    onPageChange(Math.min(Math.max(next, 1), pageCount))
+  }
+
+  const startIndex = total === 0 ? 0 : (clampedPage - 1) * pageSize + 1
+  const endIndex = total === 0 ? 0 : Math.min(total, startIndex + Math.max(currentCount, 0) - 1)
+  let summaryText: string
+  if (total === 0) {
+    summaryText = 'Showing 0 of 0'
+  } else if (currentCount <= 0) {
+    summaryText = `Showing 0 results (of ${total})`
+  } else {
+    summaryText = `Showing ${startIndex}-${Math.max(startIndex, endIndex)} of ${total}`
+  }
+
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-3 pt-2 text-xs">
+      <span className="text-muted-foreground">{summaryText}</span>
+      <div className="flex items-center gap-1">
+        <Button type="button" variant="outline" size="icon" className="h-7 w-7" disabled={clampedPage === 1} onClick={() => goTo(1)}>
+          <ChevronsLeft className="h-4 w-4" />
+        </Button>
+        <Button type="button" variant="outline" size="icon" className="h-7 w-7" disabled={clampedPage === 1} onClick={() => goTo(clampedPage - 1)}>
+          <ChevronLeft className="h-4 w-4" />
+        </Button>
+        {pages.map((p) => (
+          <Button
+            key={p}
+            type="button"
+            variant={p === clampedPage ? 'default' : 'outline'}
+            size="icon"
+            className="h-7 w-7"
+            onClick={() => goTo(p)}
+          >
+            {p}
+          </Button>
+        ))}
+        <Button type="button" variant="outline" size="icon" className="h-7 w-7" disabled={clampedPage === pageCount} onClick={() => goTo(clampedPage + 1)}>
+          <ChevronRight className="h-4 w-4" />
+        </Button>
+        <Button type="button" variant="outline" size="icon" className="h-7 w-7" disabled={clampedPage === pageCount} onClick={() => goTo(pageCount)}>
+          <ChevronsRight className="h-4 w-4" />
+        </Button>
+      </div>
+    </div>
+  )
+}
+
+function logDebug(event: string, data: Record<string, unknown>): void {
+  if (typeof console !== 'undefined' && console.debug) {
+    console.debug(`[keywords.${event}]`, data)
+  }
+}
+
+function redactPayload(payload: AddKeywordPayload): Record<string, unknown> {
+  const clone: Record<string, unknown> = { phrase: payload.phrase }
+  if (payload.searchVolume != null) clone.searchVolume = payload.searchVolume
+  if (payload.difficulty != null) clone.difficulty = payload.difficulty
+  if (payload.cpc != null) clone.cpc = payload.cpc
+  if (payload.competition != null) clone.competition = payload.competition
+  clone.skipLookup = Boolean(payload.skipLookup)
+  clone.include = payload.include ?? null
+  clone.hasOverview = Boolean(payload.overview)
+  clone.provider = payload.provider ?? null
+  clone.metricsAsOf = payload.metricsAsOf ?? null
+  return clone
+}
+
+function MetricStat({ label, value, formatter }: { label: string; value: number | null; formatter: (val: number | null) => string }) {
+  return (
+    <div className="space-y-1">
+      <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{label}</p>
+      <p className="text-lg font-semibold text-foreground">{value == null ? '—' : formatter(value)}</p>
+    </div>
+  )
+}
+
+function MetricDifficulty({ score, asOf }: { score: number | null; asOf: string | null }) {
+  if (score == null) {
+    return <MetricStat label="Difficulty" value={null} formatter={() => '—'} />
+  }
+  const tier = difficultyTier(score)
+  return (
+    <div className="space-y-1">
+      <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Difficulty</p>
+      <div className="flex items-baseline gap-2">
+        <span className="text-lg font-semibold text-foreground">{score}</span>
+        <Badge className={cn('px-2 py-0.5 text-xs font-semibold', tier.className)}>{tier.label}</Badge>
+      </div>
+      {asOf ? <p className="text-xs text-muted-foreground">As of {formatAsOf(asOf)}</p> : null}
+    </div>
+  )
+}
+
+function FilterToggle({ label, checked, onChange }: { label: string; checked: boolean; onChange: (value: boolean) => void }) {
+  return (
+    <label className="flex items-center justify-between gap-2 rounded-md border px-3 py-2 text-sm text-muted-foreground">
+      <span>{label}</span>
+      <Switch checked={checked} onCheckedChange={onChange} />
+    </label>
   )
 }
 
@@ -562,7 +967,8 @@ function difficultyTier(score: number): { label: string; className: string } {
   return { label: 'Low', className: 'bg-emerald-500/15 text-emerald-600' }
 }
 
-function formatCompetition(value: number): string {
+function formatCompetition(value: number | null): string {
+  if (value == null) return '—'
   return `${Math.round(value * 100)}%`
 }
 
@@ -586,14 +992,6 @@ function formatCooldown(seconds: number): string {
   return `in about ${secs} second${secs === 1 ? '' : 's'}`
 }
 
-function toOptionalInt(value: string): number | null {
-  if (!value.trim()) return null
-  const parsed = Number.parseInt(value, 10)
-  return Number.isFinite(parsed) ? parsed : null
-}
-
-function toOptionalFloat(value: string): number | null {
-  if (!value.trim()) return null
-  const parsed = Number.parseFloat(value)
-  return Number.isFinite(parsed) ? parsed : null
+function normalizeKeyword(value: string): string {
+  return value.trim().toLowerCase().replace(/\s+/g, ' ')
 }

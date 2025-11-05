@@ -27,13 +27,15 @@ export async function processPlan(payload: { projectId?: string; websiteId?: str
   const planItems = await planRepo.list(String(websiteId), poolSize)
   log.debug('[plan] fetched plan items', { websiteId, poolSize, items: planItems.length })
   const itemMap = new Map(planItems.map((item) => [item.id, item]))
+  if (result.outlineIds.length) {
+    log.debug('[plan] drafting outlines', { websiteId, count: result.outlineIds.length })
+  }
 
   for (const id of result.outlineIds) {
     const known = itemMap.get(id) ?? (await planRepo.findById(id))?.item ?? null
     if (!known) continue
     try {
       const seedTitle = known.title || known.outlineJson?.[0]?.heading || 'Draft article'
-      log.debug('[plan] drafting outline', { websiteId, planItemId: id, seedTitle })
       const res = await llm.draftOutline(seedTitle, locale)
       await planRepo.updateFields(id, { title: res.title, outlineJson: res.outline, status: known.status === 'scheduled' ? 'scheduled' : 'queued' })
     } catch (error) {

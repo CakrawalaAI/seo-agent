@@ -1,6 +1,5 @@
 import { useCallback, useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { useNavigate } from '@tanstack/react-router'
 import { useActiveWebsite } from '@common/state/active-website'
 import { useMockData } from '@common/dev/mock-data-context'
 import { getPlanItems, getWebsiteArticles } from '@entities/website/service'
@@ -19,7 +18,9 @@ import {
 } from '@src/common/ui/dropdown-menu'
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from '@src/common/ui/empty'
 import { useArticleActions } from '@features/articles/shared/use-article-actions'
-import { ArrowUpDown, Ban, Eye, ExternalLink, Loader2, MoreHorizontal, Pencil, Trash2 } from 'lucide-react'
+import { useArticleNavigation } from '@features/articles/shared/use-article-navigation'
+import { log } from '@src/common/logger'
+import { ArrowUpDown, Ban, Eye, ExternalLink, Loader2, MoreHorizontal, Trash2 } from 'lucide-react'
 
 type TimelineItem = {
   id: string
@@ -66,13 +67,13 @@ const MOCK_PLAN: PlanItem[] = [
 export function Page(): JSX.Element {
   const { id: projectId } = useActiveWebsite()
   const { enabled: mockEnabled } = useMockData()
-  const navigate = useNavigate()
   const {
     deleteArticle: deleteArticleAction,
     unpublishArticle: unpublishArticleAction,
     deletingId,
     statusMutatingId
   } = useArticleActions()
+  const { viewArticle } = useArticleNavigation()
 
   const articlesQuery = useQuery({
     queryKey: ['articles.list', projectId],
@@ -92,16 +93,6 @@ export function Page(): JSX.Element {
   const plan = mockEnabled ? MOCK_PLAN : planQuery.data ?? []
 
   const timeline = useMemo(() => buildTimeline(articles, plan), [articles, plan])
-  const openArticle = useCallback(
-    (articleId: string, mode: 'edit' | null = null) => {
-      navigate({
-        to: '/articles/$articleId',
-        params: { articleId },
-        search: mode ? { mode } : undefined
-      })
-    },
-    [navigate]
-  )
   const columns = useMemo<ColumnDef<TimelineItem>[]>(() => {
     const SortHeader = ({ column, label }: { column: any; label: string }) => (
       <Button
@@ -125,7 +116,13 @@ export function Page(): JSX.Element {
             className="h-auto p-0 text-left text-sm font-semibold"
             onClick={(event) => {
               event.stopPropagation()
-              openArticle(row.original.entityId, null)
+              log.info('[articles.page] title_click', {
+                articleId: row.original.entityId,
+                source: row.original.source,
+                scheduledDate: row.original.scheduledDate ?? null,
+                publishDate: row.original.publishDate ?? null
+              })
+              viewArticle(row.original.entityId)
             }}
           >
             <span className="line-clamp-2 text-left">{row.original.title}</span>
@@ -201,26 +198,24 @@ export function Page(): JSX.Element {
                 <DropdownMenuItem
                   onClick={(event) => {
                     event.stopPropagation()
-                    openArticle(row.original.entityId, null)
+                    log.info('[articles.page] menu_open_click', {
+                      articleId: row.original.entityId,
+                      source: row.original.source
+                    })
+                    viewArticle(row.original.entityId)
                   }}
                 >
                   <Eye className="h-4 w-4" />
-                  View
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  onClick={(event) => {
-                    event.stopPropagation()
-                    openArticle(row.original.entityId, 'edit')
-                  }}
-                >
-                  <Pencil className="h-4 w-4" />
-                  Edit
+                  Open
                 </DropdownMenuItem>
                 {row.original.status === 'published' ? (
                   <DropdownMenuItem
                     onClick={async (event) => {
                       event.stopPropagation()
                       if (isStatusPending || mockEnabled) return
+                      log.info('[articles.page] menu_unpublish_click', {
+                        articleId: row.original.entityId
+                      })
                       await unpublishArticleAction(row.original.entityId)
                     }}
                     disabled={!canMutate}
@@ -230,17 +225,20 @@ export function Page(): JSX.Element {
                   </DropdownMenuItem>
                 ) : null}
                 <DropdownMenuSeparator />
-                <DropdownMenuItem
-                  className="text-destructive"
-                  disabled={isDeleting || mockEnabled}
-                  onClick={async (event) => {
-                    event.stopPropagation()
-                    if (isDeleting || mockEnabled) return
-                    const confirmed = window.confirm('Delete this article and remove it from the schedule?')
-                    if (!confirmed) return
-                    await deleteArticleAction(row.original.entityId)
-                  }}
-                >
+                  <DropdownMenuItem
+                    className="text-destructive"
+                    disabled={isDeleting || mockEnabled}
+                    onClick={async (event) => {
+                      event.stopPropagation()
+                      if (isDeleting || mockEnabled) return
+                      const confirmed = window.confirm('Delete this article and remove it from the schedule?')
+                      if (!confirmed) return
+                      log.info('[articles.page] menu_delete_confirmed', {
+                        articleId: row.original.entityId
+                      })
+                      await deleteArticleAction(row.original.entityId)
+                    }}
+                  >
                   {isDeleting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
                   Delete
                 </DropdownMenuItem>
@@ -250,12 +248,18 @@ export function Page(): JSX.Element {
         }
       }
     ]
-  }, [deleteArticleAction, deletingId, mockEnabled, openArticle, statusMutatingId, unpublishArticleAction])
+  }, [deleteArticleAction, deletingId, mockEnabled, statusMutatingId, unpublishArticleAction, viewArticle])
   const handleRowClick = useCallback(
     (row: Row<TimelineItem>) => {
-      openArticle(row.original.entityId, null)
+      log.info('[articles.page] row_click', {
+        articleId: row.original.entityId,
+        source: row.original.source,
+        scheduledDate: row.original.scheduledDate ?? null,
+        publishDate: row.original.publishDate ?? null
+      })
+      viewArticle(row.original.entityId)
     },
-    [openArticle]
+    [viewArticle]
   )
 
   if (!projectId) {
@@ -316,7 +320,7 @@ export function Page(): JSX.Element {
             columns={columns}
             data={timeline}
             paginate={false}
-            initialSorting={[{ id: 'date', desc: true }]}
+            initialSorting={[{ id: 'date', desc: false }]}
             onRowClick={handleRowClick}
           />
           <div className="border-t px-4 py-2 text-xs text-muted-foreground">

@@ -7,9 +7,30 @@ export type JsonFetchOptions = RequestInit & {
 }
 
 export async function fetchJson<T = unknown>(input: RequestInfo | URL, init: JsonFetchOptions = {}) {
-  const response = await fetch(input, {
+  const headers = new Headers(init.headers || {})
+
+  // SSR: propagate session cookie so API routes see auth
+  if (typeof window === 'undefined') {
+    try {
+      // Lazy import to avoid bundling server module in client
+      const mod = await import('@tanstack/react-start-server') as any
+      const getCookie = mod?.getCookie as ((name: string) => string | undefined) | undefined
+      const raw = typeof getCookie === 'function' ? getCookie('seoa_session') : undefined
+      if (raw && !headers.has('cookie')) {
+        headers.set('cookie', `seoa_session=${encodeURIComponent(raw)}`)
+      } else if (raw && headers.has('cookie')) {
+        const existing = headers.get('cookie') || ''
+        headers.set('cookie', `${existing}; seoa_session=${encodeURIComponent(raw)}`)
+      }
+    } catch {
+      // ignore — fall back to unauthenticated SSR fetch
+    }
+  }
+
+  const response = await fetch(resolveRequestInfo(input), {
     credentials: 'include',
-    ...init
+    ...init,
+    headers
   })
 
   if (!response.ok) {
@@ -100,4 +121,41 @@ function jsonInit(method: string, body: unknown, init: RequestInit): RequestInit
     body: body === undefined ? undefined : JSON.stringify(body ?? {}),
     ...init
   }
+}
+
+function resolveRequestInfo(input: RequestInfo | URL): RequestInfo | URL {
+  if (typeof window !== 'undefined') {
+    return input
+  }
+
+  const origin = getServerOrigin()
+
+  if (typeof input === 'string') {
+    return input.startsWith('/') ? new URL(input, origin).toString() : input
+  }
+
+  if (input instanceof URL) {
+    return input
+  }
+
+  if (typeof Request !== 'undefined' && input instanceof Request) {
+    const absoluteUrl = input.url.startsWith('http://') || input.url.startsWith('https://') ? input.url : new URL(input.url, origin).toString()
+    return new Request(absoluteUrl, input)
+  }
+
+  return input
+}
+
+function getServerOrigin(): string {
+  const candidates = [process.env.APP_URL, process.env.SEOA_APP_URL, process.env.VITE_APP_URL, process.env.PUBLIC_URL]
+  for (const value of candidates) {
+    const trimmed = value?.trim()
+    if (!trimmed) continue
+    const normalized = trimmed.replace(/\/+$/, '')
+    if (/^https?:\/\//i.test(normalized)) {
+      return normalized
+    }
+    return `http://${normalized}`
+  }
+  return 'http://localhost:3000'
 }

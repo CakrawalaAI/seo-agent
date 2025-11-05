@@ -1,14 +1,12 @@
 import { redirect } from '@tanstack/react-router'
+import { fetchSession } from '@entities/org/service'
+import { fetchJson, postJson } from '@common/http/json'
 
 export async function ensureIntegrationAccess(locationHref: string): Promise<void> {
   if (isE2EBypass()) {
     return
   }
-  const res = await fetch('/api/me', {
-    headers: { accept: 'application/json' },
-    credentials: 'include'
-  })
-  const data = res.ok ? await res.json() : null
+  const data = await fetchSession().catch(() => null)
   if (!data?.user) {
     throw redirect({ to: '/' })
   }
@@ -18,20 +16,11 @@ export async function ensureIntegrationAccess(locationHref: string): Promise<voi
   if (!projectParam) return
 
   try {
-    const projectsResponse = await fetch('/api/websites?limit=200', {
-      headers: { accept: 'application/json' },
-      credentials: 'include'
-    })
-    if (!projectsResponse.ok) return
-    const body = await projectsResponse.json()
-    const match = findProject(body?.items ?? [], projectParam)
+    const body = await fetchJson<{ items?: Array<Record<string, any>> }>('/api/websites?limit=200').catch(() => null)
+    if (!body?.items?.length) return
+    const match = findProject(body.items, projectParam)
     if (!match) return
-    await fetch('/api/active-website', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      credentials: 'include',
-      body: JSON.stringify({ websiteId: match.id })
-    })
+    await postJson('/api/active-website', { websiteId: match.id }).catch(() => null)
   } catch {
     // ignore selection errors
   }

@@ -1,8 +1,41 @@
 import { hasDatabase, getDb } from '@common/infra/db'
+import { env } from '@common/infra/env'
 import { keywords } from './db/schema.keywords'
 import { and, eq, sql } from 'drizzle-orm'
 
 export const keywordsRepo = {
+  selectTopForAutoInclude(keywords: Array<{ include?: boolean | null; metricsJson?: any; searchVolume?: number | null; difficulty?: number | null; phrase: string }>, limit = env.keywordAutoIncludeLimit) {
+    if (!Array.isArray(keywords) || keywords.length === 0) return new Set<string>()
+    const normalize = (value: string) => value.trim().toLowerCase().replace(/\s+/g, ' ')
+    const eligible = keywords
+      .filter((keyword) => {
+        const metrics = keyword.metricsJson || {}
+        const volume = metrics.searchVolume ?? keyword.searchVolume
+        const difficulty = metrics.difficulty ?? keyword.difficulty
+        if (volume == null || difficulty == null) return false
+        if (!Number.isFinite(Number(volume)) || Number(volume) <= 0) return false
+        if (!Number.isFinite(Number(difficulty)) || Number(difficulty) <= 0) return false
+        return Number(difficulty) < 70
+      })
+      .sort((a, b) => {
+        const metricsA = a.metricsJson || {}
+        const metricsB = b.metricsJson || {}
+        const volA = Number(metricsA.searchVolume ?? a.searchVolume ?? 0)
+        const volB = Number(metricsB.searchVolume ?? b.searchVolume ?? 0)
+        if (volA === volB) {
+          const diffA = Number(metricsA.difficulty ?? a.difficulty ?? 0)
+          const diffB = Number(metricsB.difficulty ?? b.difficulty ?? 0)
+          return diffA - diffB
+        }
+        return volB - volA
+      })
+
+    const selection = new Set<string>()
+    for (const keyword of eligible.slice(0, Math.max(0, limit))) {
+      selection.add(normalize(keyword.phrase))
+    }
+    return selection
+  },
   async upsert(input: {
     websiteId: string
     phrase: string
@@ -151,3 +184,14 @@ export const keywordsRepo = {
 }
 
 function genId(prefix: string) { return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}` }
+
+export function shouldIncludeKeyword(keyword: { include?: boolean | null; metricsJson?: any; searchVolume?: number | null; difficulty?: number | null }): boolean {
+  if (keyword.include != null) return Boolean(keyword.include)
+  const metrics = keyword.metricsJson || {}
+  const volume = metrics.searchVolume ?? keyword.searchVolume
+  const difficulty = metrics.difficulty ?? keyword.difficulty
+  if (volume == null || difficulty == null) return false
+  if (!Number.isFinite(Number(volume)) || Number(volume) <= 0) return false
+  if (!Number.isFinite(Number(difficulty)) || Number(difficulty) <= 0) return false
+  return Number(difficulty) < 70
+}

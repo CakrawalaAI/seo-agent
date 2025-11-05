@@ -2,8 +2,5 @@
 import '@tanstack/react-router'
 
 declare module '@tanstack/react-router' {
-  interface FileRoutesByPath {
-    '/articles/$articleId/edit': any
-  }
+  interface FileRoutesByPath {}
 }
-

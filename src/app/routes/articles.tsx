@@ -1,12 +1,14 @@
-import { createFileRoute, redirect } from '@tanstack/react-router'
-import { loader } from '@pages/articles/loader'
-import { Page } from '@pages/articles/page'
+import { Outlet, createFileRoute, redirect } from '@tanstack/react-router'
+import { fetchSession } from '@entities/org/service'
+
+function ArticlesLayout() {
+  return <Outlet />
+}
 
 export const Route = createFileRoute('/articles')({
   beforeLoad: async ({ location }) => {
     try {
-      const res = await fetch('/api/me', { headers: { accept: 'application/json' } })
-      const data = res.ok ? await res.json() : null
+      const data = await fetchSession()
       if (!data?.user) {
         throw redirect({ to: '/' })
       }
@@ -14,6 +16,5 @@ export const Route = createFileRoute('/articles')({
       throw redirect({ to: '/' })
     }
   },
-  loader,
-  component: Page
+  component: ArticlesLayout
 })

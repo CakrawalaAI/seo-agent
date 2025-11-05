@@ -76,6 +76,97 @@ export async function fetchAndParseSitemapUrls(siteUrl: string, hardCap = 100000
   return cleaned
 }
 
+// Flexible variant: optionally include subdomains found in sitemap
+export async function fetchAndParseSitemapUrlsFlex(siteUrl: string, options?: { hardCap?: number; includeSubdomains?: boolean }): Promise<string[]> {
+  const hardCap = Math.max(1, options?.hardCap ?? 100000)
+  const includeSubdomains = Boolean(options?.includeSubdomains)
+  const base = new URL(siteUrl)
+  const sitemapUrl = new URL('/sitemap.xml', `${base.protocol}//${base.host}`).toString()
+  const parser = new XMLParser({ ignoreAttributes: false })
+  const urls: string[] = []
+  const fetchText = async (url: string, timeoutMs = 15000): Promise<string | null> => {
+    const ac = new AbortController()
+    const t = setTimeout(() => ac.abort(), timeoutMs)
+    try {
+      const r = await fetch(url, { signal: ac.signal })
+      if (!r.ok) return null
+      return await r.text()
+    } catch { return null } finally { clearTimeout(t) }
+  }
+  const sameDomainOrSubdomain = (candidate: URL) => {
+    const norm = (h: string) => h.replace(/^www\./i, '')
+    const c = norm(candidate.host)
+    const r = norm(base.host)
+    if (c === r) return true
+    if (!includeSubdomains) return false
+    return c.endsWith('.' + r)
+  }
+  try {
+    log.info('[sitemap.flex] fetch root', { url: sitemapUrl, includeSubdomains })
+    const xml = await fetchText(sitemapUrl)
+    if (!xml) { log.warn('[sitemap.flex] root fetch failed', { url: sitemapUrl }); return [] }
+    const data = parser.parse(xml)
+    const enqueueUrlset = (rawXml: string) => {
+      try {
+        const d = parser.parse(rawXml)
+        if (d?.urlset?.url) {
+          const entries = Array.isArray(d.urlset.url) ? d.urlset.url : [d.urlset.url]
+          for (const entry of entries) {
+            const loc = entry.loc || entry['#text'] || entry['_']
+            if (typeof loc !== 'string') continue
+            let candidate: URL | null = null
+            try { candidate = new URL(loc, base) } catch { candidate = null }
+            if (!candidate) continue
+            if (!sameDomainOrSubdomain(candidate)) continue
+            const norm = candidate.toString().replace(/[#?].*$/, '')
+            if (!isHtmlLike(norm)) continue
+            urls.push(norm)
+            if (urls.length >= hardCap) break
+          }
+        }
+      } catch {}
+    }
+    // sitemap index
+    if (data?.sitemapindex?.sitemap) {
+      const maps = Array.isArray(data.sitemapindex.sitemap) ? data.sitemapindex.sitemap : [data.sitemapindex.sitemap]
+      for (const sm of maps) {
+        const loc = sm.loc
+        if (typeof loc !== 'string') continue
+        try {
+          const x = await fetchText(loc)
+          if (!x) continue
+          enqueueUrlset(x)
+        } catch {}
+        if (urls.length >= hardCap) break
+      }
+    }
+    // regular sitemap
+    if (urls.length < hardCap && data?.urlset?.url) {
+      const entries = Array.isArray(data.urlset.url) ? data.urlset.url : [data.urlset.url]
+      for (const entry of entries) {
+        const loc = entry.loc || entry['#text'] || entry['_']
+        if (typeof loc !== 'string') continue
+        let candidate: URL | null = null
+        try { candidate = new URL(loc, base) } catch { candidate = null }
+        if (!candidate) continue
+        if (!sameDomainOrSubdomain(candidate)) continue
+        const norm = candidate.toString().replace(/[#?].*$/, '')
+        if (!isHtmlLike(norm)) continue
+        urls.push(norm)
+        if (urls.length >= hardCap) break
+      }
+    }
+  } catch {}
+  // dedupe while preserving order
+  const seen = new Set<string>()
+  const cleaned: string[] = []
+  for (const u of urls) {
+    if (!seen.has(u)) { seen.add(u); cleaned.push(u) }
+  }
+  log.info('[sitemap.flex] cleaned', { site: siteUrl, count: cleaned.length, includeSubdomains })
+  return cleaned
+}
+
 export async function collectFromSitemap(siteUrl: string, limit = 10): Promise<string[]> {
   try {
     const root = new URL(siteUrl)

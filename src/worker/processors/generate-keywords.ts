@@ -77,7 +77,12 @@ export async function processGenerateKeywords(payload: GenerateKeywordPayload) {
       const pages = crawlPages.slice(0, 50).map((p) => ({ url: p.url, title: (p.title as string | undefined) || undefined, text: (p as any).content || '' }))
       summary = await summarizeSite(pages)
       log.debug('[keywords.generate] site summary', { websiteId, topicClusters: summary.topicClusters?.length ?? 0 })
-      try { await websitesRepo.patch(websiteId, { summary: summary.businessSummary || null, status: 'crawled' }) } catch {}
+      // Do not overwrite an existing crawl-derived summary; only set when empty
+      try {
+        if (!website.summary || !String(website.summary).trim()) {
+          await websitesRepo.patch(websiteId, { summary: summary.businessSummary || null, status: 'crawled' })
+        }
+      } catch {}
       const seedsLlm = await expandSeeds(summary.topicClusters || [], locale, seedTarget)
       await websitesRepo.patch(websiteId, { seedKeywords: seedsLlm })
       const seedInputs = new Set<string>()
@@ -101,24 +106,31 @@ export async function processGenerateKeywords(payload: GenerateKeywordPayload) {
     if (!ideas.length) throw new Error('No keyword ideas returned')
     log.debug('[keywords.generate] ideas received', { websiteId, total: ideas.length })
 
-    const withMetrics = ideas
-      .map((row) => {
-        const phrase = String(row.keyword || '').trim()
-        const info = row.keyword_info || {}
-        const props = row.keyword_properties || {}
-        const vol = Number(info?.search_volume ?? 0) || 0
-        const kd = typeof props?.keyword_difficulty === 'number' ? Number(props.keyword_difficulty) : Number.NaN
-        const kdScore = Number.isFinite(kd) ? kd : 70
-        return { phrase, vol, kdScore, row }
-      })
-      .filter((x) => x.phrase)
-      .sort((a, b) => (a.kdScore - b.kdScore) || (b.vol - a.vol))
-
-    const includeCount = Math.min(ideasLimit, withMetrics.length)
-    const includeSet = new Set(withMetrics.slice(0, includeCount).map((c) => c.phrase.toLowerCase()))
-
     const filtered = filterSeeds(ideas.map((i) => String(i.keyword || '')), summary)
     log.debug('[keywords.generate] ideas after filter', { websiteId, total: filtered.length, mode })
+
+    const metricsMap = new Map<string, { phrase: string; metricsJson: { searchVolume: number | null; difficulty: number | null } }>()
+    for (const row of ideas) {
+      const phrase = String(row.keyword || '').trim()
+      if (!phrase) continue
+      const info = row.keyword_info || {}
+      const props = row.keyword_properties || {}
+      const searchVolume = typeof info?.search_volume === 'number' ? Number(info.search_volume) : null
+      const difficulty = typeof props?.keyword_difficulty === 'number' ? Number(props.keyword_difficulty) : null
+      metricsMap.set(norm(phrase), {
+        phrase,
+        metricsJson: { searchVolume, difficulty }
+      })
+    }
+
+    const autoIncludeSet = keywordsRepo.selectTopForAutoInclude(
+      filtered
+        .map((phrase) => {
+          const key = norm(phrase)
+          const metrics = metricsMap.get(key)
+          return metrics ? { phrase: metrics.phrase, metricsJson: metrics.metricsJson } : { phrase, metricsJson: { searchVolume: null, difficulty: null } }
+        })
+    )
 
     if (mode === 'regenerate') {
       log.debug('[keywords.generate] clearing existing keywords before regenerate', { websiteId })
@@ -148,7 +160,7 @@ export async function processGenerateKeywords(payload: GenerateKeywordPayload) {
         locationCode: dfsLocation,
         locationName,
         provider: providerName,
-        include: includeSet.has(phrase.toLowerCase()),
+        include: autoIncludeSet.has(norm(phrase)),
         searchVolume: Number(info?.search_volume ?? 0) || 0,
         cpc: typeof info?.cpc === 'number' ? Number(info.cpc) : null,
         competition: typeof info?.competition === 'number' ? Number(info.competition) : null,
@@ -160,7 +172,7 @@ export async function processGenerateKeywords(payload: GenerateKeywordPayload) {
       })
       inserted++
     }
-    log.debug('[keywords.generate] persisted keywords', { websiteId, inserted, includeCount: includeSet.size, mode })
+    log.debug('[keywords.generate] persisted keywords', { websiteId, inserted, includeCount: autoIncludeSet.size, mode })
 
     try { await websitesRepo.patch(websiteId, { status: 'keyword_generated' }) } catch {}
     const totalKeywords = await keywordsRepo.count(websiteId)

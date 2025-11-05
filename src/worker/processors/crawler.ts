@@ -4,12 +4,13 @@ import { crawlRepo } from '@entities/crawl/repository'
 import { normalizeUrl, isHtmlLike } from '@common/crawl/url-filter'
 // robots intentionally ignored per config (owner consent)
 import { env } from '@common/infra/env'
+import { withRetry } from '@common/async/retry'
 // bundle writes avoided when DB present; keep import only if needed for dev fallback
 // import * as bundle from '@common/bundle/store'
 import { createHash } from 'node:crypto'
 import { config } from '@common/config'
 import { getLlmProvider } from '@common/providers/registry'
-import { summarizeSite, summarizePage } from '@common/providers/llm'
+import { summarizeSite, summarizePageBullets, selectUrlsFromList, reformatWebsiteProfile } from '@common/providers/llm'
 // keyword persistence removed; summary written to websites
 import { log } from '@src/common/logger'
 import { publishDashboardProgress } from '@common/realtime/hub'
@@ -192,9 +193,41 @@ export async function processCrawl(payload: { websiteId?: string; projectId?: st
     render: env.crawlRender
   })
 
-  // Seeds: landing page only (BFS), optional sitemap top-ups when few links found
+  // Plan seeds: sitemap-first selection; BFS fallback when no sitemap
   const rootNormalized = normalizeUrl(rootUrl.href, rootUrl) || rootUrl.toString()
-  const initialSeeds = [{ url: rootNormalized, depth: 0 }]
+  let initialSeeds: Array<{ url: string; depth: number }> = []
+  let sitemapOnlyMode = false
+  try {
+    const sitemapSeeds = await collectSitemapSeedsOpt(rootUrl, !!env.crawlAllowSubdomains)
+    if (sitemapSeeds && sitemapSeeds.length > 0) {
+      const budget = Math.max(1, env.crawlBudgetPages || 50)
+      let llmSelected = await selectUrlsFromList(siteUrl, sitemapSeeds, budget).catch(() => [])
+      let cleaned = dedupeInOrder(llmSelected).filter((u) => isHtmlLike(u))
+      // Heuristic: ensure homepage present if in candidates
+      const home = normalizeUrl(rootUrl.href, rootUrl) || rootUrl.toString()
+      if (!cleaned.includes(home) && sitemapSeeds.includes(home)) cleaned = [home, ...cleaned]
+      // If too few, try to include pricing/about if present
+      if (cleaned.length < Math.min(5, budget)) {
+        const tryAdd = (path: string) => {
+          try {
+            const u = new URL(path, rootUrl).toString()
+            if (sitemapSeeds.includes(u) && !cleaned.includes(u)) cleaned.push(u)
+          } catch {}
+        }
+        tryAdd('/pricing')
+        tryAdd('/plans')
+        tryAdd('/about')
+        tryAdd('/company')
+      }
+      cleaned = cleaned.slice(0, budget)
+      initialSeeds = cleaned.map((u) => ({ url: stripUrlNoise(u), depth: 0 }))
+      sitemapOnlyMode = initialSeeds.length > 0
+      log.info('[crawler] sitemap-driven selection', { count: initialSeeds.length })
+    }
+  } catch {}
+  if (!initialSeeds.length) {
+    initialSeeds = [{ url: rootNormalized, depth: 0 }]
+  }
   const jobId = (await crawlRepo.startJob(websiteId))!
 
   // Attempt Playwright; if unavailable, use undici fetch as fallback
@@ -233,9 +266,23 @@ export async function processCrawl(payload: { websiteId?: string; projectId?: st
   const queue: Array<{ url: string; depth: number }> = [...initialSeeds]
   let cachedSitemapSeeds: string[] | null = null
   let cachedHeuristicSeeds: string[] | null = null
+  const expansionEnabled = !sitemapOnlyMode
 
+  const exclude = Array.isArray(env.crawlExcludePaths) ? env.crawlExcludePaths : []
   const shouldVisit = (candidate: string, source: SeedSource) => {
     if (!isHtmlLike(candidate)) return false
+    if (exclude.length) {
+      try {
+        const urlObj = new URL(candidate)
+        const path = urlObj.pathname.toLowerCase()
+        for (const patRaw of exclude) {
+          const pat = String(patRaw || '').toLowerCase().trim()
+          if (!pat) continue
+          const rx = wildcardToRegExp(pat)
+          if (rx.test(path)) return false
+        }
+      } catch {}
+    }
     if (source === 'prefetch') {
       const lowered = candidate.toLowerCase()
       if (/(\.(?:js|mjs|cjs|css|json|ico|svg|png|jpg|jpeg|gif|webp|woff2?))(?:$|\?)/.test(lowered)) return false
@@ -244,6 +291,7 @@ export async function processCrawl(payload: { websiteId?: string; projectId?: st
   }
 
   const tryEnqueue = (candidate: string | null | undefined, source: SeedSource, depth: number) => {
+    if (!expansionEnabled) return false
     if (!candidate) return false
     if (seen.has(candidate) || queued.has(candidate)) return false
     if (!shouldVisit(candidate, source)) return false
@@ -268,13 +316,13 @@ export async function processCrawl(payload: { websiteId?: string; projectId?: st
   })
 
   log.info('[crawler] seeds', { count: initialSeeds.length })
+  log.debug('[crawler] visit loop', { websiteId, visitLimit, maxDepth, maxBreadth })
   const crawlConcurrency = Math.max(1, env.crawlConcurrency || 4)
 
   const visitNode = async ({ url, depth }: { url: string; depth: number }) => {
     if (seen.size >= visitLimit) return
     if (seen.has(url)) return
     if (depth > maxDepth) return
-    log.debug('[crawler] visiting', { websiteId, url, depth })
     let httpStatus: number | null = null
     let title = ''
     let headings: Array<{ level: number; text: string }> = []
@@ -284,78 +332,101 @@ export async function processCrawl(payload: { websiteId?: string; projectId?: st
     let contentBlobUrl: string | null = null
 
     const runWithPlaywright = async () => {
-      if (!contextPool) return false
-      const requestedAt = Date.now()
-      const lease = await contextPool.acquire()
-      if (!lease) return false
-      const waitedMs = Date.now() - requestedAt
-      if (waitedMs > 50) {
-        log.debug('[crawler] playwright lease wait', { websiteId, url, waitedMs, stats: contextPool.stats() })
-      }
+      const pool = contextPool
+      if (!pool) return false
       try {
-        const { page } = lease
-        const res = await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 15000 })
-        httpStatus = res?.status() ?? null
-        await waitForHydratedLinks(page)
-        title = await page.title().catch(() => '')
-        try { pageHtml = await page.content() } catch {}
-        try { textDump = await page.evaluate(() => document.body?.innerText || '') } catch {}
-        let extracted: Array<{ href: string; text?: string; source: SeedSource }> = []
-        try {
-          extracted = await page.evaluate(() => {
-            const results: Array<{ href: string; text?: string; source: 'anchor' | 'prefetch' }> = []
-            const seenKeys = new Set<string>()
-            const push = (href: string | null | undefined, text: string | null | undefined, source: 'anchor' | 'prefetch') => {
-              if (!href) return
-              const trimmed = href.trim()
-              if (!trimmed) return
-              const key = `${source}:${trimmed}`
-              if (seenKeys.has(key)) return
-              seenKeys.add(key)
-              results.push({ href: trimmed, text: text?.trim() || undefined, source })
-            }
-            document.querySelectorAll('a[href]').forEach((el) => push(el.getAttribute('href'), el.textContent, 'anchor'))
-            document.querySelectorAll('[role="link"]').forEach((el) => {
-              const element = el as HTMLElement
-              push(element.getAttribute('href') || element.getAttribute('data-href') || element.dataset?.href || null, element.textContent, 'anchor')
-            })
-            document.querySelectorAll('[data-href]').forEach((el) => {
-              const element = el as HTMLElement
-              push(element.getAttribute('data-href'), element.textContent, 'anchor')
-            })
-            document.querySelectorAll('link[rel="prefetch"], link[rel="prerender"], link[rel="preload"]').forEach((el) => {
-              const link = el as HTMLLinkElement
-              push(link.getAttribute('href'), null, 'prefetch')
-            })
-            return results.slice(0, 500)
-          })
-        } catch {}
-        const base = new URL(url)
-        const perPageBreadth = depth === 0 ? Math.max(maxBreadth, visitLimit) : maxBreadth
-        let anchorsAdded = 0
-        for (const item of extracted) {
-          const normalized = normalizeUrl(item.href, base)
-          if (!normalized) continue
-          if (item.source === 'anchor' && anchorsAdded >= perPageBreadth) continue
-          const added = tryEnqueue(normalized, item.source === 'prefetch' ? 'prefetch' : 'anchor', depth + 1)
-          if (added && item.source !== 'prefetch') {
-            linksForJson.push({ href: normalized, text: item.text })
-            anchorsAdded++
+        return await withRetry(async (attempt) => {
+          const requestedAt = Date.now()
+          const lease = await pool.acquire()
+          if (!lease) throw new Error('playwright_lease_unavailable')
+          const waitedMs = Date.now() - requestedAt
+          if (waitedMs > 50) {
+            log.debug('[crawler] playwright lease wait', { websiteId, url, waitedMs, attempt, stats: pool.stats() })
           }
-        }
-        const h1s = await page.$$eval('h1, h2, h3', (nodes: any[]) =>
-          nodes.map((n: any) => ({
-            level: Number((n.tagName as string).slice(1)),
-            text: ((n.textContent as string) || '').trim()
-          }))
-        )
-        headings = h1s
-        return true
+          try {
+            const { page } = lease
+            const res = await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 15000 })
+            httpStatus = res?.status() ?? null
+            await waitForHydratedLinks(page)
+            title = await page.title().catch(() => '')
+            try { pageHtml = await page.content() } catch {}
+            try {
+              textDump = await page.evaluate(() => {
+                const pick = (sel: string) => document.querySelector(sel)?.textContent?.trim()
+                return (
+                  pick('main') ||
+                  pick('article') ||
+                  pick('[role="main"]') ||
+                  (document.body?.innerText || '')
+                )
+              })
+            } catch {}
+            let extracted: Array<{ href: string; text?: string; source: SeedSource }> = []
+            try {
+              extracted = await page.evaluate(() => {
+                const results: Array<{ href: string; text?: string; source: 'anchor' | 'prefetch' }> = []
+                const seenKeys = new Set<string>()
+                const push = (href: string | null | undefined, text: string | null | undefined, source: 'anchor' | 'prefetch') => {
+                  if (!href) return
+                  const trimmed = href.trim()
+                  if (!trimmed) return
+                  const key = `${source}:${trimmed}`
+                  if (seenKeys.has(key)) return
+                  seenKeys.add(key)
+                  results.push({ href: trimmed, text: text?.trim() || undefined, source })
+                }
+                document.querySelectorAll('a[href]').forEach((el) => push(el.getAttribute('href'), el.textContent, 'anchor'))
+                document.querySelectorAll('[role="link"]').forEach((el) => {
+                  const element = el as HTMLElement
+                  push(element.getAttribute('href') || element.getAttribute('data-href') || element.dataset?.href || null, element.textContent, 'anchor')
+                })
+                document.querySelectorAll('[data-href]').forEach((el) => {
+                  const element = el as HTMLElement
+                  push(element.getAttribute('data-href'), element.textContent, 'anchor')
+                })
+                document.querySelectorAll('link[rel="prefetch"], link[rel="prerender"], link[rel="preload"]').forEach((el) => {
+                  const link = el as HTMLLinkElement
+                  push(link.getAttribute('href'), null, 'prefetch')
+                })
+                return results.slice(0, 500)
+              })
+            } catch {}
+            const base = new URL(url)
+            const perPageBreadth = depth === 0 ? Math.max(maxBreadth, visitLimit) : maxBreadth
+            let anchorsAdded = 0
+            for (const item of extracted) {
+              const normalized = normalizeUrl(item.href, base)
+              if (!normalized) continue
+              if (item.source === 'anchor' && anchorsAdded >= perPageBreadth) continue
+              const added = tryEnqueue(normalized, item.source === 'prefetch' ? 'prefetch' : 'anchor', depth + 1)
+              if (added && item.source !== 'prefetch') {
+                linksForJson.push({ href: normalized, text: item.text })
+                anchorsAdded++
+              }
+            }
+            const h1s = await page.$$eval('h1, h2, h3', (nodes: any[]) =>
+              nodes.map((n: any) => ({
+                level: Number((n.tagName as string).slice(1)),
+                text: ((n.textContent as string) || '').trim()
+              }))
+            )
+            headings = h1s
+            return true
+          } catch (error) {
+            log.warn('[crawler] playwright visit failed', { websiteId, url, attempt, error: (error as Error)?.message })
+            throw error
+          } finally {
+            await pool.release(lease)
+          }
+        }, {
+          label: 'crawler.playwright',
+          onRetry: ({ attempt, delayMs, error }) => {
+            log.warn('[crawler] playwright retry', { websiteId, url, attempt, delayMs, message: (error as Error)?.message })
+          }
+        })
       } catch (error) {
-        log.warn('[crawler] playwright visit failed', { websiteId, url, error: (error as Error)?.message })
+        log.warn('[crawler] playwright exhausted', { websiteId, url, attempts: env.externalRetryAttempts, message: (error as Error)?.message })
         return false
-      } finally {
-        await contextPool.release(lease)
       }
     }
 
@@ -367,11 +438,25 @@ export async function processCrawl(payload: { websiteId?: string; projectId?: st
       }
       if (!usedPlaywright) {
         try {
-          const res = await fetch(url)
+          const res = await withRetry(async (attempt) => {
+            const controller = new AbortController()
+            const timeout = setTimeout(() => controller.abort(), 12000)
+            try {
+              return await fetch(url, { signal: controller.signal })
+            } finally {
+              clearTimeout(timeout)
+            }
+          }, {
+            label: 'crawler.fetch',
+            onRetry: ({ attempt, delayMs, error }) => {
+              log.warn('[crawler] fetch retry', { websiteId, url, attempt, delayMs, message: (error as Error)?.message })
+            }
+          })
           httpStatus = res.status
           const text = await res.text()
           pageHtml = text
-          textDump = text.replace(/<script[\s\S]*?<\/script>/gi, ' ').replace(/<style[\s\S]*?<\/style>/gi, ' ').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim()
+          const mainPref = extractMainTextFromHtml(text)
+          textDump = mainPref || text.replace(/<script[\s\S]*?<\/script>/gi, ' ').replace(/<style[\s\S]*?<\/style>/gi, ' ').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim()
           const m = text.match(/<title[^>]*>([^<]*)<\/title>/i)
           title = m?.[1]?.trim() ?? ''
           const base = new URL(url)
@@ -396,7 +481,7 @@ export async function processCrawl(payload: { websiteId?: string; projectId?: st
         }
       }
 
-      if (depth === 0) {
+      if (!sitemapOnlyMode && depth === 0) {
         if (cachedSitemapSeeds === null) {
           cachedSitemapSeeds = await collectSitemapSeeds(rootUrl)
         }
@@ -426,8 +511,9 @@ export async function processCrawl(payload: { websiteId?: string; projectId?: st
       try {
         const basis = textDump || pageHtml || ''
         if (basis && basis.length > 0) {
-          const s = await summarizePage(basis)
-          pageSummary = s || null
+          const bullets = await summarizePageBullets(basis)
+          const block = bullets.map((b) => `- ${b}`).join('\n')
+          pageSummary = block || null
         }
       } catch {}
       if (seen.size >= visitLimit) return
@@ -480,11 +566,22 @@ export async function processCrawl(payload: { websiteId?: string; projectId?: st
     heuristic: originCounts.heuristic
   })
 
-  // 3) Build one big text of per-page summaries, then summarize within model context budget
+  // 3) Build one big text of per-page bullet summaries, then reformat into a profile (no new facts)
   try {
-    const pages = await crawlRepo.listRecentPages(websiteId, Math.max(200, crawlBudget))
+    const pages = await crawlRepo.listPagesByJob(jobId, Math.max(500, crawlBudget)).catch(async () => await crawlRepo.listRecentPages(websiteId, Math.max(200, crawlBudget)))
     log.debug('[crawler] summarizing site', { websiteId, pageCount: pages.length })
-    const sections = pages.map((p) => {
+    // Order pages: initial seed order first, then others by createdAt desc
+    const seedOrder = initialSeeds.map((s) => stripUrlNoise(s.url))
+    const indexMap = new Map<string, number>(seedOrder.map((u, i) => [u, i]))
+    const ordered = [...pages].sort((a: any, b: any) => {
+      const ia = indexMap.has(a.url) ? (indexMap.get(a.url) as number) : Number.POSITIVE_INFINITY
+      const ib = indexMap.has(b.url) ? (indexMap.get(b.url) as number) : Number.POSITIVE_INFINITY
+      if (ia !== ib) return ia - ib
+      const ta = new Date(a.createdAt as any).getTime() || 0
+      const tb = new Date(b.createdAt as any).getTime() || 0
+      return tb - ta
+    })
+    const sections = ordered.map((p) => {
       const title = String((p as any)?.title || '')
       const s = String((p as any)?.summary || '')
       return `=== URL: ${p.url} | Title: ${title} ===\n${s}\n\n`
@@ -493,29 +590,25 @@ export async function processCrawl(payload: { websiteId?: string; projectId?: st
     // No file dump in DB-only mode
 
     const modelName = 'gpt-5-2025-08-07'
-    const defaultCtx = 400_000
-    const targetTokens = Math.max(40_000, Math.floor(defaultCtx * 0.8))
+    const targetTokens = Math.max(4_000, Number(env.summaryTokenBudget || 60_000))
     const approxTokens = (s: string) => Math.ceil((s?.length || 0) / 4)
     const trimToTokens = (s: string, tokens: number) => s.slice(0, Math.max(0, tokens) * 4)
     let budgetedDump = approxTokens(dump) > targetTokens ? trimToTokens(dump, targetTokens) : dump
-    log.info('[crawler] summary budget', { model: modelName, ctx: defaultCtx, targetTokens, dumpTokens: approxTokens(dump), budgetedTokens: approxTokens(budgetedDump) })
+    log.info('[crawler] summary budget', { model: modelName, targetTokens, dumpTokens: approxTokens(dump), budgetedTokens: approxTokens(budgetedDump) })
 
-    const llm = getLlmProvider() as any
     let businessSummary: string | null = null
-    if (typeof llm.summarizeWebsiteDump === 'function') {
-      try {
-        businessSummary = await llm.summarizeWebsiteDump(siteUrl, budgetedDump)
-      } catch (e) {
-        const msg = (e as Error)?.message || ''
-        log.warn('[crawler] summarizeWebsiteDump failed; retrying with smaller budget if possible', { error: msg })
-        const match = msg.match(/maximum context length is\s+(\d+)\s+tokens/i)
-        const maxFromError = match ? Number(match[1]) : NaN
-        if (Number.isFinite(maxFromError) && maxFromError > 1000) {
-          const retryTokens = Math.floor(maxFromError * 0.8)
-          budgetedDump = trimToTokens(dump, retryTokens)
-          log.info('[crawler] retry summary budget', { retryTokens, budgetedTokens: approxTokens(budgetedDump) })
-          try { businessSummary = await llm.summarizeWebsiteDump(siteUrl, budgetedDump) } catch {}
-        }
+    try {
+      businessSummary = await reformatWebsiteProfile(siteUrl, budgetedDump)
+    } catch (e) {
+      const msg = (e as Error)?.message || ''
+      log.warn('[crawler] website_reformat failed; retrying smaller budget if possible', { error: msg })
+      const match = msg.match(/maximum context length is\s+(\d+)\s+tokens/i)
+      const maxFromError = match ? Number(match[1]) : NaN
+      if (Number.isFinite(maxFromError) && maxFromError > 1000) {
+        const retryTokens = Math.floor(maxFromError * 0.8)
+        budgetedDump = trimToTokens(dump, retryTokens)
+        log.info('[crawler] retry reformat budget', { retryTokens, budgetedTokens: approxTokens(budgetedDump) })
+        try { businessSummary = await reformatWebsiteProfile(siteUrl, budgetedDump) } catch {}
       }
     }
     if (!businessSummary || !businessSummary.trim()) {
@@ -587,7 +680,27 @@ async function waitForHydratedLinks(page: any) {
   } catch {}
 }
 
-async function collectSitemapSeeds(root: URL): Promise<string[]> {
+async function collectSitemapSeeds(root: URL): Promise<string[]> { return collectSitemapSeedsOpt(root, false) }
+
+function dedupeInOrder(list: string[]): string[] {
+  const seen = new Set<string>()
+  const out: string[] = []
+  for (const u of list) {
+    if (!seen.has(u)) { seen.add(u); out.push(u) }
+  }
+  return out
+}
+
+function stripUrlNoise(u: string): string {
+  try {
+    const url = new URL(u)
+    url.hash = ''
+    url.search = ''
+    return url.toString()
+  } catch { return u }
+}
+
+async function collectSitemapSeedsOpt(root: URL, allowSubdomains: boolean): Promise<string[]> {
   const seeds: string[] = []
   const visited = new Set<string>()
   const queue: Array<{ target: URL; depth: number }> = []
@@ -601,15 +714,27 @@ async function collectSitemapSeeds(root: URL): Promise<string[]> {
     const key = target.toString()
     if (visited.has(key)) continue
     visited.add(key)
-    const controller = new AbortController()
-    const timer = setTimeout(() => controller.abort(), 8000)
     try {
-      const res = await fetch(target.toString(), {
-        signal: controller.signal,
-        headers: { accept: 'application/xml, text/xml, */*' }
+      const text = await withRetry(async (attempt) => {
+        const controller = new AbortController()
+        const timer = setTimeout(() => controller.abort(), 8000)
+        try {
+          const res = await fetch(target.toString(), {
+            signal: controller.signal,
+            headers: { accept: 'application/xml, text/xml, */*' }
+          })
+          if (!res.ok) return null
+          return await res.text()
+        } finally {
+          clearTimeout(timer)
+        }
+      }, {
+        label: 'crawler.sitemap',
+        onRetry: ({ attempt, delayMs, error }) => {
+          log.debug('[crawler] sitemap retry', { target: target.toString(), attempt, delayMs, message: (error as Error)?.message })
+        }
       })
-      if (!res.ok) continue
-      const text = await res.text()
+      if (!text) continue
       const matches = Array.from(text.matchAll(/<loc>([^<]+)<\/loc>/gi))
       for (const match of matches) {
         const raw = (match[1] || '').trim()
@@ -621,7 +746,7 @@ async function collectSitemapSeeds(root: URL): Promise<string[]> {
           candidate = null
         }
         if (!candidate) continue
-        if (candidate.host !== root.host) continue
+        if (!sameDomainOrSubdomain(candidate, root, allowSubdomains)) continue
         if (candidate.pathname.toLowerCase().endsWith('.xml')) {
           if (depth < 2) queue.push({ target: candidate, depth: depth + 1 })
           continue
@@ -631,11 +756,18 @@ async function collectSitemapSeeds(root: URL): Promise<string[]> {
       }
     } catch {
       // ignore
-    } finally {
-      clearTimeout(timer)
     }
   }
   return seeds
+}
+
+function sameDomainOrSubdomain(candidate: URL, root: URL, allowSubdomains: boolean): boolean {
+  const norm = (h: string) => h.replace(/^www\./i, '')
+  const c = norm(candidate.host)
+  const r = norm(root.host)
+  if (c === r) return true
+  if (!allowSubdomains) return false
+  return c.endsWith('.' + r)
 }
 
 function collectHeuristicSeeds(root: URL): string[] {
@@ -656,4 +788,32 @@ function computeNextEligible(referenceIso: string | null, cooldownHours: number)
   const target = base.getTime() + cooldownHours * 60 * 60 * 1000
   if (target <= Date.now()) return null
   return new Date(target).toISOString()
+}
+
+function wildcardToRegExp(pattern: string): RegExp {
+  const esc = pattern.replace(/[.+^${}()|\\\[\]\-/]/g, '\\$&').replace(/\*/g, '.*')
+  const anchored = esc.startsWith('^') || esc.endsWith('$') ? esc : `^${esc}$`
+  return new RegExp(anchored, 'i')
+}
+
+function extractMainTextFromHtml(html: string): string | null {
+  try {
+    const removeScriptsStyles = (s: string) => s.replace(/<script[\s\S]*?<\/script>/gi, ' ').replace(/<style[\s\S]*?<\/style>/gi, ' ')
+    const toText = (s: string) => s.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim()
+    const cleaned = removeScriptsStyles(html)
+    const pickInner = (m: RegExp) => {
+      const x = cleaned.match(m)
+      return x && x[1] ? toText(x[1]) : null
+    }
+    // Try <main>
+    const main = pickInner(/<main\b[^>]*>([\s\S]*?)<\/main>/i)
+    if (main && main.length > 200) return main
+    // Try first <article>
+    const article = pickInner(/<article\b[^>]*>([\s\S]*?)<\/article>/i)
+    if (article && article.length > 200) return article
+    // Common content wrappers by id/class
+    const content = pickInner(/<(?:div|section)\b[^>]*?(?:id|class)=(?:"|')(?:[^"']*(?:content|main|article)[^"']*)(?:"|')[^>]*>([\s\S]*?)<\/(?:div|section)>/i)
+    if (content && content.length > 200) return content
+    return main || article || content
+  } catch { return null }
 }
