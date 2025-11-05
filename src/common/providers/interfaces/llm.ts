@@ -19,6 +19,7 @@ export interface LlmProvider {
     youtube?: Array<{ title?: string; url: string }>
     images?: Array<{ src: string; alt?: string; caption?: string }>
     internalLinks?: Array<{ anchor?: string; url: string }>
+    features?: Record<string, boolean>
   }): Promise<{ bodyHtml: string }>
 
   factCheck?(args: {

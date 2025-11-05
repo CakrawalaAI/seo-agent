@@ -1,10 +1,13 @@
-export type IntegrationStatus = 'connected' | 'disconnected' | 'error' | string
+export type IntegrationStatus =
+  | 'draft'
+  | 'connecting'
+  | 'connected'
+  | 'disconnected'
+  | 'error'
+  | 'pending'
+  | string
 
-export type IntegrationConfig = {
-  targetUrl?: string
-  secret?: string
-  [key: string]: unknown
-}
+export type IntegrationConfig = Record<string, unknown>
 
 export type WebsiteIntegration = {
   id: string
@@ -12,6 +15,10 @@ export type WebsiteIntegration = {
   type: string
   status: IntegrationStatus
   configJson?: IntegrationConfig | null
+  secretsId?: string | null
+  metadataJson?: Record<string, unknown> | null
+  lastTestedAt?: string | null
+  lastError?: string | null
   createdAt?: string | null
   updatedAt?: string | null
 }

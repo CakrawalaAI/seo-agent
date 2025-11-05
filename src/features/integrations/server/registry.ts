@@ -1,8 +1,8 @@
-import type { CMSConnector } from './interface'
+import type { CMSConnector, PublishResult } from '../shared/interface'
 import type { Article } from '@entities/article/domain/article'
 import type { IntegrationConfig } from '@entities/integration/domain/integration'
-import type { PublishResult } from './interface'
 import { log } from '@src/common/logger'
+import { ConnectorNotReadyError } from '../shared/errors'
 
 /**
  * Registry of available CMS connectors.
@@ -48,6 +48,9 @@ class ConnectorRegistry {
     try {
       return await connector.publish(article, config)
     } catch (error) {
+      if (error instanceof ConnectorNotReadyError) {
+        throw error
+      }
       log.error(`[Connector Registry] Publish failed for ${type}:`, error)
       return null
     }
@@ -69,6 +72,9 @@ class ConnectorRegistry {
     try {
       return await connector.test(config)
     } catch (error) {
+      if (error instanceof ConnectorNotReadyError) {
+        throw error
+      }
       log.error(`[Connector Registry] Test failed for ${type}:`, error)
       return false
     }
@@ -92,14 +98,29 @@ export const connectorRegistry = new ConnectorRegistry()
  * This is called at app startup to register all available connectors.
  */
 export function initConnectors(): void {
-  // Lazy-load connectors to avoid circular deps and allow tree-shaking
-  import('./webhook').then((m) => connectorRegistry.register(m.webhookConnector))
-  import('./webflow').then((m) => connectorRegistry.register(m.webflowConnector))
-  import('./wordpress').then((m) => connectorRegistry.register(m.wordpressConnector))
-  import('./framer').then((m) => connectorRegistry.register(m.framerConnector))
+  const modules: Array<Promise<{ connectors?: CMSConnector[] }>> = [
+    import('../webhook/server/adapter'),
+    import('../rest-api/server/adapter'),
+    import('../wordpress/server/adapter'),
+    import('../webflow/server/adapter'),
+    import('../shopify/server/adapter'),
+    import('../ghost/server/adapter'),
+    import('../hubspot/server/adapter'),
+    import('../notion/server/adapter'),
+    import('../squarespace/server/adapter'),
+    import('../wix/server/adapter'),
+    import('../framer/server/adapter'),
+    import('../unicorn-platform/server/adapter'),
+    import('../zapier/server/adapter')
+  ]
 
-  // Future connectors:
-  // import('./shopify').then((m) => connectorRegistry.register(m.shopifyConnector))
-  // import('./wix').then((m) => connectorRegistry.register(m.wixConnector))
-  // import('./medium').then((m) => connectorRegistry.register(m.mediumConnector))
+  void Promise.all(
+    modules.map((promise) =>
+      promise.then((mod) => {
+        for (const connector of mod.connectors ?? []) {
+          connectorRegistry.register(connector)
+        }
+      })
+    )
+  )
 }

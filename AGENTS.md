@@ -45,6 +45,18 @@ PostgreSQL
 - `pages` may import from `blocks`, `features`, `entities`, `common`.
 - `routes` import only from `pages` (plus TanStack router utilities).
 
+### Client/Server Boundary Guardrail
+- UI-visible code (`src/app/routes/**`, `src/pages/**`, `src/features/**/client`, `src/features/**/shared`, `src/blocks/**`, `src/common/ui/**`) must **never** import:
+  - `@app/api-utils`, `@server/*`, `@common/infra/*`, `@common/realtime/*`, provider impls, or any module whose path segment is `server`/`.server`.
+  - Node built-ins (`node:*`), `postgres`, or other primitives that assume a Node runtime.
+- If a component needs privileged logic, isolate it in a server module and call it via route loaders, server functions, or guarded dynamic imports that execute only on the server.
+- The Vitest check at `tests/client-server-boundary.spec.ts` enforces the above; keep it green (`bun test tests/client-server-boundary.spec.ts`). Update the allow/deny list there alongside any new shared directory conventions.
+
+### Playwright Route Smoke
+- Run `bunx playwright test tests/e2e/smoke-routes.spec.ts` before shipping router or layout changes.
+- The suite covers the public landing page plus authenticated dashboards (`/dashboard`, `/keywords`, `/calendar`, `/articles`, `/integrations`, `/settings`).
+- The webhook configurator (`/integrations/webhook`) depends on real integration data and is not part of the smoke loop—exercise it manually when introducing webhook-facing changes.
+
 ## Data Loading Strategy
 - Route loaders live in `src/pages/**/loader.ts`, orchestrating parallel service calls, auth checks, and Query priming.
 - Feature components remain declarative, relying on hydrated loader data or TanStack Query cache (`useSuspenseQuery`).

@@ -1,12 +1,14 @@
 import { hasDatabase, getDb } from '@common/infra/db'
 import { crawlJobs, crawlPages } from '@entities/crawl/db/schema.website'
 import { websites } from '@entities/website/db/schema'
-import { eq, desc } from 'drizzle-orm'
+import { eq, desc, and, isNull } from 'drizzle-orm'
 
 export const crawlRepo = {
   async startJob(websiteId: string): Promise<string | null> {
     if (!hasDatabase()) return null
     const db = getDb()
+    const existing = await this.findActiveJob(websiteId)
+    if (existing) return existing.id
     const id = genId('job')
     const now = new Date() as any
     await db.insert(crawlJobs).values({ id, websiteId, startedAt: now, createdAt: now } as any)
@@ -52,6 +54,28 @@ export const crawlRepo = {
       .where(eq(crawlPages.websiteId, websiteId))
       .orderBy(desc(crawlPages.createdAt as any))
       .limit(limit)
+  },
+  async findActiveJob(websiteId: string) {
+    if (!hasDatabase()) return null
+    const db = getDb()
+    const rows = await db
+      .select()
+      .from(crawlJobs)
+      .where(and(eq(crawlJobs.websiteId, websiteId), isNull(crawlJobs.completedAt)))
+      .orderBy(desc(crawlJobs.createdAt as any))
+      .limit(1)
+    return rows[0] ?? null
+  },
+  async getLatestJob(websiteId: string) {
+    if (!hasDatabase()) return null
+    const db = getDb()
+    const rows = await db
+      .select()
+      .from(crawlJobs)
+      .where(eq(crawlJobs.websiteId, websiteId))
+      .orderBy(desc(crawlJobs.createdAt as any))
+      .limit(1)
+    return rows[0] ?? null
   }
 }
 

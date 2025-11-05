@@ -161,21 +161,35 @@ export function Page(): JSX.Element {
     }
   })
 
+  const ent = session?.entitlements ?? null
+  const trialInfo = (ent?.trial ?? null) as any
+  const trialStatus = typeof ent?.status === 'string' ? ent.status.toLowerCase() : null
   const cycleStart = session?.usage?.cycleStart ? new Date(session.usage.cycleStart) : null
   const renewalDate = cycleStart ? addDays(cycleStart, 30) : null
-  const expiryDate = renewalDate
+  const paidThroughDate = typeof ent?.activeUntil === 'string' ? parseIsoDate(ent.activeUntil) : null
+  const trialEndDate = typeof trialInfo?.latestTrialEndsAt === 'string' ? parseIsoDate(trialInfo.latestTrialEndsAt) : typeof ent?.trialEndsAt === 'string' ? parseIsoDate(ent.trialEndsAt) : null
+  const trialOutlinesText = typeof trialInfo?.outlinesThrough === 'string' ? formatMaybeIsoDate(trialInfo.outlinesThrough) : null
+  const complimentaryLimit = Number(trialInfo?.complimentaryLimit ?? 0)
+  const complimentaryUsed = Number(trialInfo?.complimentaryUsed ?? 0)
+  const complimentaryRemaining = Math.max(0, complimentaryLimit - complimentaryUsed)
   const hasActiveSubscription = Boolean(session?.activeOrg?.plan && session.activeOrg.plan.toLowerCase() !== 'starter')
   const subscriptionActionLabel = hasActiveSubscription ? 'Cancel subscription' : 'Activate subscription'
   const subscriptionActionPending = hasActiveSubscription ? cancelMutation.isPending : activateMutation.isPending
   const subscriptionAction = hasActiveSubscription ? cancelMutation : activateMutation
   const planTitle = session?.activeOrg?.plan ? titleCase(session.activeOrg.plan) : 'Trial'
-  const planMeta = hasActiveSubscription ? 'Billed monthly' : 'Pending activation'
+  const planMeta = hasActiveSubscription
+    ? 'Billed monthly'
+    : trialStatus === 'trialing'
+    ? 'Trial in progress'
+    : 'Pending activation'
   const statusLine = hasActiveSubscription
-    ? renewalDate
+    ? paidThroughDate
+      ? `Renews on ${formatFullDate(paidThroughDate)}`
+      : renewalDate
       ? `Renews on ${formatFullDate(renewalDate)}`
       : 'Renews automatically'
-    : expiryDate
-    ? `Access ends on ${formatFullDate(expiryDate)}`
+    : trialEndDate
+    ? `Trial ends on ${formatFullDate(trialEndDate)}`
     : 'Activate to unlock publishing'
   const seatsLine = memberCount === 1 ? '1 member' : `${memberCount} members`
 
@@ -232,6 +246,18 @@ export function Page(): JSX.Element {
                     <Users className="h-4 w-4" />
                     <span>{seatsLine}</span>
                   </div>
+                  {trialOutlinesText ? (
+                    <div className="flex items-center gap-2 text-xs">
+                      <Sparkles className="h-4 w-4 text-primary" />
+                      <span>{`Outlines scheduled through ${trialOutlinesText}`}</span>
+                    </div>
+                  ) : null}
+                  {complimentaryLimit > 0 ? (
+                    <div className="flex items-center gap-2 text-xs">
+                      <Sparkles className="h-4 w-4 text-primary/70" />
+                      <span>{`${complimentaryRemaining} of ${complimentaryLimit} complimentary articles remaining`}</span>
+                    </div>
+                  ) : null}
                 </div>
               </div>
             </div>
@@ -408,6 +434,17 @@ function addDays(date: Date, days: number) {
   const copy = new Date(date)
   copy.setDate(copy.getDate() + days)
   return copy
+}
+
+function parseIsoDate(iso: string | null | undefined): Date | null {
+  if (!iso) return null
+  const value = new Date(iso)
+  return Number.isNaN(value.getTime()) ? null : value
+}
+
+function formatMaybeIsoDate(iso: string | null | undefined): string | null {
+  const value = parseIsoDate(iso)
+  return value ? formatFullDate(value) : null
 }
 
 function formatDate(date: Date) {

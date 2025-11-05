@@ -9,6 +9,7 @@ export const articleAttachments = pgTable('article_attachments', {
     .references(() => articles.id, { onDelete: 'cascade' }),
   type: text('type').notNull(),
   url: text('url').notNull(),
+  storageKey: text('storage_key'),
   caption: text('caption'),
   order: integer('order'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow()

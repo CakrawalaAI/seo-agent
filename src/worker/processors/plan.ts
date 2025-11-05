@@ -3,6 +3,7 @@ import { websitesRepo } from '@entities/website/repository'
 import { publishJob, queueEnabled } from '@common/infra/queue'
 import { getLlmProvider } from '@common/providers/registry'
 import { log } from '@src/common/logger'
+import { publishDashboardProgress } from '@common/realtime/hub'
 
 export async function processPlan(payload: { projectId?: string; websiteId?: string; days: number }) {
   const websiteId = String(payload.websiteId || payload.projectId)
@@ -58,5 +59,14 @@ export async function processPlan(payload: { projectId?: string; websiteId?: str
     }
   }
   try { await websitesRepo.patch(websiteId, { status: 'articles_scheduled' }) } catch {}
+  const counts = await planRepo.counts(String(websiteId))
+  publishDashboardProgress(websiteId, {
+    articleProgress: {
+      generatedCount: counts.total,
+      scheduledCount: counts.scheduled,
+      targetCount: outlineDays
+    },
+    queueDepth: counts.queued
+  })
   log.debug('[plan] completed', { websiteId })
 }

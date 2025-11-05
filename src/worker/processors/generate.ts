@@ -1,11 +1,14 @@
 import { planRepo } from '@entities/article/planner'
 import { articlesRepo } from '@entities/article/repository'
-import { getLlmProvider, getResearchProvider } from '@common/providers/registry'
+import { getLlmProvider } from '@common/providers/registry'
 import { evaluateArticle } from '@features/articles/server/evaluate'
-import { ensureSerp } from '@features/serp/server/ensureSerp'
 import { websitesRepo } from '@entities/website/repository'
+import { collectArticleContext, resolveArticleFeatureFlags } from '@features/articles/server/article-context'
+import type { ArticleContextResult } from '@features/articles/server/article-context'
+import { buildArticleGenerationPayload } from '@features/articles/server/article-payload'
 // DB-only runtime: no bundle writes
 import { log } from '@src/common/logger'
+import { recordComplimentaryGeneration } from '@common/infra/entitlements'
 
 export async function processGenerate(payload: { projectId?: string; websiteId?: string; planItemId: string; publishAfterGenerate?: boolean }) {
   log.debug('[generate] start', { websiteId: payload.websiteId || payload.projectId, planItemId: payload.planItemId })
@@ -16,6 +19,7 @@ export async function processGenerate(payload: { projectId?: string; websiteId?:
     websiteId: payload.websiteId || payload.projectId,
     planItemId: item.id,
     title: item.title,
+    targetKeyword: item.targetKeyword ?? item.title,
     outline: Array.isArray(item.outlineJson) ? (item.outlineJson as any) : undefined
   })
   if (draft.status === 'published') {
@@ -36,6 +40,17 @@ export async function processGenerate(payload: { projectId?: string; websiteId?:
     }
     const locale = site?.defaultLocale || 'en-US'
 
+    const keywordForSerp = (() => {
+      const draftKeyword = typeof draft.targetKeyword === 'string' ? draft.targetKeyword.trim() : ''
+      if (draftKeyword) return draftKeyword
+      const itemKeyword = typeof item.targetKeyword === 'string' ? item.targetKeyword.trim() : ''
+      if (itemKeyword) return itemKeyword
+      const draftTitle = typeof draft.title === 'string' ? draft.title.trim() : ''
+      if (draftTitle) return draftTitle
+      const itemTitle = typeof item.title === 'string' ? item.title.trim() : ''
+      return itemTitle
+    })()
+
     // Generate outline first if missing
     const needOutline = !draft.outlineJson || draft.outlineJson.length === 0
     let outline = draft.outlineJson ?? []
@@ -45,65 +60,51 @@ export async function processGenerate(payload: { projectId?: string; websiteId?:
       outline = o.outline
       await articlesRepo.update(draft.id, { outlineJson: outline, title: o.title })
     }
-    // Enrich with SERP dump + research/media if available
-    let serpDump: string | undefined
-    let competitorDump: string | undefined
-    let websiteSummary: string | undefined
-    let citations: Array<{ title?: string; url: string; snippet?: string }> = []
-    let youtube: Array<{ title?: string; url: string }> = []
-    let images: Array<{ src: string; alt?: string; caption?: string }> = []
-    let internalLinks: Array<{ anchor?: string; url: string }> = []
+    const features = resolveArticleFeatureFlags(site)
+    log.debug('[generate] feature flags', { articleId: draft.id, features })
+    const keyword = keywordForSerp || draft.title || item.title || ''
+    let context: ArticleContextResult = {
+      websiteSummary: site?.summary || undefined,
+      serpDump: undefined,
+      competitorDump: undefined,
+      citations: [] as Array<{ title?: string; url: string; snippet?: string }>,
+      youtube: [] as Array<{ title?: string; url: string }>,
+      images: [] as Array<{ src: string; alt?: string; caption?: string }>,
+      internalLinks: [] as Array<{ anchor?: string; url: string }>,
+      features
+    }
     try {
-      const policy = ((site as any)?.settings || (site as any)?.settingsJson || {}) as { allowYoutube?: boolean; maxImages?: number }
-      websiteSummary = site?.summary || undefined
-      const { locationCodeFromLocale } = await import('@common/providers/impl/dataforseo/geo')
-      const loc = locationCodeFromLocale(locale)
-      const device: 'desktop' | 'mobile' = 'desktop'
-      // Check DB snapshot to avoid refetch
-      const { keywordSerpRepo } = await import('@entities/article/repository.serp_snapshot')
-      const existing = await keywordSerpRepo.get(draft.id)
-      if (existing && existing.snapshotJson) {
-        serpDump = String((existing.snapshotJson as any)?.textDump || '')
-        log.debug('[generate] reuse serp snapshot', { articleId: draft.id })
-      } else {
-        log.debug('[generate] fetching serp snapshot', { articleId: draft.id, phrase: draft.title ?? item.title })
-        const snap = await ensureSerp({ phrase: draft.title ?? item.title, language: locale, locationCode: loc, device, topK: 10 })
-        serpDump = String((snap as any)?.textDump || '')
-        try { await keywordSerpRepo.upsert({ articleId: draft.id, phrase: draft.title ?? item.title, language: locale, locationCode: loc, device, topK: 10, snapshotJson: snap, fetchedAt: new Date() }) } catch {}
-      }
-      // competitorDump omitted in DB-only mode
-      // Research citations + YouTube
-      try {
-        const research = getResearchProvider()
-        citations = await research.search(draft.title ?? item.title, { topK: 5 })
-        if (policy.allowYoutube !== false) {
-          const yt = await research.search(draft.title ?? item.title, { topK: 2, site: 'youtube.com' })
-          youtube = yt.map((r) => ({ title: r.title, url: r.url }))
-        }
-      } catch {}
-      // Internal links from recent crawl pages
-      try {
-      const { crawlRepo } = await import('@entities/crawl/repository')
-      const pages = await crawlRepo.listRecentPages(String(payload.websiteId || payload.projectId), 50)
-        internalLinks = pages
-          .filter((p: any) => {
-            try { const u = new URL(p.url); return u.pathname !== '/' } catch { return false }
-          })
-          .slice(0, 8)
-          .map((p: any) => ({ anchor: p.title || 'Related', url: p.url }))
-      } catch {}
-      // Images via Unsplash (preferred)
-      try {
-        const { searchUnsplash } = await import('@common/providers/impl/unsplash/images')
-        const maxImages = Math.max(0, Math.min(4, Number((policy as any).maxImages ?? 2)))
-        images = maxImages > 0 ? await searchUnsplash(draft.title ?? item.title, maxImages) : []
-      } catch {}
-    } catch {}
+      context = await collectArticleContext({
+        articleId: draft.id,
+        projectId: String(payload.websiteId || payload.projectId || ''),
+        locale,
+        keyword,
+        title: draft.title ?? item.title,
+        outline,
+        site: site as any,
+        features
+      })
+    } catch (error) {
+      log.error('[generate] context collection failed', { articleId: draft.id, error: (error as Error)?.message || String(error) })
+    }
     log.debug('[generate] generating body', { articleId: draft.id, outlineSections: outline.length })
     let bodyHtml: string
-    const { bodyHtml: generated } = await llm.generateBody({ title: draft.title ?? item.title, outline, serpDump, competitorDump, websiteSummary, citations, youtube, images, internalLinks, locale })
+    const { bodyHtml: generated } = await llm.generateBody({
+      title: draft.title ?? item.title,
+      outline,
+      serpDump: context.serpDump,
+      competitorDump: context.competitorDump,
+      websiteSummary: context.websiteSummary,
+      citations: context.citations,
+      youtube: context.youtube,
+      images: context.images,
+      internalLinks: context.internalLinks,
+      locale,
+      features: context.features
+    })
     bodyHtml = generated
     // Fallback: if no embeds present, append minimal sections
+    const youtube = context.features.youtube ? context.youtube : []
     if (youtube.length && !/youtube\.com|youtu\.be/.test(bodyHtml)) {
       const first = youtube[0]
       const vidIdMatch = first.url.match(/(?:v=|\/embed\/|youtu\.be\/)([A-Za-z0-9_-]{6,})/)
@@ -112,27 +113,65 @@ export async function processGenerate(payload: { projectId?: string; websiteId?:
         bodyHtml += `\n<section><h2>Watch</h2><div style="position:relative;padding-bottom:56.25%;height:0;overflow:hidden"><iframe src="https://www.youtube.com/embed/${vidId}" title="${first.title || 'Video'}" allowfullscreen style="position:absolute;top:0;left:0;width:100%;height:100%"></iframe></div></section>`
       }
     }
+    const images = (context.features.imageUnsplash || context.features.imageAi) ? context.images : []
     if (images.length && !/<img\s/i.test(bodyHtml)) {
       const im = images[0]
       bodyHtml += `\n<figure><img src="${im.src}" alt="${(im.alt || '').replace(/"/g,'&quot;')}" /><figcaption>${im.caption || ''}</figcaption></figure>`
     }
+    const citations = context.citations
     if (citations.length && !/References<\/h2>/i.test(bodyHtml)) {
       const refs = citations.map((c, i) => `<li>[${i + 1}] <a href="${c.url}" target="_blank" rel="noreferrer">${c.title || c.url}</a></li>`).join('')
       bodyHtml += `\n<section><h2>References</h2><ol>${refs}</ol></section>`
     }
+    const generationPayload = buildArticleGenerationPayload({
+      articleId: draft.id,
+      websiteId: draft.websiteId ?? (payload.websiteId || payload.projectId) ?? null,
+      title: draft.title ?? item.title,
+      targetKeyword: draft.targetKeyword ?? keyword,
+      locale,
+      outline,
+      bodyHtml,
+      generatedAt: new Date(),
+      context
+    })
     // skip bundle cost logs in DB-only mode
-    await articlesRepo.update(draft.id, { bodyHtml, generationDate: new Date() as any, status: 'scheduled' })
-    log.debug('[generate] article scheduled', { articleId: draft.id, hasCitations: citations.length > 0, hasYoutube: youtube.length > 0 })
-    // Persist attachments to DB for downstream connectors
-    try {
-      const { attachmentsRepo } = await import('@entities/article/repository.attachments')
-      const toId = (url: string) => {
-        const m = url.match(/(?:v=|\/embed\/|youtu\.be\/)([A-Za-z0-9_-]{6,})/)
-        return m ? m[1] : ''
+    await articlesRepo.update(draft.id, {
+      bodyHtml,
+      generationDate: new Date() as any,
+      status: 'scheduled',
+      payloadJson: generationPayload
+    })
+    if (site?.orgId) {
+      try {
+        await recordComplimentaryGeneration(site.orgId)
+      } catch (error) {
+        log.error('[generate] complimentary tracking failed', {
+          orgId: site.orgId,
+          articleId: draft.id,
+          message: (error as Error)?.message || String(error)
+        })
       }
-      const yt = youtube.map((y) => ({ id: toId(y.url), title: y.title })).filter((y) => y.id)
-      await attachmentsRepo.replaceForArticle(draft.id, { images, youtube: yt })
-    } catch {}
+    }
+    log.debug('[generate] article scheduled', {
+      articleId: draft.id,
+      hasCitations: citations.length > 0,
+      hasYoutube: youtube.length > 0,
+      features
+    })
+    // Persist attachments to DB for downstream connectors
+    if (context.features.attachments && (images.length || youtube.length)) {
+      try {
+        const { attachmentsRepo } = await import('@entities/article/repository.attachments')
+        const toId = (url: string) => {
+          const m = url.match(/(?:v=|\/embed\/|youtu\.be\/)([A-Za-z0-9_-]{6,})/)
+          return m ? m[1] : ''
+        }
+        const yt = youtube.map((y) => ({ id: toId(y.url), title: y.title })).filter((y) => y.id)
+        await attachmentsRepo.replaceForArticle(draft.id, { images, youtube: yt })
+      } catch (error) {
+        log.warn('[generate] attachments persistence failed', { articleId: draft.id, error: (error as Error)?.message })
+      }
+    }
     // skip bundle writes in DB-only mode
     // queue enrich step
     try {

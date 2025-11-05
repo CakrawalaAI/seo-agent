@@ -5,6 +5,7 @@ import { articlesRepo } from '@entities/article/repository'
 import { connectorRegistry } from '@features/integrations/server/registry'
 import { queueEnabled, publishJob } from '@common/infra/queue'
 import { recordJobQueued } from '@common/infra/jobs'
+import { ConnectorNotReadyError } from '@features/integrations/shared/errors'
 
 export const Route = createFileRoute('/api/articles/$articleId/publish')({
   server: {
@@ -53,7 +54,35 @@ export const Route = createFileRoute('/api/articles/$articleId/publish')({
         }
 
         // Synchronous publish (fallback if no queue)
-        const result = await connectorRegistry.publish((integration as any).type, article, (integration as any).configJson ?? {})
+        let config: Record<string, unknown> = {}
+        const rawConfig = (integration as any).configJson
+        if (typeof rawConfig === 'string') {
+          try {
+            config = JSON.parse(rawConfig)
+          } catch {
+            config = {}
+          }
+        } else if (rawConfig && typeof rawConfig === 'object') {
+          config = rawConfig as Record<string, unknown>
+        }
+
+        let result
+        try {
+          result = await connectorRegistry.publish((integration as any).type, article, config)
+        } catch (error) {
+          if (error instanceof ConnectorNotReadyError) {
+            return json(
+              {
+                ok: false,
+                reason: 'not_implemented',
+                message: error.message,
+                connector: error.connector
+              },
+              { status: 501 }
+            )
+          }
+          throw error
+        }
 
         if (!result) {
           return httpError(500, 'Publishing failed')

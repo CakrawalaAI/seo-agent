@@ -11,6 +11,7 @@ export const articles = pgTable(
     keywordId: text('keyword_id').references(() => keywords.id, { onDelete: 'set null' }),
     scheduledDate: text('scheduled_date'),
     title: text('title'),
+    targetKeyword: text('target_keyword'),
     outlineJson: jsonb('outline_json').$type<Array<{ heading: string; subpoints?: string[] }> | null>().default(null),
     bodyHtml: text('body_html'),
     language: text('language'),
@@ -19,6 +20,7 @@ export const articles = pgTable(
     generationDate: timestamp('generation_date', { withTimezone: true }),
     publishDate: timestamp('publish_date', { withTimezone: true }),
     url: text('url'),
+    payloadJson: jsonb('payload_json').$type<any | null>().default(null),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow()
   },

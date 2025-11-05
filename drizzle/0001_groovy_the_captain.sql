@@ -1,1 +1,0 @@
-ALTER TABLE "websites" ADD COLUMN "seed_keywords" jsonb DEFAULT 'null'::jsonb;

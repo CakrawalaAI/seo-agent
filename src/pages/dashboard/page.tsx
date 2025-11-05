@@ -3,6 +3,7 @@ import { useMutation, useQuery } from '@tanstack/react-query'
 import { useActiveWebsite } from '@common/state/active-website'
 import { useMockData } from '@common/dev/mock-data-context'
 import { getWebsite, getWebsiteSnapshot, runSchedule } from '@entities/website/service'
+import { extractErrorMessage } from '@common/http/json'
 import type { Keyword } from '@entities'
 import type { PlanItem } from '@entities/article/planner'
 import { Button } from '@src/common/ui/button'
@@ -10,6 +11,7 @@ import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from '@src/common/ui
 import { Textarea } from '@src/common/ui/textarea'
 import { OnboardingForm } from '@features/onboarding/client/onboarding-form'
 import { Progress } from '@src/common/ui/progress'
+import { useDashboardEvents } from '@features/dashboard/shared/use-dashboard-events'
 
 type DashboardData = { website: any | null; snapshot: any | null }
 
@@ -76,6 +78,9 @@ const MOCK_DASHBOARD: DashboardData = {
       total: MOCK_KEYWORDS.length,
       latestCreatedAt: MOCK_KEYWORDS[0]?.metricsJson?.asOf ?? new Date().toISOString()
     },
+    crawlStatus: 'idle',
+    crawlCooldownExpiresAt: null,
+    lastCrawlAt: new Date(Date.now() - 3_600_000 * 6).toISOString(),
     articleProgress: {
       generatedCount: MOCK_PLAN_ITEMS.length,
       scheduledCount: MOCK_PLAN_ITEMS.filter((item) => item.status === 'scheduled').length,
@@ -110,11 +115,30 @@ export function Page(): JSX.Element {
 
   const project = mockEnabled ? MOCK_DASHBOARD.website : projectQuery.data
   const snapshot = mockEnabled ? MOCK_DASHBOARD.snapshot : snapshotQuery.data
+  const billingState = (snapshot?.billingState ?? null) as any
+  const trialInfo = (billingState?.trial ?? null) as any
+  const trialStatus = typeof billingState?.status === 'string' ? String(billingState.status).toLowerCase() : null
+  const trialOutlinesThrough = typeof trialInfo?.outlinesThrough === 'string' ? trialInfo.outlinesThrough : null
+  const trialEndsAt = typeof billingState?.trialEndsAt === 'string' ? billingState.trialEndsAt : null
+  const activeUntil = typeof billingState?.activeUntil === 'string' ? billingState.activeUntil : null
+  const complimentaryLimit = Number(trialInfo?.complimentaryLimit ?? 0)
+  const complimentaryUsed = Number(trialInfo?.complimentaryUsed ?? 0)
+  const complimentaryRemaining = Math.max(0, complimentaryLimit - complimentaryUsed)
+  const fullyGeneratedCount = Number(snapshot?.articleProgress?.fullyGeneratedCount ?? 0)
+  const showTrialBanner = !mockEnabled && trialStatus === 'trialing' && Boolean(trialOutlinesThrough)
+  const showActiveBanner = !mockEnabled && !showTrialBanner && trialStatus === 'active'
+  const showComplimentaryBanner =
+    !mockEnabled && !showTrialBanner && !showActiveBanner && complimentaryRemaining > 0 && Boolean(trialOutlinesThrough)
 
   const insight = useMemo(() => buildInsights(project, snapshot), [project, snapshot])
 
+  useDashboardEvents(projectId, { enabled: Boolean(projectId && !mockEnabled) })
+
+  const [billingMessage, setBillingMessage] = useState<string | null>(null)
   const [isEditingSummary, setIsEditingSummary] = useState(false)
   const [draftSummary, setDraftSummary] = useState(() => project?.summary ?? insight.summaryText)
+  const [reCrawlMessage, setReCrawlMessage] = useState<string | null>(null)
+  const [reCrawlNextEligibleAt, setReCrawlNextEligibleAt] = useState<string | null>(null)
 
   useEffect(() => {
     if (mockEnabled) return
@@ -127,7 +151,42 @@ export function Page(): JSX.Element {
     onSuccess: () => { setIsEditingSummary(false) }
   })
 
-  const mergeActionMutation = useMutation({
+  const subscribeMutation = useMutation({
+    mutationFn: async () => {
+      if (mockEnabled) return
+      const res = await fetch('/api/billing/checkout', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({}),
+        redirect: 'manual'
+      })
+      if (res.status === 302) {
+        const location = res.headers.get('Location')
+        if (location && typeof window !== 'undefined') window.location.href = location
+        return
+      }
+      if (!res.ok) {
+        const payload = (await res.json().catch(() => ({}))) as { message?: string }
+        throw new Error(payload?.message || `Checkout failed (${res.status})`)
+      }
+      const location = res.headers.get('Location')
+      if (location && typeof window !== 'undefined') {
+        window.location.href = location
+        return
+      }
+      if (typeof window !== 'undefined') {
+        window.location.href = '/api/billing/checkout'
+      }
+    },
+    onMutate: () => {
+      setBillingMessage(null)
+    },
+    onError: (error) => {
+      setBillingMessage(extractErrorMessage(error))
+    }
+  })
+
+const mergeActionMutation = useMutation({
     mutationFn: async (step: ProjectStatusStep['action']) => {
       if (!step || mockEnabled) return
       if (step.type === 'crawl') return projectId ? getWebsiteSnapshot(projectId) : null
@@ -145,7 +204,106 @@ export function Page(): JSX.Element {
       return null
     },
     onSuccess: () => { snapshotQuery.refetch() }
-  })
+})
+
+const reCrawlMutation = useMutation({
+    mutationFn: async () => {
+      if (!projectId) throw new Error('Missing website')
+      const response = await fetch('/api/crawl/run', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ websiteId: projectId })
+      })
+      const payload = await response.json().catch(() => ({}))
+      if (!response.ok) {
+        const error = new Error(payload?.message || 'Failed to trigger crawl')
+        ;(error as any).status = response.status
+        ;(error as any).details = payload ?? null
+        throw error
+      }
+      return payload
+    },
+    onMutate: () => {
+      setReCrawlMessage(null)
+    },
+    onSuccess: (payload: any) => {
+      const status = typeof payload?.status === 'string' ? payload.status : ''
+      setReCrawlMessage(status === 'running' ? 'Crawl already running' : 'Re-crawl queued')
+      setReCrawlNextEligibleAt(typeof payload?.nextEligibleAt === 'string' ? payload.nextEligibleAt : null)
+      snapshotQuery.refetch()
+    },
+    onError: (error: any) => {
+      const statusCode = Number(error?.status ?? error?.details?.status ?? 0)
+      const nextEligible: string | null =
+        typeof error?.details?.nextEligibleAt === 'string'
+          ? error.details.nextEligibleAt
+          : typeof error?.details?.nextEligible_at === 'string'
+          ? error.details.nextEligible_at
+          : null
+      if (statusCode === 429) {
+        setReCrawlMessage(nextEligible ? `Re-crawl available ${formatRelativeTime(nextEligible)}` : 'Re-crawl on cooldown')
+        setReCrawlNextEligibleAt(nextEligible)
+      } else if (statusCode === 503) {
+        setReCrawlMessage('Crawl queue unavailable; try again later')
+        setReCrawlNextEligibleAt(null)
+      } else {
+        setReCrawlMessage('Failed to trigger re-crawl')
+        setReCrawlNextEligibleAt(null)
+      }
+    }
+})
+
+  const crawlStatus = insight.crawlStatus
+  const crawlCooldownExpiresAt = insight.crawlCooldownExpiresAt
+  const lastCrawlAt = insight.lastCrawlAt
+  const playwrightWorkers = insight.playwrightWorkers
+  const effectiveNextEligibleAt = reCrawlNextEligibleAt ?? crawlCooldownExpiresAt
+  const disableReCrawl =
+    mockEnabled ||
+    !projectId ||
+    reCrawlMutation.isPending ||
+    crawlStatus === 'running' ||
+    crawlStatus === 'cooldown'
+  const reCrawlButtonLabel =
+    crawlStatus === 'running'
+      ? 'Crawl running'
+      : crawlStatus === 'cooldown'
+      ? 'Cooldown'
+      : reCrawlMutation.isPending
+      ? 'Starting…'
+      : 'Re-crawl'
+  const reCrawlStatusText = (() => {
+    if (mockEnabled) return 'Mock data active'
+    if (reCrawlMutation.isPending) return 'Starting re-crawl…'
+    if (crawlStatus === 'running') {
+      const workersNote = playwrightWorkers ? ` · ${playwrightWorkers.active}/${playwrightWorkers.max} workers active` : ''
+      return lastCrawlAt ? `Crawl running (started ${formatRelativeTime(lastCrawlAt)})${workersNote}` : `Crawl running${workersNote}`
+    }
+    if (crawlStatus === 'cooldown') {
+      return effectiveNextEligibleAt ? `Re-crawl available ${formatRelativeTime(effectiveNextEligibleAt)}` : 'Re-crawl on cooldown'
+    }
+    if (reCrawlMessage) {
+      return reCrawlNextEligibleAt ? `${reCrawlMessage} (${formatRelativeTime(reCrawlNextEligibleAt)})` : reCrawlMessage
+    }
+    if (lastCrawlAt) return `Last crawl ${formatRelativeTime(lastCrawlAt)}`
+    return null
+  })()
+
+  useEffect(() => {
+    if (reCrawlMutation.isPending) return
+    if (crawlStatus === 'idle') {
+      if (reCrawlNextEligibleAt !== null) setReCrawlNextEligibleAt(null)
+      if (reCrawlMessage && !reCrawlMessage.toLowerCase().includes('failed')) {
+        setReCrawlMessage(null)
+      }
+    } else if (crawlStatus === 'cooldown') {
+      if (!reCrawlNextEligibleAt && crawlCooldownExpiresAt) {
+        setReCrawlNextEligibleAt(crawlCooldownExpiresAt)
+      }
+    } else if (crawlStatus === 'running') {
+      if (reCrawlNextEligibleAt !== null) setReCrawlNextEligibleAt(null)
+    }
+  }, [crawlStatus, crawlCooldownExpiresAt, reCrawlMutation.isPending, reCrawlMessage, reCrawlNextEligibleAt])
 
   if (!projectId) {
     return (
@@ -173,18 +331,92 @@ export function Page(): JSX.Element {
         <h1 className="text-2xl font-semibold">Dashboard</h1>
       </header>
 
+      {showTrialBanner ? (
+        <section className="rounded-lg border border-primary/30 bg-primary/5 p-4">
+          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+            <div className="space-y-1 text-sm">
+              <p className="font-semibold text-primary">Trial runway ready</p>
+              <p className="text-muted-foreground">
+                {`Outlines scheduled through ${formatCalendarDate(trialOutlinesThrough)}. ${fullyGeneratedCount >= 3 ? 'First three drafts are ready to review.' : 'First three drafts will be generated automatically.'}`}
+              </p>
+              <p className="text-xs text-muted-foreground">
+                {complimentaryLimit > 0
+                  ? `${complimentaryRemaining} of ${complimentaryLimit} complimentary articles remaining`
+                  : 'Complimentary articles complete'}
+              </p>
+              {trialEndsAt ? (
+                <p className="text-xs text-muted-foreground">{`Trial ends ${formatRelativeTime(trialEndsAt)}.`}</p>
+              ) : null}
+              {billingMessage ? <p className="text-xs text-destructive">{billingMessage}</p> : null}
+            </div>
+            <Button
+              type="button"
+              size="sm"
+              onClick={() => {
+                if (mockEnabled) return
+                subscribeMutation.mutate()
+              }}
+              disabled={subscribeMutation.isPending}
+            >
+              {subscribeMutation.isPending ? 'Redirecting…' : 'Unlock full generation'}
+            </Button>
+          </div>
+        </section>
+      ) : null}
+
+      {showComplimentaryBanner ? (
+        <section className="rounded-lg border border-amber-200 bg-amber-50/60 p-4">
+          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+            <div className="space-y-1 text-sm">
+              <p className="font-semibold text-amber-800">Complimentary preview unlocked</p>
+              <p className="text-muted-foreground">
+                {`Outlines scheduled through ${formatCalendarDate(trialOutlinesThrough)}. First three drafts will be generated automatically.`}
+              </p>
+              <p className="text-xs text-muted-foreground">{`${complimentaryRemaining} of ${complimentaryLimit} complimentary articles remaining.`}</p>
+              {billingMessage ? <p className="text-xs text-destructive">{billingMessage}</p> : null}
+            </div>
+            <Button
+              type="button"
+              size="sm"
+              onClick={() => {
+                if (mockEnabled) return
+                subscribeMutation.mutate()
+              }}
+              disabled={subscribeMutation.isPending}
+            >
+              {subscribeMutation.isPending ? 'Redirecting…' : 'Upgrade for full access'}
+            </Button>
+          </div>
+        </section>
+      ) : null}
+
+      {showActiveBanner ? (
+        <section className="rounded-lg border border-emerald-200 bg-emerald-50/60 p-4 text-sm text-emerald-900">
+          <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+            <div className="space-y-1">
+              <p className="font-semibold">Subscription active</p>
+              <p className="text-muted-foreground">
+                {activeUntil ? `Runway maintained through ${formatCalendarDate(activeUntil)}.` : 'Runway maintained for the current billing period.'}
+              </p>
+            </div>
+          </div>
+        </section>
+      ) : null}
+
       <section className="rounded-lg border bg-card p-5 shadow-sm">
         <div className="flex items-start justify-between gap-3">
           <div>
             <h2 className="text-lg font-semibold text-foreground">Website Summary</h2>
             <p className="text-sm text-muted-foreground">Business context of the website: products, services, audience, positioning.</p>
           </div>
-          <Button
-            type="button"
-            variant={isEditingSummary ? 'default' : 'outline'}
-            size="sm"
-            onClick={() => {
-              if (mockEnabled) return
+          <div className="flex flex-col items-end gap-2">
+            <div className="flex gap-2">
+              <Button
+                type="button"
+                variant={isEditingSummary ? 'default' : 'outline'}
+                size="sm"
+                onClick={() => {
+              if (mockEnabled || crawlStatus === 'running') return
               if (isEditingSummary) {
                 saveSummaryMutation.mutate(draftSummary.trim())
               } else {
@@ -192,13 +424,35 @@ export function Page(): JSX.Element {
                 setIsEditingSummary(true)
               }
             }}
-            disabled={mockEnabled || (isEditingSummary && draftSummary.trim().length === 0) || saveSummaryMutation.isPending}
+            disabled={
+              mockEnabled ||
+              crawlStatus === 'running' ||
+              (isEditingSummary && draftSummary.trim().length === 0) ||
+              saveSummaryMutation.isPending
+            }
           >
             {mockEnabled ? 'Mock data' : isEditingSummary ? (saveSummaryMutation.isPending ? 'Saving…' : 'Save summary') : 'Edit summary'}
           </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  if (mockEnabled || !projectId) return
+                  reCrawlMutation.mutate()
+                }}
+                disabled={disableReCrawl}
+              >
+                {reCrawlButtonLabel}
+              </Button>
+            </div>
+            {reCrawlStatusText ? (
+              <span className="text-xs text-muted-foreground text-right">{reCrawlStatusText}</span>
+            ) : null}
+          </div>
         </div>
         <Textarea
-          readOnly={!isEditingSummary || mockEnabled}
+          readOnly={!isEditingSummary || mockEnabled || crawlStatus === 'running'}
           value={isEditingSummary ? draftSummary : insight.summaryText}
           onChange={(event) => setDraftSummary(event.target.value)}
           className="mt-4 min-h-[220px] resize-none bg-background/90 text-sm leading-relaxed"
@@ -310,6 +564,15 @@ function buildInsights(website: any | null | undefined, snapshot: any | null | u
   const crawlProgress = normalizeCrawlProgress(snapshot?.crawlProgress)
   const keywordProgress = normalizeKeywordProgress(snapshot?.keywordProgress, keywords.length)
   const articleProgress = normalizeArticleProgress(snapshot?.articleProgress, generatedCount, scheduledCount)
+  const crawlStatus = (snapshot?.crawlStatus as 'idle' | 'running' | 'cooldown') ?? 'idle'
+  const crawlCooldownExpiresAt = typeof snapshot?.crawlCooldownExpiresAt === 'string' ? snapshot.crawlCooldownExpiresAt : null
+  const lastCrawlAt = typeof snapshot?.lastCrawlAt === 'string' ? snapshot.lastCrawlAt : null
+  const playwrightWorkers = snapshot?.playwrightWorkers && typeof snapshot.playwrightWorkers === 'object'
+    ? {
+        active: Number(snapshot.playwrightWorkers.active) || 0,
+        max: Number(snapshot.playwrightWorkers.max) || 0
+      }
+    : null
 
   const projectStatus = buildProjectStatus({
     project: website,
@@ -318,12 +581,20 @@ function buildInsights(website: any | null | undefined, snapshot: any | null | u
     queueDepth,
     crawlProgress,
     keywordProgress,
-    articleProgress
+    articleProgress,
+    crawlStatus,
+    crawlCooldownExpiresAt,
+    lastCrawlAt,
+    playwrightWorkers
   })
 
   return {
     projectStatus,
-    summaryText
+    summaryText,
+    crawlStatus,
+    crawlCooldownExpiresAt,
+    lastCrawlAt,
+    playwrightWorkers
   }
 }
 
@@ -383,6 +654,7 @@ type NormalizedKeywordProgress = {
 type NormalizedArticleProgress = {
   generatedCount: number
   scheduledCount: number
+  fullyGeneratedCount?: number
   targetCount: number
 }
 
@@ -393,7 +665,11 @@ function buildProjectStatus({
   queueDepth,
   crawlProgress,
   keywordProgress,
-  articleProgress
+  articleProgress,
+  crawlStatus,
+  crawlCooldownExpiresAt,
+  lastCrawlAt,
+  playwrightWorkers
 }: {
   project: any | null | undefined
   hasSummary: boolean
@@ -402,6 +678,10 @@ function buildProjectStatus({
   crawlProgress: NormalizedCrawlProgress
   keywordProgress: NormalizedKeywordProgress
   articleProgress: NormalizedArticleProgress
+  crawlStatus: 'idle' | 'running' | 'cooldown'
+  crawlCooldownExpiresAt: string | null
+  lastCrawlAt: string | null
+  playwrightWorkers: { active: number; max: number } | null
 }): ProjectStatusStep[] {
   const steps = [
     {
@@ -440,17 +720,33 @@ function buildProjectStatus({
   return steps.map((step, index) => {
     const allPrevComplete = steps.slice(0, index).every((prev) => prev.completed)
     const state: 'done' | 'active' | 'pending' = step.completed ? 'done' : allPrevComplete ? 'active' : 'pending'
-    const badge = step.completed ? 'Done' : state === 'active' ? 'In progress' : 'To do'
+    let badge = step.completed ? 'Done' : state === 'active' ? 'In progress' : 'To do'
 
     let metric: ProjectStatusMetric | undefined
     if (step.id === 'crawl') {
       const percent = computePercent(crawlProgress.crawledCount, crawlProgress.targetCount)
       if (state !== 'pending' || percent > 0) {
+        if (!step.completed) {
+          if (crawlStatus === 'running') badge = 'Running'
+          else if (crawlStatus === 'cooldown') badge = 'Cooldown'
+        }
+        const noteParts: string[] = []
+        if (crawlStatus === 'running' && crawlProgress.startedAt) {
+          noteParts.push(`Started ${formatRelativeTime(crawlProgress.startedAt)}`)
+        } else if (crawlStatus === 'cooldown' && crawlCooldownExpiresAt) {
+          noteParts.push(`Available ${formatRelativeTime(crawlCooldownExpiresAt)}`)
+        } else if (lastCrawlAt) {
+          noteParts.push(`Last crawl ${formatRelativeTime(lastCrawlAt)}`)
+        }
+        if (crawlStatus === 'running' && playwrightWorkers) {
+          noteParts.push(`${playwrightWorkers.active}/${playwrightWorkers.max} workers active`)
+        }
         metric = {
           kind: 'progress',
           value: percent,
           label: `${percent}% of crawl budget`,
-          ariaLabel: `Crawl progress ${percent} percent`
+          ariaLabel: `Crawl progress ${percent} percent`,
+          note: noteParts.length ? noteParts.join(' · ') : undefined
         }
       }
     } else if (step.id === 'keywords') {
@@ -574,9 +870,11 @@ function normalizeArticleProgress(
   const target = Math.max(1, Number(raw?.targetCount ?? Math.max(generatedFallback, 30)) || 30)
   const generated = Math.max(0, Number(raw?.generatedCount ?? generatedFallback ?? 0) || 0)
   const scheduled = Math.max(0, Number(raw?.scheduledCount ?? scheduledFallback ?? 0) || 0)
+  const fullyGenerated = Math.max(0, Number(raw?.fullyGeneratedCount ?? 0) || 0)
   return {
     generatedCount: Math.min(generated, target),
     scheduledCount: Math.min(scheduled, target),
+    fullyGeneratedCount: Math.min(fullyGenerated, target),
     targetCount: target
   }
 }
@@ -588,6 +886,36 @@ function computePercent(current: number, total: number): number {
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), max)
+}
+
+function formatRelativeTime(iso: string): string {
+  if (!iso) return ''
+  const target = new Date(iso)
+  if (Number.isNaN(target.getTime())) return ''
+  const diffMs = target.getTime() - Date.now()
+  const absMinutes = Math.round(Math.abs(diffMs) / 60000)
+  if (absMinutes >= 1440) {
+    const days = Math.round(absMinutes / 1440)
+    const label = pluralize(days, 'day')
+    return diffMs >= 0 ? `in ${label}` : `${label} ago`
+  }
+  if (absMinutes >= 60) {
+    const hours = Math.round(absMinutes / 60)
+    const label = pluralize(hours, 'hour')
+    return diffMs >= 0 ? `in ${label}` : `${label} ago`
+  }
+  if (absMinutes >= 1) {
+    const label = pluralize(absMinutes, 'minute')
+    return diffMs >= 0 ? `in ${label}` : `${label} ago`
+  }
+  return diffMs >= 0 ? 'soon' : 'just now'
+}
+
+function formatCalendarDate(iso: string | null | undefined): string {
+  if (!iso) return '—'
+  const date = new Date(iso)
+  if (Number.isNaN(date.getTime())) return String(iso)
+  return new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric' }).format(date)
 }
 
 function formatNumber(value: number): string {

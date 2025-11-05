@@ -21,6 +21,14 @@ export type OrgEntitlements = {
   projectQuota?: number | null
   dailyArticles?: number | null
   monthlyPostCredits?: number | null
+  status?: string | null
+  activeUntil?: string | null
+  trialEndsAt?: string | null
+  trial?: {
+    eligible?: boolean | null
+    initialRunwaySeededAt?: string | null
+    outlinesThrough?: string | null
+  } | null
   [key: string]: unknown
 }
 

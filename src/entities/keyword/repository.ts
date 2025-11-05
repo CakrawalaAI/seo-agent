@@ -1,6 +1,6 @@
 import { hasDatabase, getDb } from '@common/infra/db'
 import { keywords } from './db/schema.keywords'
-import { and, eq } from 'drizzle-orm'
+import { and, eq, sql } from 'drizzle-orm'
 
 export const keywordsRepo = {
   async upsert(input: {
@@ -131,6 +131,22 @@ export const keywordsRepo = {
     if (!hasDatabase()) return []
     const db = getDb()
     return await db.select().from(keywords).where(eq(keywords.websiteId, websiteId)).limit(limit)
+  },
+
+  async count(websiteId: string): Promise<number> {
+    if (!hasDatabase()) return 0
+    const db = getDb()
+    const rows = await db
+      .select({ value: sql<number>`count(*)` })
+      .from(keywords)
+      .where(eq(keywords.websiteId, websiteId))
+    return Number(rows?.[0]?.value ?? 0)
+  },
+
+  async removeAllForWebsite(websiteId: string) {
+    if (!hasDatabase()) return
+    const db = getDb()
+    await db.delete(keywords).where(eq(keywords.websiteId, websiteId))
   }
 }
 

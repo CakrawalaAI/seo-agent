@@ -1,12 +1,14 @@
 import { createFileRoute, redirect } from '@tanstack/react-router'
 import { loader } from '@pages/dashboard/loader'
 import { Page } from '@pages/dashboard/page'
-import { getCurrentUserFn } from '@server/auth'
 
 export const Route = createFileRoute('/dashboard')({
-  beforeLoad: async ({ location }) => {
-    const user = await getCurrentUserFn()
-    if (!user) {
+  beforeLoad: async () => {
+    try {
+      const res = await fetch('/api/me', { headers: { accept: 'application/json' } })
+      const data = res.ok ? await res.json() : null
+      if (!data?.user) throw redirect({ to: '/' })
+    } catch {
       throw redirect({ to: '/' })
     }
   },

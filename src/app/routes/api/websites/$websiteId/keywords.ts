@@ -12,6 +12,8 @@ import {
   locationCodeFromLocale,
   locationNameFromCode
 } from '@common/providers/impl/dataforseo/geo'
+import { keywordOverview } from '@common/providers/impl/dataforseo/keyword-overview'
+import { log } from '@src/common/logger'
 
 export const Route = createFileRoute('/api/websites/$websiteId/keywords')({
   server: {
@@ -44,6 +46,39 @@ export const Route = createFileRoute('/api/websites/$websiteId/keywords')({
         const locale = String(body?.locale || website.defaultLocale || 'en-US')
         const languageCode = String(body?.languageCode || languageCodeFromLocale(locale))
         const locationCode = Number.isFinite(Number(body?.locationCode)) ? Number(body.locationCode) : locationCodeFromLocale(locale)
+        const useMock = String(process.env.MOCK_KEYWORD_GENERATOR || '').trim().toLowerCase() === 'true'
+        let overview: Awaited<ReturnType<typeof keywordOverview>> = null
+        if (!useMock) {
+          try {
+            overview = await keywordOverview({ keyword: phrase, languageCode, locationCode })
+          } catch (error) {
+            log.warn('[api.keywords.manual] keyword overview failed', {
+              websiteId: params.websiteId,
+              phrase,
+              error: (error as Error)?.message || String(error)
+            })
+          }
+        }
+
+        const info = overview?.keyword_info || {}
+        const props = overview?.keyword_properties || {}
+        const manualVolume = toNumberOrNull(body?.searchVolume)
+        const manualDifficulty = toNumberOrNull(body?.difficulty)
+        const manualCpc = toNumberOrNull(body?.cpc)
+        const manualCompetition = toNumberOrNull(body?.competition)
+        const searchVolume = pickNumber(info?.search_volume, manualVolume)
+        const difficulty = pickNumber(props?.keyword_difficulty, manualDifficulty)
+        const cpc = pickNumber(info?.cpc, manualCpc)
+        const competition = pickNumber(info?.competition, manualCompetition)
+        const monthly = Array.isArray((info as any)?.monthly_searches)
+          ? (info as any).monthly_searches
+              .map((m: any) => ({ month: `${m?.year ?? ''}-${String(m?.month ?? 1).padStart(2, '0')}`, searchVolume: Number(m?.search_volume ?? 0) }))
+              .filter((entry: any) => entry.month && Number.isFinite(entry.searchVolume))
+          : null
+        const providerName = useMock ? 'mock.manual_keyword' : 'dataforseo.labs.keyword_overview'
+        const raw = overview || null
+        const metricsAsOf = new Date().toISOString()
+
         const result = await keywordsRepo.upsert({
           websiteId: params.websiteId,
           phrase,
@@ -53,11 +88,15 @@ export const Route = createFileRoute('/api/websites/$websiteId/keywords')({
           locationCode,
           locationName: locationNameFromCode(locationCode),
           include: Boolean(body?.include),
-          searchVolume: toNumberOrNull(body?.searchVolume),
-          cpc: toNumberOrNull(body?.cpc),
-          competition: toNumberOrNull(body?.competition),
-          difficulty: toNumberOrNull(body?.difficulty),
-          metricsAsOf: new Date().toISOString()
+          searchVolume,
+          cpc,
+          competition,
+          difficulty,
+          vol12m: monthly,
+          impressions: overview?.impressions_info || null,
+          raw,
+          provider: providerName,
+          metricsAsOf
         })
         if (!result) return httpError(500, 'Unable to save keyword')
         return json({ item: shapeKeywordRow(result) }, { status: 201 })
@@ -91,4 +130,12 @@ function toNumberOrNull(value: unknown): number | null {
   if (value == null || value === '') return null
   const num = Number(value)
   return Number.isFinite(num) ? num : null
+}
+
+function pickNumber(primary: unknown, fallback: number | null | undefined): number | null {
+  if (primary !== null && primary !== undefined) {
+    const num = Number(primary)
+    if (Number.isFinite(num)) return num
+  }
+  return fallback ?? null
 }

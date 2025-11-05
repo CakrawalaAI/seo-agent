@@ -135,7 +135,6 @@ export function buildPortableArticle(article: Article): PortableArticle {
     seo: {
       metaTitle: article.title ?? undefined,
       metaDescription: article.title ? `${article.title.slice(0, 150)}...` : undefined,
-      // Domain Article currently has no keyword field
       primaryKeyword: undefined
     },
     locale: article.language ?? 'en',

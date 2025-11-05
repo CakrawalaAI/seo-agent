@@ -5,6 +5,8 @@ import { planRepo } from '@entities/article/planner'
 import { hasDatabase, getDb } from '@common/infra/db'
 import { articles } from '@entities/article/db/schema'
 import { eq, and, asc, inArray, isNotNull } from 'drizzle-orm'
+import { websitesRepo } from '@entities/website/repository'
+import { getEntitlements } from '@common/infra/entitlements'
 
 export const Route = createFileRoute('/api/plan-items')({
   server: {
@@ -54,9 +56,59 @@ export const Route = createFileRoute('/api/plan-items')({
         const days = Number(body?.days ?? 30)
         if (!websiteId || !Number.isFinite(days) || days <= 0) return httpError(400, 'Invalid input')
         await requireWebsiteAccess(request, String(websiteId))
-        const { jobId } = await planRepo.createPlan(String(websiteId), days)
+
+        const website = await websitesRepo.get(String(websiteId))
+        if (!website) return httpError(404, 'Website not found')
+
+        const boundedDays = await computeAllowedPlanDays(website.orgId, days)
+        if (boundedDays <= 0) {
+          return httpError(403, 'Extend subscription to schedule more content')
+        }
+
+        const { jobId } = await planRepo.createPlan(String(websiteId), boundedDays)
         return json({ jobId }, { status: 202 })
       })
     }
   }
 })
+
+async function computeAllowedPlanDays(orgId: string | null | undefined, requestedDays: number): Promise<number> {
+  if (!orgId) return Math.max(1, Math.min(90, Math.floor(requestedDays)))
+  try {
+    const entitlements = await getEntitlements(orgId)
+    if (!entitlements) return Math.max(1, Math.min(90, Math.floor(requestedDays)))
+
+    const today = startOfUtcDay(new Date())
+    const caps: Date[] = []
+    const addCap = (value: string | null | undefined) => {
+      if (!value) return
+      const parsed = new Date(value)
+      if (!Number.isNaN(parsed.getTime())) caps.push(startOfUtcDay(parsed))
+    }
+
+    addCap((entitlements.trial as any)?.outlinesThrough)
+    addCap(entitlements.trialEndsAt)
+    addCap(entitlements.activeUntil)
+
+    if (!caps.length) return Math.max(1, Math.min(90, Math.floor(requestedDays)))
+    const minCap = caps.sort((a, b) => a.getTime() - b.getTime())[0]
+    const allowed = differenceInDaysInclusive(minCap, today)
+    if (allowed <= 0) return 0
+    return Math.max(1, Math.min(allowed, Math.min(90, Math.floor(requestedDays))))
+  } catch {
+    return Math.max(1, Math.min(90, Math.floor(requestedDays)))
+  }
+}
+
+function startOfUtcDay(date: Date): Date {
+  const copy = new Date(date)
+  copy.setUTCHours(0, 0, 0, 0)
+  return copy
+}
+
+function differenceInDaysInclusive(end: Date, start: Date): number {
+  const diffMs = startOfUtcDay(end).getTime() - startOfUtcDay(start).getTime()
+  if (diffMs < 0) return 0
+  const days = Math.floor(diffMs / (24 * 60 * 60 * 1000)) + 1
+  return days
+}

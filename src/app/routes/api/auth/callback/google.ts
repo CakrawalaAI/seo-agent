@@ -13,6 +13,7 @@ import {
 } from '@common/auth/google'
 import { getDb } from '@common/infra/db'
 import { session } from '@common/infra/session'
+import { defaultEntitlements } from '@common/infra/entitlements'
 import { organizations, organizationMembers } from '@entities/org/db/schema'
 import { eq } from 'drizzle-orm'
 import { normalizeSiteInput } from '@features/onboarding/shared/url'
@@ -58,7 +59,7 @@ export const Route = createFileRoute('/api/auth/callback/google')({
             // Auto-create org and membership on first login
             const orgId = `org_${crypto.randomBytes(6).toString('hex')}`
             const orgName = `${(profile.email || 'org').split('@')[0]}'s Org`
-            const trialEnt = { monthlyPostCredits: 1 }
+            const trialEnt = defaultEntitlements()
             await db.insert(organizations).values({ id: orgId, name: orgName, plan: 'starter', entitlementsJson: trialEnt as any }).onConflictDoNothing()
             await db.insert(organizationMembers).values({ orgId, userEmail: profile.email, role: 'owner' }).onConflictDoNothing?.()
             activeOrg = { id: orgId, plan: 'starter' }

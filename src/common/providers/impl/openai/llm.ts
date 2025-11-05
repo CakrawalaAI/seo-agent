@@ -1,6 +1,7 @@
 import type { LlmProvider } from '../../interfaces/llm'
 import type { ArticleOutlineSection } from '@entities/article/domain/article'
 import { buildPickTopFromSitemapPrompt, buildWebsiteSummaryPrompt } from '@common/prompts/summarize-website'
+import { buildDraftOutlineMessages, buildGenerateBodyMessages, buildFactCheckMessages } from '@common/prompts/article-generation'
 import { HTTP_TIMEOUT_MS } from '@src/common/http/timeout'
 
 export const openAiLlm: LlmProvider = {
@@ -47,11 +48,15 @@ export const openAiLlm: LlmProvider = {
     if (!key) throw new Error('OPENAI_API_KEY missing')
     const { OpenAI } = await import('openai')
     const client = new OpenAI({ apiKey: key })
-    const prompt = `Write a compelling SEO title and outline for an article targeting "${keyword}" in ${locale}. Return JSON {title, outline:[{heading:"..."}]}`
+    const { system, user } = buildDraftOutlineMessages({ keyword, locale })
     const resp = await client.chat.completions.create(
       {
         model: 'gpt-4o-mini',
-        messages: [{ role: 'user', content: prompt }]
+        messages: [
+          { role: 'system', content: system },
+          { role: 'user', content: user }
+        ],
+        response_format: { type: 'json_object' as const }
       },
       { timeout: HTTP_TIMEOUT_MS }
     )
@@ -64,20 +69,37 @@ export const openAiLlm: LlmProvider = {
     if (!key) throw new Error('OPENAI_API_KEY missing')
     const { OpenAI } = await import('openai')
     const client = new OpenAI({ apiKey: key })
-    const citeList = (args.citations || []).map((c, i) => `${i + 1}. ${c.title || ''} — ${c.url} — ${(c.snippet || '').slice(0,140)}`).join('\n')
-    const ytList = (args.youtube || []).map((y, i) => `${i + 1}. ${y.title || ''} — ${y.url}`).join('\n')
-    const imgList = (args.images || []).map((img, i) => `${i + 1}. ${img.src} ${img.alt ? '('+img.alt+')' : ''}`).join('\n')
-    const internalList = (args.internalLinks || []).map((l) => `${l.anchor || 'Related'} — ${l.url}`).join('\n')
-    const prompt = `You are writing a production‑ready SEO article. Return valid semantic HTML only. Requirements:\n- H1 title must equal the Title.\n- Use provided Outline as H2/H3.\n- Naturally cite sources with numbered footnotes [1], [2] inline; append a References section with links.\n- Embed 1–2 Unsplash images as <figure> with <img src alt> and <figcaption>.\n- Embed the first YouTube URL as a responsive <iframe>.\n- Add 3–5 internal links where relevant.\n- Include JSON‑LD Article schema (script[type=application/ld+json]).\n- No markdown.\n\nBusiness Summary:\n${args.websiteSummary || ''}\n\nTitle: ${args.title}\nOutline JSON: ${JSON.stringify(args.outline)}\n\nSERP (top results excerpts):\n${args.serpDump ?? ''}\n\nCompetitors (optional):\n${args.competitorDump ?? ''}\n\nCitations:\n${citeList}\n\nYouTube:\n${ytList}\n\nUnsplash Images:\n${imgList}\n\nInternal Links:\n${internalList}`
+    const { system, user } = buildGenerateBodyMessages({
+      title: args.title,
+      locale: args.locale || 'en-US',
+      outline: args.outline,
+      websiteSummary: args.websiteSummary,
+      serpDump: args.serpDump,
+      competitorDump: args.competitorDump,
+      citations: args.citations,
+      youtube: args.youtube,
+      images: args.images,
+      internalLinks: args.internalLinks,
+      features: args.features
+    })
     const resp = await client.chat.completions.create(
       {
         model: 'gpt-4o-mini',
-        messages: [{ role: 'user', content: prompt }]
+        messages: [
+          { role: 'system', content: system },
+          { role: 'user', content: user }
+        ]
       },
       { timeout: HTTP_TIMEOUT_MS }
     )
     const html = resp.choices?.[0]?.message?.content || ''
-    return { bodyHtml: html }
+    const trimmed = html.trim()
+    if (!/<[a-z][\s\S]*>/i.test(trimmed)) {
+      return {
+        bodyHtml: `<article><h1>${args.title}</h1><p>${trimmed || 'Draft content pending.'}</p></article>`
+      }
+    }
+    return { bodyHtml: trimmed }
   },
 
   async factCheck({ title, bodyPreview, citations }) {
@@ -86,12 +108,15 @@ export const openAiLlm: LlmProvider = {
     try {
       const { OpenAI } = await import('openai')
       const client = new OpenAI({ apiKey: key })
-      const citeList = (citations || []).map((c, i) => `${i + 1}. ${c.title || ''} ${c.url}`).join('\n')
-      const prompt = `You are a meticulous fact-checker. Given the article title, an optional preview, and the list of citations, rate from 0-100 how well the claims are supported by the citations. Briefly explain. Return JSON {score,notes}.\nTitle: ${title}\nPreview: ${(bodyPreview || '').slice(0, 800)}\nCitations:\n${citeList}`
+      const { system, user } = buildFactCheckMessages({ title, preview: bodyPreview, citations })
       const resp = await client.chat.completions.create(
         {
           model: 'gpt-4o-mini',
-          messages: [{ role: 'user', content: prompt }]
+          messages: [
+            { role: 'system', content: system },
+            { role: 'user', content: user }
+          ],
+          response_format: { type: 'json_object' as const }
         },
         { timeout: HTTP_TIMEOUT_MS }
       )

@@ -8,6 +8,10 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { Toaster } from '@src/common/ui/sonner'
 import type { RouterContext } from '@app/router'
 import { DashboardLayout } from '@blocks/layouts/dashboard-layout'
+
+if (import.meta.env.SSR) {
+  await import('@app/realtime.server')
+}
 // Dev panel removed; no server sync endpoint
 
 function NotFound() {
@@ -61,12 +65,23 @@ function RootComponent(): JSX.Element {
 }
 
 function RootDocument({ children }: Readonly<{ children: React.ReactNode }>) {
+  const realtimePort =
+    (typeof process !== 'undefined' &&
+      (process.env.VITE_REALTIME_PORT || process.env.SEOA_REALTIME_PORT)) ||
+    ''
   return (
     <html className="dark">
       <head>
         <HeadContent />
       </head>
       <body>
+        {realtimePort ? (
+          <script
+            dangerouslySetInnerHTML={{
+              __html: `window.__SEOA_REALTIME_PORT__ = ${JSON.stringify(String(realtimePort))};`
+            }}
+          />
+        ) : null}
         {children}
         <Toaster />
         <Scripts />

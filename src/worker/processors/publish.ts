@@ -1,6 +1,7 @@
 import { articlesRepo } from '@entities/article/repository'
 import { connectorRegistry } from '@features/integrations/server/registry'
 import { log } from '@src/common/logger'
+import { ConnectorNotReadyError } from '@features/integrations/shared/errors'
 
 /**
  * Publish processor: publishes an article via the specified integration.
@@ -29,7 +30,22 @@ export async function processPublish(payload: { articleId: string; integrationId
   // Publish via connector registry
   let cfg: any = integration.configJson ?? {}
   try { if (typeof cfg === 'string') cfg = JSON.parse(cfg) } catch {}
-  const result = await connectorRegistry.publish(integration.type, article, cfg)
+  let result
+  try {
+    result = await connectorRegistry.publish(integration.type, article, cfg)
+  } catch (error) {
+    if (error instanceof ConnectorNotReadyError) {
+      log.warn('[Publish] Connector not ready', {
+        articleId: article.id,
+        type: integration.type,
+        message: error.message,
+        docsUrl: error.connector.docsUrl
+      })
+      return
+    }
+    log.error('[Publish] Connector threw error', { articleId: article.id, type: integration.type, error })
+    return
+  }
 
   if (!result) {
     log.error('[Publish] Connector failed to publish article', { articleId: article.id, type: integration.type })

@@ -9,6 +9,7 @@ import { integrationManifests, buildIntegrationViews } from '@integrations/share
 import type { WebsiteIntegrationView } from '@integrations/shared/types'
 import { extractErrorMessage } from '@src/common/ui/format'
 import { Button } from '@src/common/ui/button'
+import { Badge } from '@src/common/ui/badge'
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from '@src/common/ui/empty'
 import { cn } from '@src/common/ui/cn'
 
@@ -136,7 +137,16 @@ export function IntegrationsManager({ projectId: propProjectId, variant = 'page'
                   ) : (
                     <span className="text-sm font-semibold text-foreground">{view.manifest.name}</span>
                   )}
-                  <p className="text-xs text-muted-foreground">{view.manifest.description}</p>
+                  <div className="flex flex-wrap items-center gap-1 text-xs text-muted-foreground">
+                    <Badge variant="secondary" className="px-1.5 py-0 text-[10px] uppercase">
+                      {view.manifest.availability === 'ga'
+                        ? 'GA'
+                        : view.manifest.availability === 'beta'
+                          ? 'Beta'
+                          : 'Planned'}
+                    </Badge>
+                    <p>{view.manifest.description}</p>
+                  </div>
                 </div>
               </div>
 
@@ -205,9 +215,20 @@ function RowAction({ view, canMutate, navigate, currentSearch, onDisconnect, dis
     )
   }
 
+  const label = view.status === 'coming_soon' ? 'Coming Soon' : 'Details'
   return (
-    <Button variant="outline" size="sm" disabled>
-      Coming Soon
+    <Button
+      variant="outline"
+      size="sm"
+      onClick={() =>
+        navigate({
+          to: '/integrations/$integrationId',
+          params: { integrationId: view.manifest.type },
+          search: () => ({ ...currentSearch }) as never
+        })
+      }
+    >
+      {label}
     </Button>
   )
 }

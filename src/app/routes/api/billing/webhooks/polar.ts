@@ -3,6 +3,8 @@ import { httpError, json } from '@app/api-utils'
 import { db } from '@common/infra/db'
 import { organizations } from '@entities/org/db/schema'
 import { upsertSubscriptionEntitlement } from '@entities/subscription/service'
+import { mergeOrgEntitlements } from '@common/infra/entitlements'
+import { ensureArticleRunway } from '@entities/article/runway'
 import { eq } from 'drizzle-orm'
 import { log } from '@src/common/logger'
 
@@ -152,19 +154,29 @@ async function persistSubscriptionState(subscription: any, context: Subscription
 
   if (orgId) {
     const plan = ACTIVE_STATUSES.has(status) ? tier || 'paid' : 'starter'
-    const activeUntil = subscription?.current_period_end || subscription?.ends_at || null
-    const trialEndsAt = subscription?.trial_end || null
+    const activeUntilIso = toIsoString(subscription?.current_period_end || subscription?.ends_at || null)
+    const trialEndsAtIso = toIsoString(subscription?.trial_end || null)
+    await mergeOrgEntitlements(orgId, (current) => {
+      const next = { ...current }
+      next.monthlyPostCredits = entitlements.monthlyPostCredits ?? next.monthlyPostCredits ?? 0
+      next.projectQuota = entitlements.projectQuota ?? next.projectQuota ?? null
+      next.status = status
+      next.activeUntil = activeUntilIso
+      next.trialEndsAt = trialEndsAtIso
+      next.seatQuantity = seatQuantity
+      const trial = { ...(next.trial as Record<string, unknown> | undefined) } as Record<string, unknown>
+      trial.eligible = false
+      if (trialEndsAtIso) trial['latestTrialEndsAt'] = trialEndsAtIso
+      trial['lastSubscriptionStatus'] = status
+      trial['lastSubscriptionId'] = subscriptionId
+      next.trial = trial
+      return next
+    })
+
     await db
       .update(organizations)
       .set({
         plan,
-        entitlementsJson: {
-          ...entitlements,
-          status,
-          activeUntil,
-          trialEndsAt,
-          seatQuantity
-        },
         updatedAt: new Date()
       })
       .where(eq(organizations.id, orgId))
@@ -175,9 +187,19 @@ async function persistSubscriptionState(subscription: any, context: Subscription
       userId,
       status,
       plan,
-      activeUntil,
+      activeUntil: activeUntilIso,
       seatQuantity
     })
+
+    try {
+      await ensureArticleRunway(orgId)
+    } catch (error) {
+      log.error('[Polar Webhook] ensureArticleRunway failed', {
+        subscriptionId,
+        orgId,
+        message: (error as Error)?.message || String(error)
+      })
+    }
   } else {
     log.info('[Polar Webhook] Stored entitlement without org binding', {
       subscriptionId,
@@ -326,6 +348,18 @@ function normalizeNumber(value: unknown): number | null {
   if (typeof value === 'string') {
     const parsed = Number(value)
     return Number.isFinite(parsed) ? parsed : null
+  }
+  return null
+}
+
+function toIsoString(value: unknown): string | null {
+  if (!value) return null
+  if (value instanceof Date) {
+    return Number.isNaN(value.getTime()) ? null : value.toISOString()
+  }
+  if (typeof value === 'string' || typeof value === 'number') {
+    const parsed = new Date(value)
+    return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString()
   }
   return null
 }

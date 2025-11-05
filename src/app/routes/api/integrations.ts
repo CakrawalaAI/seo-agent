@@ -17,20 +17,47 @@ export const Route = createFileRoute('/api/integrations')({
         if (hasDatabase()) {
           try {
             const db = getDb()
+            const now = new Date() as any
             const row = {
               id: genId('int'),
               websiteId: String(siteId),
               type: String(type),
-              status: String(status || 'connected'),
+              status: String(status || 'draft'),
               configJson: config ? JSON.stringify(config) : null,
-              createdAt: new Date() as any,
-              updatedAt: new Date() as any
+              createdAt: now,
+              updatedAt: now
             } as any
             await db.insert(integrations).values(row).onConflictDoNothing?.()
-            return json({ id: row.id, websiteId: row.websiteId, type: row.type, status: row.status, configJson: config ?? null }, { status: 201 })
+            return json(
+              {
+                id: row.id,
+                websiteId: row.websiteId,
+                type: row.type,
+                status: row.status,
+                configJson: config ?? null,
+                secretsId: null,
+                metadataJson: null,
+                lastTestedAt: null,
+                lastError: null
+              },
+              { status: 201 }
+            )
           } catch {}
         }
-        return json({ id: genId('int'), websiteId: String(siteId), type: String(type), status: String(status || 'connected'), configJson: config ?? null }, { status: 201 })
+        return json(
+          {
+            id: genId('int'),
+            websiteId: String(siteId),
+            type: String(type),
+            status: String(status || 'draft'),
+            configJson: config ?? null,
+            secretsId: null,
+            metadataJson: null,
+            lastTestedAt: null,
+            lastError: null
+          },
+          { status: 201 }
+        )
       })
     }
   }

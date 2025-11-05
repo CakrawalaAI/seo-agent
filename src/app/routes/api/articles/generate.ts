@@ -24,15 +24,17 @@ export const Route = createFileRoute('/api/articles/generate')({
         // Fetch plan item
         let projectId: string | null = null
         let title: string | null = null
+        let targetKeyword: string | null = null
         let outline = null
 
-        if (hasDatabase()) { try { const db = getDb(); const rows = await db.select().from(articles).where(eq(articles.id, String(planItemId))).limit(1); const row: any = rows?.[0]; if (row) { projectId = (row.websiteId as string) || (row.projectId as string); title = String(row.title || '') } } catch {} }
+        if (hasDatabase()) { try { const db = getDb(); const rows = await db.select().from(articles).where(eq(articles.id, String(planItemId))).limit(1); const row: any = rows?.[0]; if (row) { projectId = (row.websiteId as string) || (row.projectId as string); title = String(row.title || ''); targetKeyword = typeof row.targetKeyword === 'string' ? row.targetKeyword : null } } catch {} }
 
         if (!projectId || !title) {
           const found = await planRepo.findById(String(planItemId))
           if (!found) return httpError(404, 'Plan item not found')
           projectId = found.websiteId
           title = found.item.title
+          targetKeyword = found.item.targetKeyword ?? found.item.title
           outline = found.item.outlineJson ?? null
         }
 
@@ -75,6 +77,7 @@ export const Route = createFileRoute('/api/articles/generate')({
           websiteId: String(projectId),
           planItemId: String(planItemId),
           title: String(title),
+          targetKeyword: targetKeyword ?? String(title),
           outline: Array.isArray(outline) ? outline : undefined
         })
         recordJobCompleted(String(projectId), jobId, { articleId: draft.id })

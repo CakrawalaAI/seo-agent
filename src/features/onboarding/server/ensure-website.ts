@@ -6,6 +6,8 @@ import { organizations } from '@entities/org/db/schema'
 import { websites } from '@entities/website/db/schema'
 import { eq } from 'drizzle-orm'
 import { normalizeSiteInput } from '../shared/url'
+import { defaultEntitlements } from '@common/infra/entitlements'
+import { ensureComplimentaryRunway } from '@entities/article/runway'
 import { log } from '@src/common/logger'
 
 export type EnsureWebsiteResult = {
@@ -20,9 +22,11 @@ export async function ensureWebsiteForOrg(orgId: string, siteUrlInput: string, o
   const normalized = normalizeSiteInput(siteUrlInput)
   const existing = await findWebsiteByUrl(orgId, normalized.siteUrl)
   if (existing) {
+    await ensureComplimentaryRunway(orgId, { websiteId: existing.id })
     return { website: existing, existed: true, crawlJobId: null }
   }
   const website = await websitesRepo.create({ orgId, url: normalized.siteUrl, defaultLocale: 'en-US' })
+  await ensureComplimentaryRunway(orgId, { websiteId: website.id })
   let crawlJobId: string | null = null
   try {
     const masked = process.env.RABBITMQ_URL
@@ -65,7 +69,8 @@ async function ensureOrgExists(orgId: string) {
     const rows = await db.select().from(organizations).where(eq(organizations.id as any, orgId)).limit(1) as any
     if (rows && rows[0]) return
     const name = `${orgId.split('_')[0] || 'org'}'s Org`
-    await db.insert(organizations).values({ id: orgId, name, plan: 'starter', entitlementsJson: null as any }).onConflictDoNothing?.()
+    const ent = defaultEntitlements()
+    await db.insert(organizations).values({ id: orgId, name, plan: 'starter', entitlementsJson: ent as any }).onConflictDoNothing?.()
     log.info('[onboarding] created missing org', { orgId })
   } catch (error) {
     log.error('[onboarding] ensureOrgExists failed', { orgId, error: (error as Error)?.message || String(error) })

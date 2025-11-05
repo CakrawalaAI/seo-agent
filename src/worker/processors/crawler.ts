@@ -12,6 +12,157 @@ import { getLlmProvider } from '@common/providers/registry'
 import { summarizeSite, summarizePage } from '@common/providers/llm'
 // keyword persistence removed; summary written to websites
 import { log } from '@src/common/logger'
+import { publishDashboardProgress } from '@common/realtime/hub'
+
+type PlaywrightLease = { page: any; context: any; contextId: string }
+
+class PlaywrightContextPool {
+  static async create(options: { browser: any; max: number }) {
+    const pool = new PlaywrightContextPool(options.browser, Math.max(1, options.max))
+    await pool.ensureCapacity()
+    return pool
+  }
+
+  private constructor(private browser: any, private max: number) {}
+
+  private available: PlaywrightLease[] = []
+  private pending: Array<(lease: PlaywrightLease | null) => void> = []
+  private creating = 0
+  private current = 0
+  private activeLeases = new Set<PlaywrightLease>()
+  private destroyed = false
+
+  get size() {
+    return this.max
+  }
+
+  stats() {
+    return {
+      max: this.max,
+      active: this.activeLeases.size,
+      idle: this.available.length,
+      pending: this.pending.length,
+      current: this.current,
+      creating: this.creating
+    }
+  }
+
+  private async createLease() {
+    this.creating++
+    try {
+      const context = await this.browser.newContext()
+      const page = await context.newPage()
+      const lease: PlaywrightLease = { page, context, contextId: `ctx_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}` }
+      this.current++
+      this.available.push(lease)
+    } catch (error) {
+      log.warn('[crawler.pool] context init failed', { error: (error as Error)?.message || String(error) })
+    } finally {
+      this.creating--
+    }
+  }
+
+  private async ensureCapacity() {
+    if (this.destroyed) return
+    while (this.current + this.creating < this.max) {
+      await this.createLease()
+      if (this.destroyed) return
+    }
+    this.flush()
+  }
+
+  private flush() {
+    while (this.pending.length && this.available.length) {
+      const resolver = this.pending.shift()!
+      resolver(this.available.shift()!)
+    }
+  }
+
+  async acquire(): Promise<PlaywrightLease | null> {
+    if (this.destroyed) return null
+    if (this.available.length) {
+      const lease = this.available.shift()!
+      this.activeLeases.add(lease)
+      this.flush()
+      return lease
+    }
+    if (this.current + this.creating < this.max) {
+      await this.ensureCapacity()
+    }
+    if (this.available.length) {
+      const lease = this.available.shift()!
+      this.activeLeases.add(lease)
+      this.flush()
+      return lease
+    }
+    return await new Promise<PlaywrightLease | null>((resolve) => {
+      if (this.destroyed) {
+        resolve(null)
+        return
+      }
+      this.pending.push((lease) => {
+        if (!lease) {
+          resolve(null)
+          return
+        }
+        this.activeLeases.add(lease)
+        resolve(lease)
+      })
+      void this.ensureCapacity()
+    })
+  }
+
+  async release(lease: PlaywrightLease) {
+    if (this.activeLeases.has(lease)) this.activeLeases.delete(lease)
+    if (this.destroyed) {
+      await this.disposeLease(lease, true)
+      return
+    }
+    let healthy = true
+    try {
+      if (lease.page.isClosed?.()) healthy = false
+    } catch {
+      healthy = false
+    }
+    if (healthy) {
+      try {
+        await lease.page.goto('about:blank').catch(() => {})
+        await lease.context.clearCookies?.().catch(() => {})
+      } catch {
+        healthy = false
+      }
+    }
+    if (!healthy) {
+      await this.disposeLease(lease, true)
+      await this.ensureCapacity()
+      return
+    }
+    this.available.push(lease)
+    this.flush()
+  }
+
+  private async disposeLease(lease: PlaywrightLease, decrement = false) {
+    try { await lease.page.close({ runBeforeUnload: true }) } catch {}
+    try { await lease.context.close() } catch {}
+    if (decrement) {
+      this.current = Math.max(0, this.current - 1)
+    }
+  }
+
+  async destroy() {
+    this.destroyed = true
+    for (const resolver of this.pending) resolver(null)
+    this.pending = []
+    for (const lease of this.available.splice(0)) {
+      await this.disposeLease(lease, true)
+    }
+    for (const lease of Array.from(this.activeLeases)) {
+      await this.disposeLease(lease, true)
+      this.activeLeases.delete(lease)
+    }
+    this.current = 0
+  }
+}
 
 type SeedSource = 'anchor' | 'prefetch' | 'sitemap' | 'heuristic'
 
@@ -21,6 +172,8 @@ export async function processCrawl(payload: { websiteId?: string; projectId?: st
   const websiteId = String(payload.websiteId || payload.projectId)
   const site = await websitesRepo.get(websiteId)
   if (!site?.url) { log.warn('[crawler] missing url; skipping', { websiteId }); return }
+  try { await websitesRepo.patch(websiteId, { status: 'crawling' }) } catch {}
+
   const siteUrl = site.url!
   let rootUrl: URL
   try {
@@ -57,13 +210,12 @@ export async function processCrawl(payload: { websiteId?: string; projectId?: st
   }
 
   let browser: any = null
-  let page: any = null
+  let contextPool: PlaywrightContextPool | null = null
   if (usePlaywright) {
     try {
       browser = await chromium.launch({ headless: true })
-      const context = await browser.newContext()
-      page = await context.newPage()
-      log.info('[crawler] using playwright rendering')
+      contextPool = await PlaywrightContextPool.create({ browser, max: Math.max(1, env.crawlConcurrency || 1) })
+      log.info('[crawler] using playwright rendering', { concurrency: contextPool.size })
     } catch (err) {
       usePlaywright = false
       log.warn('[crawler] playwright launch failed; falling back to fetch', { error: (err as Error)?.message || String(err) })
@@ -100,23 +252,48 @@ export async function processCrawl(payload: { websiteId?: string; projectId?: st
     originCounts[source] = (originCounts[source] ?? 0) + 1
     return true
   }
-  log.info('[crawler] seeds', { count: initialSeeds.length })
-  for (let qi = 0; qi < queue.length && seen.size < visitLimit; qi++) {
-    const { url, depth } = queue[qi]!
-    if (seen.has(url)) continue
-    if (depth > maxDepth) continue
-    log.debug('[crawler] visiting', { websiteId, url, depth })
-    try {
-      let httpStatus: number | null = null
-      let title = ''
-      let headings: Array<{ level: number; text: string }> = []
-      let linksForJson: Array<{ href: string; text?: string }> = []
-      let pageHtml: string | null = null
-      let textDump: string | null = null
-      let contentBlobUrl: string | null = null
+  const crawlStartedAt = new Date().toISOString()
+  const initialStats = contextPool?.stats()
+  publishDashboardProgress(websiteId, {
+    crawlProgress: {
+      crawledCount: 0,
+      targetCount: visitLimit,
+      startedAt: crawlStartedAt,
+      completedAt: null
+    },
+    crawlStatus: 'running',
+    crawlCooldownExpiresAt: null,
+    lastCrawlAt: crawlStartedAt,
+    playwrightWorkers: initialStats ? { active: initialStats.active, max: initialStats.max } : undefined
+  })
 
-      // no in-progress row; persist only finalized page rows (DB-only)
-      if (usePlaywright && page) {
+  log.info('[crawler] seeds', { count: initialSeeds.length })
+  const crawlConcurrency = Math.max(1, env.crawlConcurrency || 4)
+
+  const visitNode = async ({ url, depth }: { url: string; depth: number }) => {
+    if (seen.size >= visitLimit) return
+    if (seen.has(url)) return
+    if (depth > maxDepth) return
+    log.debug('[crawler] visiting', { websiteId, url, depth })
+    let httpStatus: number | null = null
+    let title = ''
+    let headings: Array<{ level: number; text: string }> = []
+    let linksForJson: Array<{ href: string; text?: string }> = []
+    let pageHtml: string | null = null
+    let textDump: string | null = null
+    let contentBlobUrl: string | null = null
+
+    const runWithPlaywright = async () => {
+      if (!contextPool) return false
+      const requestedAt = Date.now()
+      const lease = await contextPool.acquire()
+      if (!lease) return false
+      const waitedMs = Date.now() - requestedAt
+      if (waitedMs > 50) {
+        log.debug('[crawler] playwright lease wait', { websiteId, url, waitedMs, stats: contextPool.stats() })
+      }
+      try {
+        const { page } = lease
         const res = await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 15000 })
         httpStatus = res?.status() ?? null
         await waitForHydratedLinks(page)
@@ -173,29 +350,49 @@ export async function processCrawl(payload: { websiteId?: string; projectId?: st
           }))
         )
         headings = h1s
-      } else {
-        const res = await fetch(url)
-        httpStatus = res.status
-        const text = await res.text()
-        pageHtml = text
-        textDump = text.replace(/<script[\s\S]*?<\/script>/gi, ' ').replace(/<style[\s\S]*?<\/style>/gi, ' ').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim()
-        const m = text.match(/<title[^>]*>([^<]*)<\/title>/i)
-        title = m?.[1]?.trim() ?? ''
-        const base = new URL(url)
-        const hrefs = Array.from(text.matchAll(/<a\s+[^>]*href\s*=\s*"([^"]+)"[^>]*>(.*?)<\/a>/gis))
-        const perPageBreadth = depth === 0 ? Math.max(maxBreadth, visitLimit) : maxBreadth
-        let anchorsAdded = 0
-        for (const match of hrefs) {
-          if (anchorsAdded >= perPageBreadth) break
-          const href = match[1] || ''
-          const linkText = (match[2] || '').replace(/<[^>]+>/g, '').trim()
-          const norm = normalizeUrl(href, base)
-          if (!norm || !isHtmlLike(norm)) continue
-          const added = tryEnqueue(norm, 'anchor', depth + 1)
-          if (added) {
-            linksForJson.push({ href: norm, text: linkText || undefined })
-            anchorsAdded++
+        return true
+      } catch (error) {
+        log.warn('[crawler] playwright visit failed', { websiteId, url, error: (error as Error)?.message })
+        return false
+      } finally {
+        await contextPool.release(lease)
+      }
+    }
+
+    try {
+      // no in-progress row; persist only finalized page rows (DB-only)
+      let usedPlaywright = false
+      if (usePlaywright && contextPool) {
+        usedPlaywright = await runWithPlaywright()
+      }
+      if (!usedPlaywright) {
+        try {
+          const res = await fetch(url)
+          httpStatus = res.status
+          const text = await res.text()
+          pageHtml = text
+          textDump = text.replace(/<script[\s\S]*?<\/script>/gi, ' ').replace(/<style[\s\S]*?<\/style>/gi, ' ').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim()
+          const m = text.match(/<title[^>]*>([^<]*)<\/title>/i)
+          title = m?.[1]?.trim() ?? ''
+          const base = new URL(url)
+          const hrefs = Array.from(text.matchAll(/<a\s+[^>]*href\s*=\s*"([^"]+)"[^>]*>(.*?)<\/a>/gis))
+          const perPageBreadth = depth === 0 ? Math.max(maxBreadth, visitLimit) : maxBreadth
+          let anchorsAdded = 0
+          for (const match of hrefs) {
+            if (anchorsAdded >= perPageBreadth) break
+            const href = match[1] || ''
+            const linkText = (match[2] || '').replace(/<[^>]+>/g, '').trim()
+            const norm = normalizeUrl(href, base)
+            if (!norm || !isHtmlLike(norm)) continue
+            const added = tryEnqueue(norm, 'anchor', depth + 1)
+            if (added) {
+              linksForJson.push({ href: norm, text: linkText || undefined })
+              anchorsAdded++
+            }
           }
+        } catch (error) {
+          log.warn('[crawler] fetch visit failed', { websiteId, url, error: (error as Error)?.message })
+          return
         }
       }
 
@@ -221,6 +418,7 @@ export async function processCrawl(payload: { websiteId?: string; projectId?: st
           }
         }
       }
+      if (seen.size >= visitLimit) return
       const now = new Date().toISOString()
       // No file storage: keep contentBlobUrl null (DB-only storage)
       const pageId = pageIdFor(url)
@@ -232,6 +430,7 @@ export async function processCrawl(payload: { websiteId?: string; projectId?: st
           pageSummary = s || null
         }
       } catch {}
+      if (seen.size >= visitLimit) return
       await crawlRepo.recordPage({ websiteId, jobId, url, httpStatus: httpStatus ?? null, title, content: (title ? title + '\n\n' : '') + (textDump || pageHtml || ''), summary: pageSummary })
       log.debug('[crawler] stored page', { websiteId, url, depth, httpStatus })
       nodes.set(url, { url, title })
@@ -241,9 +440,32 @@ export async function processCrawl(payload: { websiteId?: string; projectId?: st
         }
       }
       seen.add(url)
+      const poolStats = contextPool?.stats()
+      publishDashboardProgress(websiteId, {
+        crawlProgress: {
+          crawledCount: seen.size,
+          targetCount: visitLimit,
+          startedAt: crawlStartedAt,
+          completedAt: null
+        },
+        crawlStatus: 'running',
+        crawlCooldownExpiresAt: null,
+        lastCrawlAt: crawlStartedAt,
+        playwrightWorkers: poolStats ? { active: poolStats.active, max: poolStats.max } : undefined
+      })
     } catch {}
   }
 
+  while (queue.length > 0 && seen.size < visitLimit) {
+    const batch = queue.splice(0, crawlConcurrency)
+    await Promise.all(batch.map((node) => visitNode(node)))
+  }
+
+  const finalStats = (contextPool?.stats?.() as { active?: number; max?: number } | null) || null
+  if (contextPool) {
+    await contextPool.destroy()
+    contextPool = null
+  }
   if (usePlaywright && browser) {
     try { await browser.close() } catch {}
   }
@@ -309,7 +531,27 @@ export async function processCrawl(payload: { websiteId?: string; projectId?: st
   } catch (err) {
     log.warn('[crawler] failed to summarize site', { error: (err as Error)?.message || String(err) })
   }
+  const crawlCompletedAt = new Date().toISOString()
+  const nextEligible = computeNextEligible(crawlCompletedAt, env.crawlCooldownHours)
+  publishDashboardProgress(websiteId, {
+    crawlProgress: {
+      crawledCount: seen.size,
+      targetCount: visitLimit,
+      startedAt: crawlStartedAt,
+      completedAt: crawlCompletedAt
+    },
+    crawlStatus: nextEligible ? 'cooldown' : 'idle',
+    crawlCooldownExpiresAt: nextEligible,
+    lastCrawlAt: crawlStartedAt,
+    playwrightWorkers: finalStats
+      ? {
+          active: Number.isFinite(finalStats.active ?? NaN) ? Number(finalStats.active) : 0,
+          max: Number.isFinite(finalStats.max ?? NaN) ? Number(finalStats.max) : 0
+        }
+      : undefined
+  })
   try { await crawlRepo.completeJob(jobId) } catch {}
+  try { await websitesRepo.patch(websiteId, { status: 'crawled' }) } catch {}
 }
 
 function pageIdFor(url: string) {
@@ -404,4 +646,14 @@ function collectHeuristicSeeds(root: URL): string[] {
     } catch {}
   }
   return seeds
+}
+
+function computeNextEligible(referenceIso: string | null, cooldownHours: number): string | null {
+  if (!referenceIso) return null
+  if (!Number.isFinite(cooldownHours) || cooldownHours <= 0) return null
+  const base = new Date(referenceIso)
+  if (Number.isNaN(base.getTime())) return null
+  const target = base.getTime() + cooldownHours * 60 * 60 * 1000
+  if (target <= Date.now()) return null
+  return new Date(target).toISOString()
 }

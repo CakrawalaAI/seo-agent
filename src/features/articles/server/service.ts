@@ -1,14 +1,9 @@
-import {
-  getArticle,
-  publishArticle,
-  updateArticle,
-  type UpdateArticlePayload
-} from '@entities/article/service'
-import type { Article, PublishArticleResult } from '@entities'
+import { getArticle, publishArticle, updateArticle, type UpdateArticlePayload, type ArticleDetail } from '@entities/article/service'
+import type { PublishArticleResult } from '@entities'
 
 export type ArticlesService = {
-  getById: (articleId: string) => Promise<Article | null>
-  update: (articleId: string, payload: UpdateArticlePayload) => Promise<Article>
+  getById: (articleId: string) => Promise<ArticleDetail>
+  update: (articleId: string, payload: UpdateArticlePayload) => Promise<ArticleDetail>
   publish: (articleId: string, integrationId: string) => Promise<PublishArticleResult>
 }
 

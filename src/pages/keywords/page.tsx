@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useDeferredValue, useEffect, useMemo, useState } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { useActiveWebsite } from '@common/state/active-website'
 import { useMockData } from '@common/dev/mock-data-context'
@@ -16,7 +16,8 @@ import { Skeleton } from '@src/common/ui/skeleton'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@src/common/ui/tooltip'
 import { formatCurrency, formatNumber, extractErrorMessage } from '@src/common/ui/format'
 import { cn } from '@src/common/ui/cn'
-import { ArrowUpDown, Loader2, MoreHorizontal, Plus, X as XIcon } from 'lucide-react'
+import { ArrowUpDown, Loader2, MoreHorizontal, Plus, RefreshCw, X as XIcon } from 'lucide-react'
+import { toast } from 'sonner'
 
 const MOCK_KEYWORDS: Array<Keyword & { include?: boolean | null }> = [
   {
@@ -67,23 +68,36 @@ export function Page(): JSX.Element {
   const [deleteTarget, setDeleteTarget] = useState<KeywordRow | null>(null)
   const [includePendingId, setIncludePendingId] = useState<string | null>(null)
   const [deletePendingId, setDeletePendingId] = useState<string | null>(null)
+  const [searchInput, setSearchInput] = useState('')
+  const debouncedSearch = useDebouncedValue(searchInput, 500)
 
   const projectQuery = useQuery({
     queryKey: ['keywords.project', projectId],
     queryFn: () => getWebsite(projectId!),
-    enabled: Boolean(projectId && !mockEnabled)
+    enabled: Boolean(projectId && !mockEnabled),
+    staleTime: Number.POSITIVE_INFINITY,
+    gcTime: Number.POSITIVE_INFINITY
   })
 
   const keywordsQuery = useQuery({
     queryKey: ['keywords.list', projectId],
     queryFn: async () => (await (await fetch(`/api/websites/${projectId}/keywords?limit=200`)).json()).items,
     enabled: Boolean(projectId && !mockEnabled),
-    refetchInterval: 45_000
+    staleTime: Number.POSITIVE_INFINITY,
+    gcTime: Number.POSITIVE_INFINITY,
+    refetchOnWindowFocus: false
   })
 
   const refetchKeywords = keywordsQuery.refetch
 
-  const keywords: KeywordRow[] = mockEnabled ? MOCK_KEYWORDS : keywordsQuery.data ?? []
+  const deferredKeywords = useDeferredValue<KeywordRow[]>(mockEnabled ? MOCK_KEYWORDS : keywordsQuery.data ?? [])
+  const initialSorting = useMemo(() => [{ id: 'phrase', desc: false }], [])
+  const keywords: KeywordRow[] = deferredKeywords
+  const filteredKeywords = useMemo(() => {
+    const term = debouncedSearch.trim().toLowerCase()
+    if (!term) return keywords
+    return keywords.filter((keyword) => keyword.phrase.toLowerCase().includes(term))
+  }, [keywords, debouncedSearch])
   const counts = useMemo(() => {
     let active = 0
     for (const kw of keywords) {
@@ -123,6 +137,44 @@ export function Page(): JSX.Element {
       setFormError(extractErrorMessage(error))
     }
   })
+
+  const regenerateMutation = useMutation({
+    mutationFn: async () => {
+      if (!projectId) throw new Error('Select a website to regenerate keywords')
+      if (mockEnabled) throw new Error('Mock data is read-only')
+      const response = await fetch(`/api/websites/${projectId}/keywords/regenerate`, { method: 'POST' })
+      let body: any = null
+      try {
+        body = await response.json()
+      } catch {}
+      if (response.status === 429 || response.status === 202) {
+        return { status: response.status, body }
+      }
+      if (!response.ok) {
+        const message = typeof body?.message === 'string' ? body.message : typeof body?.error === 'string' ? body.error : null
+        throw new Error(message || 'Failed to queue keyword regeneration')
+      }
+      return { status: response.status, body }
+    },
+    onSuccess: (result) => {
+      if (!result) return
+      if (result.status === 202) {
+        toast.success('Keyword regeneration queued')
+      } else if (result.status === 429) {
+        const seconds = Number(result.body?.secondsRemaining ?? 0)
+        const cooldown = formatCooldown(seconds)
+        const description = cooldown ? `Try again ${cooldown}.` : 'Try again later.'
+        toast('Regeneration already queued', { description })
+      } else {
+        toast.success('Keyword regeneration requested')
+      }
+    },
+    onError: (error) => {
+      toast.error(extractErrorMessage(error))
+    }
+  })
+
+  const regenerateDisabled = !projectId || mockEnabled || regenerateMutation.isPending
 
   const handleToggleInclude = useCallback(async (keywordId: string, include: boolean) => {
     if (mockEnabled) return
@@ -301,6 +353,15 @@ export function Page(): JSX.Element {
         <span className="text-xs font-semibold text-muted-foreground">{`${counts.active} / ${counts.total || 0} keywords active`}</span>
         <div className="ml-auto flex items-center gap-3">
           {mockEnabled ? <Badge variant="outline">Mock data is read-only</Badge> : null}
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => regenerateMutation.mutate()}
+            disabled={regenerateDisabled}
+          >
+            {regenerateMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
+            Regenerate keywords
+          </Button>
           <Button type="button" onClick={() => { resetForm(); setAddOpen(true) }} disabled={!projectId || mockEnabled}>
             <Plus className="h-4 w-4" />
             Add Keyword
@@ -321,9 +382,17 @@ export function Page(): JSX.Element {
         </Empty>
       ) : (
         <section className="rounded-lg border bg-card p-0 shadow-sm">
-          <TooltipProvider>
-            <DataTable columns={columns} data={keywords} paginate={false} initialSorting={[{ id: 'phrase', desc: false }]} />
-          </TooltipProvider>
+          <div className="flex flex-col gap-4 p-4">
+            <Input
+              value={searchInput}
+              onChange={(event) => setSearchInput(event.target.value)}
+              placeholder="Filter keywords..."
+              aria-label="Filter keywords"
+            />
+            <TooltipProvider>
+              <DataTable columns={columns} data={filteredKeywords} paginate={false} initialSorting={initialSorting} />
+            </TooltipProvider>
+          </div>
         </section>
       )}
 
@@ -470,6 +539,17 @@ function KeywordTableSkeleton(): JSX.Element {
   )
 }
 
+function useDebouncedValue<T>(value: T, delay: number): T {
+  const [debouncedValue, setDebouncedValue] = useState(value)
+
+  useEffect(() => {
+    const timeout = setTimeout(() => setDebouncedValue(value), delay)
+    return () => clearTimeout(timeout)
+  }, [value, delay])
+
+  return debouncedValue
+}
+
 function safeNumber(value: unknown): number | null {
   if (value == null) return null
   const num = Number(value)
@@ -490,6 +570,20 @@ function formatAsOf(iso: string): string {
   const date = new Date(iso)
   if (Number.isNaN(date.getTime())) return ''
   return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+}
+
+function formatCooldown(seconds: number): string {
+  if (!Number.isFinite(seconds) || seconds <= 0) return ''
+  if (seconds >= 3600) {
+    const hours = Math.ceil(seconds / 3600)
+    return `in about ${hours} hour${hours === 1 ? '' : 's'}`
+  }
+  if (seconds >= 60) {
+    const minutes = Math.ceil(seconds / 60)
+    return `in about ${minutes} minute${minutes === 1 ? '' : 's'}`
+  }
+  const secs = Math.max(1, Math.ceil(seconds))
+  return `in about ${secs} second${secs === 1 ? '' : 's'}`
 }
 
 function toOptionalInt(value: string): number | null {

@@ -2,7 +2,7 @@ import { clusterKey } from '@common/keyword/cluster'
 import { hasDatabase, getDb } from '@common/infra/db'
 import { keywords } from '@entities/keyword/db/schema.keywords'
 import { articles as articlesTable } from '@entities/article/db/schema'
-import { eq, and, asc, gte, lte, isNotNull, inArray } from 'drizzle-orm'
+import { eq, and, asc, gte, lte, isNotNull, inArray, sql } from 'drizzle-orm'
 import { log } from '@src/common/logger'
 
 export type PlanItem = {
@@ -10,6 +10,7 @@ export type PlanItem = {
   websiteId: string
   keywordId: string | null
   title: string
+  targetKeyword?: string | null
   scheduledDate: string
   status: string
   outlineJson?: Array<{ heading: string; subpoints?: string[] }> | null
@@ -50,6 +51,7 @@ export const planRepo = {
       outlineJson?: unknown
       bodyHtml?: unknown
       title?: string | null
+      targetKeyword?: string | null
       language?: string | null
       tone?: string | null
       createdAt?: unknown
@@ -69,6 +71,7 @@ export const planRepo = {
           outlineJson: articlesTable.outlineJson,
           bodyHtml: articlesTable.bodyHtml,
           title: articlesTable.title,
+          targetKeyword: articlesTable.targetKeyword,
           language: articlesTable.language,
           tone: articlesTable.tone,
           createdAt: articlesTable.createdAt,
@@ -203,7 +206,8 @@ export const planRepo = {
     const draftIds = new Set<string>()
     const queuedFixIds = new Set<string>()
     const scheduledFixIds = new Set<string>()
-    const newRows: Array<{ id: string; websiteId: string; keywordId: string | null; title: string; scheduledDate: string; status: string }> = []
+    const targetKeywordFixes = new Map<string, string>()
+    const newRows: Array<{ id: string; websiteId: string; keywordId: string | null; title: string; targetKeyword: string | null; scheduledDate: string; status: string }> = []
     const removeIds = new Set<string>()
 
     const queue = [...candidates]
@@ -258,7 +262,7 @@ export const planRepo = {
       let chosen = options.shift() ?? null
       for (const extra of options) removeIds.add(extra.id)
       if (chosen) {
-        const cluster = safeCluster(chosen.keywordPhrase) ?? safeCluster(chosen.title)
+        const cluster = safeCluster(chosen.targetKeyword) ?? safeCluster(chosen.keywordPhrase) ?? safeCluster(chosen.title)
         if (!isDraftWindow) {
           if (!isIncluded(chosen)) { removeIds.add(chosen.id); chosen = null }
           else if (cluster && usedClusters.has(cluster)) { removeIds.add(chosen.id); chosen = null }
@@ -267,19 +271,27 @@ export const planRepo = {
         if (chosen) {
           if (chosen.keywordId) usedKeywordIds.add(chosen.keywordId)
           if (cluster) usedClusters.add(cluster)
+          const keywordString = (typeof chosen.targetKeyword === 'string' && chosen.targetKeyword.trim().length > 0)
+            ? chosen.targetKeyword
+            : (typeof chosen.keywordPhrase === 'string' && chosen.keywordPhrase.trim().length > 0)
+            ? chosen.keywordPhrase
+            : (typeof chosen.title === 'string' && chosen.title.trim().length > 0)
+            ? chosen.title
+            : null
+          if (!chosen.targetKeyword && keywordString) targetKeywordFixes.set(chosen.id, keywordString)
         }
       }
       if (!chosen) {
         const candidate = nextCandidate()
         if (!candidate) continue
         const newId = genId('plan')
-        newRows.push({ id: newId, websiteId, keywordId: candidate.id, title: candidate.phrase, scheduledDate: date, status: 'queued' })
+        newRows.push({ id: newId, websiteId, keywordId: candidate.id, title: candidate.phrase, targetKeyword: candidate.phrase, scheduledDate: date, status: 'queued' })
         outlineIds.add(newId)
         if (isDraftWindow) draftIds.add(newId)
         continue
       }
       selectedExistingIds.add(chosen.id)
-      const cluster = safeCluster(chosen.keywordPhrase) ?? safeCluster(chosen.title)
+      const cluster = safeCluster(chosen.targetKeyword) ?? safeCluster(chosen.keywordPhrase) ?? safeCluster(chosen.title)
       if (cluster) usedClusters.add(cluster)
       if (chosen.keywordId) usedKeywordIds.add(chosen.keywordId)
       if (!rowHasOutline(chosen)) outlineIds.add(chosen.id)
@@ -301,12 +313,17 @@ export const planRepo = {
     await db.transaction(async (tx) => {
       if (removedList.length) await tx.delete(articlesTable).where(inArray(articlesTable.id, removedList))
       if (newRows.length) {
-        const rows = newRows.map((r) => ({ id: r.id, websiteId: r.websiteId, keywordId: r.keywordId, title: r.title, scheduledDate: (r as any).scheduledDate, status: r.status as any }))
+        const rows = newRows.map((r) => ({ id: r.id, websiteId: r.websiteId, keywordId: r.keywordId, title: r.title, targetKeyword: r.targetKeyword, scheduledDate: (r as any).scheduledDate, status: r.status as any }))
         await tx.insert(articlesTable).values(rows as any).onConflictDoNothing?.()
       }
       const nowTs = new Date() as any
       if (queuedFixIds.size) await tx.update(articlesTable).set({ status: 'queued', updatedAt: nowTs }).where(inArray(articlesTable.id, Array.from(queuedFixIds)))
       if (scheduledFixIds.size) await tx.update(articlesTable).set({ status: 'scheduled', updatedAt: nowTs }).where(inArray(articlesTable.id, Array.from(scheduledFixIds)))
+      if (targetKeywordFixes.size) {
+        for (const [articleId, keywordValue] of targetKeywordFixes.entries()) {
+          await tx.update(articlesTable).set({ targetKeyword: keywordValue, updatedAt: nowTs }).where(eq(articlesTable.id, articleId))
+        }
+      }
     })
 
     const removedSet = new Set(removedList)
@@ -325,7 +342,31 @@ export const planRepo = {
       .where(and(eq((articlesTable as any).websiteId, websiteId), isNotNull((articlesTable as any).scheduledDate), inArray(articlesTable.status as any, ['queued', 'scheduled', 'published'] as any)))
       .orderBy(asc((articlesTable as any).scheduledDate as any))
       .limit(limit)
-    return (rows as any[]).map((r) => ({ id: r.id, websiteId: (r as any).websiteId, keywordId: r.keywordId ?? null, title: r.title ?? '', scheduledDate: (r as any).scheduledDate ?? '', status: (r.status as any) ?? 'queued', outlineJson: (r as any).outlineJson ?? null, language: r.language ?? null, tone: r.tone ?? null, createdAt: r.createdAt, updatedAt: r.updatedAt })) as any
+    return (rows as any[]).map((r) => ({ id: r.id, websiteId: (r as any).websiteId, keywordId: r.keywordId ?? null, title: r.title ?? '', targetKeyword: r.targetKeyword ?? null, scheduledDate: (r as any).scheduledDate ?? '', status: (r.status as any) ?? 'queued', outlineJson: (r as any).outlineJson ?? null, language: r.language ?? null, tone: r.tone ?? null, createdAt: r.createdAt, updatedAt: r.updatedAt })) as any
+  },
+
+  async counts(websiteId: string): Promise<{ total: number; scheduled: number; queued: number }> {
+    if (!hasDatabase()) return { total: 0, scheduled: 0, queued: 0 }
+    const db = getDb()
+    const [row] = await db
+      .select({
+        total: sql<number>`count(*)`,
+        scheduled: sql<number>`sum(case when ${articlesTable}.status = 'scheduled' then 1 else 0 end)`,
+        queued: sql<number>`sum(case when ${articlesTable}.status = 'queued' then 1 else 0 end)`
+      })
+      .from(articlesTable)
+      .where(
+        and(
+          eq((articlesTable as any).websiteId, websiteId),
+          isNotNull((articlesTable as any).scheduledDate),
+          inArray(articlesTable.status as any, ['queued', 'scheduled', 'published'] as any)
+        )
+      )
+    return {
+      total: Number(row?.total ?? 0),
+      scheduled: Number(row?.scheduled ?? 0),
+      queued: Number(row?.queued ?? 0)
+    }
   },
 
   async updateDate(planItemId: string, scheduledDate: string): Promise<PlanItem | null> {
@@ -335,21 +376,22 @@ export const planRepo = {
     const rows = await db.select().from(articlesTable).where(eq(articlesTable.id, planItemId)).limit(1)
     const r: any = rows?.[0]
     if (!r) return null
-    return { id: r.id, websiteId: r.websiteId, keywordId: r.keywordId, title: r.title, scheduledDate: r.scheduledDate, status: r.status, outlineJson: r.outlineJson, language: r.language, tone: r.tone, createdAt: r.createdAt, updatedAt: r.updatedAt } as any
+    return { id: r.id, websiteId: r.websiteId, keywordId: r.keywordId, title: r.title, targetKeyword: r.targetKeyword, scheduledDate: r.scheduledDate, status: r.status, outlineJson: r.outlineJson, language: r.language, tone: r.tone, createdAt: r.createdAt, updatedAt: r.updatedAt } as any
   },
 
-  async updateFields(planItemId: string, patch: Partial<Pick<PlanItem, 'title' | 'outlineJson' | 'status'>>): Promise<PlanItem | null> {
+  async updateFields(planItemId: string, patch: Partial<Pick<PlanItem, 'title' | 'outlineJson' | 'status' | 'targetKeyword'>>): Promise<PlanItem | null> {
     if (!hasDatabase()) return null
     const db = getDb()
     const set: any = { updatedAt: new Date() as any }
     if (typeof patch.title === 'string') set.title = patch.title
+    if (typeof patch.targetKeyword === 'string') set.targetKeyword = patch.targetKeyword
     if (patch.outlineJson) set.outlineJson = patch.outlineJson as any
     if (typeof patch.status === 'string') set.status = patch.status
     await db.update(articlesTable).set(set).where(eq(articlesTable.id, planItemId))
     const rows = await db.select().from(articlesTable).where(eq(articlesTable.id, planItemId)).limit(1)
     const r: any = rows?.[0]
     if (!r) return null
-    return { id: r.id, websiteId: r.websiteId, keywordId: r.keywordId, title: r.title, scheduledDate: r.scheduledDate, status: r.status, outlineJson: r.outlineJson, language: r.language, tone: r.tone, createdAt: r.createdAt, updatedAt: r.updatedAt } as any
+    return { id: r.id, websiteId: r.websiteId, keywordId: r.keywordId, title: r.title, targetKeyword: r.targetKeyword, scheduledDate: r.scheduledDate, status: r.status, outlineJson: r.outlineJson, language: r.language, tone: r.tone, createdAt: r.createdAt, updatedAt: r.updatedAt } as any
   },
 
   async findById(planItemId: string): Promise<{ websiteId: string; item: PlanItem } | null> {
@@ -358,7 +400,7 @@ export const planRepo = {
     const rows = await db.select().from(articlesTable).where(eq(articlesTable.id, planItemId)).limit(1)
     const r: any = rows?.[0]
     if (!r) return null
-    return { websiteId: r.websiteId, item: { id: r.id, websiteId: r.websiteId, keywordId: r.keywordId, title: r.title, scheduledDate: r.scheduledDate, status: r.status, outlineJson: r.outlineJson, language: r.language, tone: r.tone } as any }
+    return { websiteId: r.websiteId, item: { id: r.id, websiteId: r.websiteId, keywordId: r.keywordId, title: r.title, targetKeyword: r.targetKeyword, scheduledDate: r.scheduledDate, status: r.status, outlineJson: r.outlineJson, language: r.language, tone: r.tone } as any }
   },
 
   async removeByProject(websiteId: string) {
