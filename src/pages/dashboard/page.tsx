@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { useActiveWebsite } from '@common/state/active-website'
-import { useMockData } from '@common/dev/mock-data-context'
 import { getWebsite, getWebsiteSnapshot, runSchedule } from '@entities/website/service'
 import { extractErrorMessage } from '@common/http/json'
 import type { Keyword } from '@entities'
@@ -15,108 +14,26 @@ import { Progress } from '@src/common/ui/progress'
 
 type DashboardData = { website: any | null; snapshot: any | null }
 
-const MOCK_PLAN_ITEMS: PlanItem[] = [
-  {
-    id: 'plan-1',
-    websiteId: 'proj_mock',
-    keywordId: null,
-    title: 'Create 30-60-90 Day Plan Template',
-    scheduledDate: new Date().toISOString(),
-    status: 'scheduled'
-  },
-  {
-    id: 'plan-2',
-    websiteId: 'proj_mock',
-    keywordId: null,
-    title: 'Behavioral STAR Method Examples',
-    scheduledDate: new Date(Date.now() + 86_400_000).toISOString(),
-    status: 'draft'
-  }
-]
-
-const MOCK_KEYWORDS: Keyword[] = [
-  {
-    id: 'kw-1',
-    websiteId: 'proj_mock',
-    canonId: 'kw-1',
-    phrase: 'interview practice questions',
-    metricsJson: { searchVolume: 5400, difficulty: 38, asOf: new Date().toISOString() }
-  },
-  {
-    id: 'kw-2',
-    websiteId: 'proj_mock',
-    canonId: 'kw-2',
-    phrase: 'mock interview ai',
-    metricsJson: { searchVolume: 2600, difficulty: 42, asOf: new Date().toISOString() }
-  }
-]
-
-const MOCK_DASHBOARD: DashboardData = {
-  website: {
-    id: 'proj_mock',
-    orgId: 'org_mock',
-    url: 'https://prepinterview.ai',
-    defaultLocale: 'en-US',
-    status: 'articles_scheduled',
-    summary: [
-      'Interview prep platform helping candidates practice behavioral questions with AI-guided drills.',
-      'Key value props: real interview simulation, instant scoring, targeted feedback for tech roles.'
-    ].join('\n')
-  },
-  snapshot: {
-    queueDepth: 2,
-    planItems: MOCK_PLAN_ITEMS,
-    keywords: MOCK_KEYWORDS,
-    crawlProgress: {
-      jobId: 'crawl_mock',
-      startedAt: new Date(Date.now() - 3_600_000).toISOString(),
-      completedAt: null,
-      crawledCount: 24,
-      targetCount: 50
-    },
-    keywordProgress: {
-      total: MOCK_KEYWORDS.length,
-      latestCreatedAt: MOCK_KEYWORDS[0]?.metricsJson?.asOf ?? new Date().toISOString()
-    },
-    crawlStatus: 'idle',
-    crawlCooldownExpiresAt: null,
-    lastCrawlAt: new Date(Date.now() - 3_600_000 * 6).toISOString(),
-    articleProgress: {
-      generatedCount: MOCK_PLAN_ITEMS.length,
-      scheduledCount: MOCK_PLAN_ITEMS.filter((item) => item.status === 'scheduled').length,
-      targetCount: 30
-    },
-    latestKeywordGeneration: {
-      startedAt: new Date(Date.now() - 3600_000 * 6).toISOString(),
-      completedAt: new Date(Date.now() - 3600_000 * 2).toISOString(),
-      providersUsed: ['crawl', 'keywordIdeas'],
-      seedCount: 42,
-      keywordCount: 215
-    }
-  }
-}
-
 export function Page(): JSX.Element {
   const { id: projectId } = useActiveWebsite()
-  const { enabled: mockEnabled } = useMockData()
 
   const projectQuery = useQuery({
     queryKey: ['dashboard.website', projectId],
     queryFn: () => getWebsite(projectId!),
-    enabled: Boolean(projectId && !mockEnabled)
+    enabled: Boolean(projectId)
   })
 
   const snapshotQuery = useQuery({
     queryKey: ['dashboard.snapshot', projectId],
     queryFn: () => getWebsiteSnapshot(projectId!),
-    enabled: Boolean(projectId && !mockEnabled),
+    enabled: Boolean(projectId),
     // Polling-only: fixed 5s interval
     refetchInterval: 5_000,
     refetchOnWindowFocus: true
   })
 
-  const project = mockEnabled ? MOCK_DASHBOARD.website : projectQuery.data
-  const snapshot = mockEnabled ? MOCK_DASHBOARD.snapshot : snapshotQuery.data
+  const project = projectQuery.data
+  const snapshot = snapshotQuery.data
   const billingState = (snapshot?.billingState ?? null) as any
   const trialInfo = (billingState?.trial ?? null) as any
   const trialStatus = typeof billingState?.status === 'string' ? String(billingState.status).toLowerCase() : null
@@ -127,10 +44,9 @@ export function Page(): JSX.Element {
   const complimentaryUsed = Number(trialInfo?.complimentaryUsed ?? 0)
   const complimentaryRemaining = Math.max(0, complimentaryLimit - complimentaryUsed)
   const fullyGeneratedCount = Number(snapshot?.articleProgress?.fullyGeneratedCount ?? 0)
-  const showTrialBanner = !mockEnabled && trialStatus === 'trialing' && Boolean(trialOutlinesThrough)
-  const showActiveBanner = !mockEnabled && !showTrialBanner && trialStatus === 'active'
-  const showComplimentaryBanner =
-    !mockEnabled && !showTrialBanner && !showActiveBanner && complimentaryRemaining > 0 && Boolean(trialOutlinesThrough)
+  const showTrialBanner = trialStatus === 'trialing' && Boolean(trialOutlinesThrough)
+  const showActiveBanner = !showTrialBanner && trialStatus === 'active'
+  const showComplimentaryBanner = !showTrialBanner && !showActiveBanner && complimentaryRemaining > 0 && Boolean(trialOutlinesThrough)
 
   const insight = useMemo(() => buildInsights(project, snapshot), [project, snapshot])
 
@@ -143,10 +59,9 @@ export function Page(): JSX.Element {
   const [reCrawlNextEligibleAt, setReCrawlNextEligibleAt] = useState<string | null>(null)
 
   useEffect(() => {
-    if (mockEnabled) return
     if (isEditingSummary) return
     setDraftSummary((project?.summary ?? insight.summaryText).trim())
-  }, [isEditingSummary, project?.summary, insight.summaryText, mockEnabled])
+  }, [isEditingSummary, project?.summary, insight.summaryText])
 
   const saveSummaryMutation = useMutation({
     mutationFn: async (_summary: string) => null,
@@ -155,7 +70,6 @@ export function Page(): JSX.Element {
 
   const subscribeMutation = useMutation({
     mutationFn: async () => {
-      if (mockEnabled) return
       const res = await fetch('/api/billing/checkout', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
@@ -190,7 +104,7 @@ export function Page(): JSX.Element {
 
 const mergeActionMutation = useMutation({
     mutationFn: async (step: ProjectStatusStep['action']) => {
-      if (!step || mockEnabled) return
+      if (!step) return
       if (step.type === 'crawl') return projectId ? getWebsiteSnapshot(projectId) : null
       if (step.type === 'generateKeywords') return getWebsiteSnapshot(projectId!)
       if (step.type === 'schedulePlan') {
@@ -261,7 +175,6 @@ const reCrawlMutation = useMutation({
   const playwrightWorkers = insight.playwrightWorkers
   const effectiveNextEligibleAt = reCrawlNextEligibleAt ?? crawlCooldownExpiresAt
   const disableReCrawl =
-    mockEnabled ||
     !projectId ||
     reCrawlMutation.isPending ||
     crawlStatus === 'running' ||
@@ -275,7 +188,6 @@ const reCrawlMutation = useMutation({
       ? 'Starting…'
       : 'Re-crawl'
   const reCrawlStatusText = (() => {
-    if (mockEnabled) return 'Mock data active'
     if (reCrawlMutation.isPending) return 'Starting re-crawl…'
     if (crawlStatus === 'running') {
       const workersNote = playwrightWorkers ? ` · ${playwrightWorkers.active}/${playwrightWorkers.max} workers active` : ''
@@ -355,7 +267,6 @@ const reCrawlMutation = useMutation({
               type="button"
               size="sm"
               onClick={() => {
-                if (mockEnabled) return
                 subscribeMutation.mutate()
               }}
               disabled={subscribeMutation.isPending}
@@ -381,7 +292,6 @@ const reCrawlMutation = useMutation({
               type="button"
               size="sm"
               onClick={() => {
-                if (mockEnabled) return
                 subscribeMutation.mutate()
               }}
               disabled={subscribeMutation.isPending}
@@ -418,7 +328,7 @@ const reCrawlMutation = useMutation({
                 variant={isEditingSummary ? 'default' : 'outline'}
                 size="sm"
                 onClick={() => {
-              if (mockEnabled || crawlStatus === 'running') return
+              if (crawlStatus === 'running') return
               if (isEditingSummary) {
                 saveSummaryMutation.mutate(draftSummary.trim())
               } else {
@@ -427,20 +337,19 @@ const reCrawlMutation = useMutation({
               }
             }}
             disabled={
-              mockEnabled ||
               crawlStatus === 'running' ||
               (isEditingSummary && draftSummary.trim().length === 0) ||
               saveSummaryMutation.isPending
             }
           >
-            {mockEnabled ? 'Mock data' : isEditingSummary ? (saveSummaryMutation.isPending ? 'Saving…' : 'Save summary') : 'Edit summary'}
+            {isEditingSummary ? (saveSummaryMutation.isPending ? 'Saving…' : 'Save summary') : 'Edit summary'}
           </Button>
               <Button
                 type="button"
                 variant="outline"
                 size="sm"
                 onClick={() => {
-                  if (mockEnabled || !projectId) return
+                  if (!projectId) return
                   reCrawlMutation.mutate()
                 }}
                 disabled={disableReCrawl}
@@ -454,12 +363,12 @@ const reCrawlMutation = useMutation({
           </div>
         </div>
         <Textarea
-          readOnly={!isEditingSummary || mockEnabled || crawlStatus === 'running'}
+          readOnly={!isEditingSummary || crawlStatus === 'running'}
           value={isEditingSummary ? draftSummary : insight.summaryText}
           onChange={(event) => setDraftSummary(event.target.value)}
           className="mt-4 min-h-[220px] resize-none bg-background/90 text-sm leading-relaxed"
         />
-        {isEditingSummary && !mockEnabled ? (
+        {isEditingSummary ? (
           <div className="mt-2 flex justify-end text-xs text-muted-foreground">Press save to persist changes.</div>
         ) : null}
       </section>
@@ -539,7 +448,7 @@ const reCrawlMutation = useMutation({
                     size="sm"
                     variant="outline"
                     onClick={() => mergeActionMutation.mutate(step.action)}
-                    disabled={mockEnabled || mergeActionMutation.isPending}
+                    disabled={mergeActionMutation.isPending}
                   >
                     {mergeActionMutation.isPending ? 'Running…' : step.action.label}
                   </Button>

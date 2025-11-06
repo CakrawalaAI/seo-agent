@@ -4,7 +4,6 @@ import { DndContext, PointerSensor, type DragEndEvent, useSensor, useSensors } f
 import { useDraggable, useDroppable } from '@dnd-kit/core'
 import { CSS } from '@dnd-kit/utilities'
 import { useActiveWebsite } from '@common/state/active-website'
-import { useMockData } from '@common/dev/mock-data-context'
 import { getPlanItems } from '@entities/website/service'
 import type { PlanItem } from '@entities/article/planner'
 import { Button } from '@src/common/ui/button'
@@ -16,36 +15,10 @@ import { Loader2 } from 'lucide-react'
 
 type CalendarEvent = { id: string; date: string; title: string; status: NonNullable<PlanItem['status']> }
 
-const MOCK_PLAN: PlanItem[] = [
-  {
-    id: 'plan-m-1',
-    websiteId: 'proj_mock',
-    keywordId: null,
-    title: 'Launch Mock Interview Landing Page',
-    scheduledDate: new Date().toISOString(),
-    status: 'scheduled'
-  },
-  {
-    id: 'plan-m-2',
-    websiteId: 'proj_mock',
-    keywordId: null,
-    title: 'Publish STAR Method Cheat Sheet',
-    scheduledDate: new Date(Date.now() + 86_400_000 * 2).toISOString(),
-    status: 'queued'
-  },
-  {
-    id: 'plan-m-3',
-    websiteId: 'proj_mock',
-    keywordId: null,
-    title: 'Promote Interview Practice Templates',
-    scheduledDate: new Date(Date.now() - 86_400_000 * 3).toISOString(),
-    status: 'published'
-  }
-]
+// mock plan removed; always fetch from API
 
 export function Page(): JSX.Element {
   const { id: projectId } = useActiveWebsite()
-  const { enabled: mockEnabled } = useMockData()
   const [month, setMonth] = useState(() => new Date())
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }))
   const { viewArticle } = useArticleNavigation()
@@ -54,11 +27,10 @@ export function Page(): JSX.Element {
   const planQuery = useQuery({
     queryKey: ['calendar.plan', projectId],
     queryFn: async () => (await getPlanItems(projectId!, 180)).items,
-    enabled: Boolean(projectId && !mockEnabled),
+    enabled: Boolean(projectId),
     refetchInterval: 60_000
   })
-
-  const planItems = mockEnabled ? MOCK_PLAN : planQuery.data ?? []
+  const planItems = planQuery.data ?? []
 
   const events = useMemo<CalendarEvent[]>(() => {
     return planItems
@@ -131,38 +103,37 @@ export function Page(): JSX.Element {
       <section className="rounded-lg border bg-card p-5 shadow-sm">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-2">
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => setMonth((m) => new Date(m.getFullYear(), m.getMonth() - 1, 1))}
-            >
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => setMonth((m) => new Date(m.getFullYear(), m.getMonth() - 1, 1))}
+          >
               ◀
             </Button>
             <Button type="button" variant="outline" size="sm" onClick={() => setMonth(new Date())}>
               Today
             </Button>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => setMonth((m) => new Date(m.getFullYear(), m.getMonth() + 1, 1))}
-            >
-              ▶
-            </Button>
-            <span className="ml-3 text-sm font-medium text-muted-foreground">{formatMonth(month)}</span>
-          </div>
           <Button
             type="button"
             variant="outline"
             size="sm"
-            onClick={() => {
-              if (mockEnabled) return
+            onClick={() => setMonth((m) => new Date(m.getFullYear(), m.getMonth() + 1, 1))}
+          >
+            ▶
+          </Button>
+          <span className="ml-3 text-sm font-medium text-muted-foreground">{formatMonth(month)}</span>
+        </div>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={() => {
               planQuery.refetch()
             }}
-            disabled={mockEnabled || planQuery.isRefetching}
+            disabled={planQuery.isRefetching}
           >
-            {planQuery.isRefetching ? 'Refreshing…' : mockEnabled ? 'Mock data' : 'Refresh data'}
+            {planQuery.isRefetching ? 'Refreshing…' : 'Refresh data'}
           </Button>
         </div>
 
@@ -171,9 +142,7 @@ export function Page(): JSX.Element {
             <EmptyHeader>
               <EmptyTitle>No scheduled items</EmptyTitle>
               <EmptyDescription>
-                {mockEnabled
-                  ? 'Toggle mock data off to view the live schedule.'
-                  : planQuery.isFetching
+                {planQuery.isFetching
                   ? 'Loading your plan…'
                   : 'Generate keywords and build a plan to populate the calendar.'}
               </EmptyDescription>

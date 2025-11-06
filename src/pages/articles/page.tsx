@@ -1,7 +1,6 @@
 import { useCallback, useMemo } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { useActiveWebsite } from '@common/state/active-website'
-import { useMockData } from '@common/dev/mock-data-context'
 import { getPlanItems, getWebsiteArticles, getWebsiteSnapshot, publishArticle as publishArticleApi } from '@entities/website/service'
 import type { Article } from '@entities'
 import type { PlanItem } from '@entities/article/planner'
@@ -34,39 +33,10 @@ type TimelineItem = {
   publishDate?: string | null
 }
 
-const MOCK_ARTICLES: Article[] = [
-  {
-    id: 'art-m-1',
-    websiteId: 'proj_mock',
-    title: 'How To Ace Behavioral Interviews',
-    scheduledDate: new Date(Date.now() - 86_400_000 * 2).toISOString(),
-    publishDate: new Date(Date.now() - 86_400_000).toISOString(),
-    status: 'published',
-    url: 'https://prepinterview.ai/blog/behavioral-interview'
-  },
-  {
-    id: 'art-m-2',
-    websiteId: 'proj_mock',
-    title: 'STAR Method Templates For Product Leaders',
-    scheduledDate: new Date().toISOString(),
-    status: 'scheduled'
-  }
-]
-
-const MOCK_PLAN: PlanItem[] = [
-  {
-    id: 'art-m-3',
-    websiteId: 'proj_mock',
-    keywordId: null,
-    title: 'Interview Debrief Checklist',
-    scheduledDate: new Date(Date.now() + 86_400_000 * 3).toISOString(),
-    status: 'queued'
-  }
-]
+// Removed UI mocks; always fetch from API
 
 export function Page(): JSX.Element {
   const { id: projectId } = useActiveWebsite()
-  const { enabled: mockEnabled } = useMockData()
   const {
     deleteArticle: deleteArticleAction,
     unpublishArticle: unpublishArticleAction,
@@ -78,7 +48,7 @@ export function Page(): JSX.Element {
   const snapshotQuery = useQuery({
     queryKey: ['integrations.snapshot', projectId],
     queryFn: () => getWebsiteSnapshot(projectId!, { cache: 'no-store' }),
-    enabled: Boolean(projectId && !mockEnabled),
+    enabled: Boolean(projectId),
     refetchInterval: 60_000
   })
 
@@ -103,19 +73,18 @@ export function Page(): JSX.Element {
   const articlesQuery = useQuery({
     queryKey: ['articles.list', projectId],
     queryFn: async () => (await getWebsiteArticles(projectId!, 200)).items,
-    enabled: Boolean(projectId && !mockEnabled),
+    enabled: Boolean(projectId),
     refetchInterval: 60_000
   })
 
   const planQuery = useQuery({
     queryKey: ['articles.plan', projectId],
     queryFn: async () => (await getPlanItems(projectId!, 200)).items,
-    enabled: Boolean(projectId && !mockEnabled),
+    enabled: Boolean(projectId),
     refetchInterval: 120_000
   })
-
-  const articles = mockEnabled ? MOCK_ARTICLES : articlesQuery.data ?? []
-  const plan = mockEnabled ? MOCK_PLAN : planQuery.data ?? []
+  const articles = articlesQuery.data ?? []
+  const plan = planQuery.data ?? []
 
   const timeline = useMemo(() => buildTimeline(articles, plan), [articles, plan])
   const columns = useMemo<ColumnDef<TimelineItem>[]>(() => {
