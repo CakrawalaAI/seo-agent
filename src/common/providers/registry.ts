@@ -8,9 +8,6 @@ import { dataForSeoSerp } from './impl/dataforseo/serp'
 import { exaResearch } from './impl/exa/research'
 import { openAiLlm } from './impl/openai/llm'
 import { dataForSeoKeywordIdeasProvider } from './impl/dataforseo/keyword-ideas-provider'
-import { mockKeywordIdeasProvider } from './impl/mock/keyword-ideas'
-import { mockSerpProvider } from './impl/mock/serp'
-import { getKeywordIdeasOverride } from './overrides'
 
 export function getSerpProvider(): SerpProvider {
 
@@ -35,22 +32,8 @@ export function getLlmProvider(): LlmProvider {
 }
 
 export function getKeywordIdeasProvider(): KeywordIdeasProvider {
-  const override = getKeywordIdeasOverride()
-
-  // Check atomic mock flag first
-  if (String(process.env.MOCK_KEYWORD_GENERATOR || '').trim().toLowerCase() === 'true') return mockKeywordIdeasProvider
-
-  // Runtime overrides
-  if (override === 'mock') return mockKeywordIdeasProvider
-  if (override === 'dataforseo') return dataForSeoKeywordIdeasProvider
-
-  const name = String((config.providers as any).keywordIdeas || 'dataforseo').toLowerCase()
-  switch (name) {
-    case 'mock':
-      return mockKeywordIdeasProvider
-    default:
-      return dataForSeoKeywordIdeasProvider
-  }
+  // Only real provider supported
+  return dataForSeoKeywordIdeasProvider
 }
 // Network tuning must run as early as possible
 import '@common/infra/network'

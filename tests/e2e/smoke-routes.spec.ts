@@ -54,7 +54,14 @@ type RouteCheck = {
       path: '/integrations',
       search: '?website=proj_mock',
       check: async (page) => {
-        await expect(page.getByText('No website selected')).toBeVisible()
+        await expect(page.getByRole('heading', { name: 'Integrations' })).toBeVisible()
+      }
+    },
+    {
+      path: '/integrations/webhook',
+      search: '?website=proj_mock',
+      check: async (page) => {
+        await expect(page.getByRole('heading', { name: 'Webhook Integration' })).toBeVisible()
       }
     },
     {

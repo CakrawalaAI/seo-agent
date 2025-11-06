@@ -121,15 +121,12 @@ export const Route = createFileRoute('/api/websites/$websiteId/keywords')({
         const locale = String(body?.locale || website.defaultLocale || 'en-US')
         const languageCode = String(body?.languageCode || languageCodeFromLocale(locale))
         const locationCode = Number.isFinite(Number(body?.locationCode)) ? Number(body.locationCode) : locationCodeFromLocale(locale)
-        const useMock = String(process.env.MOCK_KEYWORD_GENERATOR || '').trim().toLowerCase() === 'true'
         const previewOnly = Boolean(body?.preview)
         const skipLookup = Boolean(body?.skipLookup)
 
         let overview: Awaited<ReturnType<typeof keywordOverview>> | Record<string, unknown> | null = null
         if (skipLookup && isPlainObject(body?.overview)) {
           overview = body.overview as Record<string, unknown>
-        } else if (useMock) {
-          overview = buildMockOverview(phrase)
         } else {
           try {
             overview = await keywordOverview({ keyword: phrase, languageCode, locationCode })
@@ -157,7 +154,7 @@ export const Route = createFileRoute('/api/websites/$websiteId/keywords')({
               .map((m: any) => ({ month: `${m?.year ?? ''}-${String(m?.month ?? 1).padStart(2, '0')}`, searchVolume: Number(m?.search_volume ?? 0) }))
               .filter((entry: any) => entry.month && Number.isFinite(entry.searchVolume))
           : null
-        const providerNameDefault = useMock ? 'mock.manual_keyword' : 'dataforseo.labs.keyword_overview'
+        const providerNameDefault = 'dataforseo.labs.keyword_overview'
         const providerName = typeof body?.provider === 'string' && body.provider ? String(body.provider) : providerNameDefault
         const metricsAsOf = typeof body?.metricsAsOf === 'string' && body.metricsAsOf
           ? body.metricsAsOf
@@ -181,7 +178,6 @@ export const Route = createFileRoute('/api/websites/$websiteId/keywords')({
               languageCode,
               locationCode,
               provider: providerName,
-              useMock,
               skipLookup,
               rawOverview: summarizeForLog(overview)
             })
@@ -191,7 +187,6 @@ export const Route = createFileRoute('/api/websites/$websiteId/keywords')({
               languageCode,
               locationCode,
               provider: providerName,
-              useMock,
               skipLookup,
               hasOverview: Boolean(overview),
               manualVolume,
@@ -318,48 +313,6 @@ function summarizeForLog(value: unknown): string | null {
   }
 }
 
-function buildMockOverview(keyword: string): Record<string, unknown> {
-  const norm = normalizeKeyword(keyword) || keyword
-  const seed = hashString(norm)
-  const baseVolume = 600 + (seed % 6400)
-  const difficulty = Math.max(18, Math.min(80, 20 + (seed % 65)))
-  const cpc = Number((1.1 + (seed % 450) / 100).toFixed(2))
-  const competition = Number((0.25 + ((seed >> 5) % 55) / 100).toFixed(2))
-  const now = new Date()
-  const monthly_searches = Array.from({ length: 12 }).map((_, index) => {
-    const date = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - index, 1))
-    const variance = 0.7 + (((seed >> (index % 12)) % 55) / 100)
-    const searchVolume = Math.max(25, Math.round((baseVolume / 12) * variance))
-    return {
-      year: date.getUTCFullYear(),
-      month: date.getUTCMonth() + 1,
-      search_volume: searchVolume
-    }
-  })
-  const timestamp = new Date().toISOString()
-  return {
-    keyword,
-    keyword_info: {
-      keyword,
-      search_volume: baseVolume,
-      cpc,
-      competition,
-      keyword_difficulty: difficulty,
-      last_updated_time: timestamp,
-      monthly_searches
-    },
-    keyword_properties: {
-      keyword_difficulty: difficulty
-    },
-    impressions_info: {
-      last_updated_time: timestamp,
-      ad_position_min: 1,
-      ad_position_max: 3,
-      ad_position_prominence: Number((0.62 + ((seed >> 7) % 30) / 100).toFixed(2)),
-      ad_impressions_share: Number((0.3 + ((seed >> 9) % 35) / 100).toFixed(2))
-    }
-  }
-}
 
 function hashString(input: string): number {
   let hash = 2166136261

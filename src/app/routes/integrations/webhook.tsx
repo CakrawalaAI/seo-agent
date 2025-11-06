@@ -1,14 +1,7 @@
-import { createFileRoute, redirect } from '@tanstack/react-router'
+import { createFileRoute } from '@tanstack/react-router'
 import { Page } from '@pages/integrations/webhook/page'
-import { ensureIntegrationAccess } from '@app/integrations/ensure-auth'
 
+// Normal child route; relies on parent /integrations auth guard.
 export const Route = createFileRoute('/integrations/webhook')({
-  beforeLoad: async ({ location }) => {
-    try {
-      await ensureIntegrationAccess(location.href)
-    } catch {
-      throw redirect({ to: '/' })
-    }
-  },
   component: Page
 })

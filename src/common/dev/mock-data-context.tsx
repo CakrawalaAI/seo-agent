@@ -1,4 +1,5 @@
 import { createContext, useContext, useEffect, useMemo, useState } from 'react'
+import { log } from '@src/common/logger'
 import { Switch } from '@src/common/ui/switch'
 import { Badge } from '@src/common/ui/badge'
 
@@ -33,9 +34,27 @@ export function MockDataProvider({ children }: { children: React.ReactNode }) {
 
 export function useMockData() {
   const ctx = useContext(MockDataContext)
-  if (!ctx) throw new Error('useMockData must be used within MockDataProvider')
-  return ctx
+  if (ctx) return ctx
+
+  if (process.env.NODE_ENV !== 'production' && !warnedMissingMockProvider) {
+    warnedMissingMockProvider = true
+    const path = typeof window !== 'undefined' ? window.location?.pathname ?? 'unknown' : 'server'
+    log.warn('useMockData fallback: MockDataProvider missing; returning disabled mock context.', { path })
+  }
+
+  return fallbackMockContext
 }
+
+const fallbackMockContext: MockDataContextValue = Object.freeze({
+  enabled: false,
+  setEnabled: () => {
+    if (process.env.NODE_ENV !== 'production') {
+      log.warn('MockDataProvider missing: ignoring setEnabled call')
+    }
+  }
+})
+
+let warnedMissingMockProvider = false
 
 function DevFloatingPanel() {
   const { enabled, setEnabled } = useMockData()

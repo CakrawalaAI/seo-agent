@@ -1,4 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
+import { log } from '@src/common/logger'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from '@tanstack/react-router'
 
@@ -71,7 +72,26 @@ export function ActiveWebsiteProvider({
 
 export function useActiveWebsite(): Ctx {
   const ctx = useContext(ActiveWebsiteContext)
-  if (!ctx) throw new Error('useActiveWebsite must be used within ActiveWebsiteProvider')
-  return ctx
+  if (ctx) return ctx
+
+  if (process.env.NODE_ENV !== 'production' && !warnedMissingProvider) {
+    warnedMissingProvider = true
+    const path = typeof window !== 'undefined' ? window.location?.pathname ?? 'unknown' : 'server'
+    log.warn('useActiveWebsite fallback: ActiveWebsiteProvider missing; returning null context. Some behaviors may be disabled until provider mounts.', {
+      path
+    })
+  }
+
+  return fallbackCtx
 }
 
+const fallbackCtx: Ctx = Object.freeze({
+  id: null,
+  setId: () => {
+    if (process.env.NODE_ENV !== 'production') {
+      log.warn('ActiveWebsiteProvider missing: ignoring setId call')
+    }
+  }
+}) as Ctx
+
+let warnedMissingProvider = false

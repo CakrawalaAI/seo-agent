@@ -1,7 +1,6 @@
 import { summarizeSite, expandSeeds } from '@common/providers/llm-helpers'
 import { websitesRepo } from '@entities/website/repository'
 import { filterSeeds } from '@features/keyword/server/seedFilter'
-import { mockKeywordGenerator } from '@common/providers/impl/mock/keyword-generator'
 import { keywordIdeas as fetchKeywordIdeas } from '@common/providers/impl/dataforseo/keyword-ideas'
 import { keywordConfig } from '@common/dev/flags'
 import {
@@ -44,8 +43,7 @@ export async function processGenerateKeywords(payload: GenerateKeywordPayload) {
   const dfsLanguage = payload.languageCode || languageCodeFromLocale(website.defaultLocale || locale) || DATAFORSEO_DEFAULT_LANGUAGE_CODE
   const dfsLocation = Number(payload.locationCode || locationCodeFromLocale(website.defaultLocale || locale) || DATAFORSEO_DEFAULT_LOCATION_CODE)
   const ideasLimit = Math.min(1000, Math.max(1, keywordConfig.keywordLimit))
-  const useMockKeywords = String(process.env.MOCK_KEYWORD_GENERATOR || '').trim().toLowerCase() === 'true'
-  const providerName = useMockKeywords ? 'mock.keyword_ideas' : 'dataforseo.labs.keyword_ideas'
+  const providerName = 'dataforseo.labs.keyword_ideas'
   const langName = languageNameFromCode(dfsLanguage)
   const locationName = locationNameFromCode(dfsLocation)
 
@@ -99,10 +97,8 @@ export async function processGenerateKeywords(payload: GenerateKeywordPayload) {
       if (!seedBatch.length) throw new Error('No keyword seeds available after preprocessing')
     }
 
-    log.debug('[keywords.generate] requesting keyword ideas', { websiteId, provider: useMockKeywords ? 'mock' : 'dataforseo', dfsLanguage, dfsLocation, limit: ideasLimit, seedCount: seedBatch.length })
-    const ideas = useMockKeywords
-      ? await mockKeywordGenerator.keywordIdeasDetailed({ keywords: seedBatch, languageCode: dfsLanguage, locationCode: dfsLocation, limit: ideasLimit })
-      : await fetchKeywordIdeas({ keywords: seedBatch, languageCode: dfsLanguage, locationCode: dfsLocation, limit: ideasLimit })
+    log.debug('[keywords.generate] requesting keyword ideas', { websiteId, provider: 'dataforseo', dfsLanguage, dfsLocation, limit: ideasLimit, seedCount: seedBatch.length })
+    const ideas = await fetchKeywordIdeas({ keywords: seedBatch, languageCode: dfsLanguage, locationCode: dfsLocation, limit: ideasLimit })
     if (!ideas.length) throw new Error('No keyword ideas returned')
     log.debug('[keywords.generate] ideas received', { websiteId, total: ideas.length })
 

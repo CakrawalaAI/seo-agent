@@ -1,3 +1,5 @@
+import { log } from '@src/common/logger'
+
 export type JsonFetchOptions = RequestInit & {
   /**
    * When true, bypasses JSON detection and returns the raw Response.

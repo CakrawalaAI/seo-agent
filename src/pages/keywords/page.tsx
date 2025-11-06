@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { log } from '@src/common/logger'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useActiveWebsite } from '@common/state/active-website'
 import { useMockData } from '@common/dev/mock-data-context'
@@ -127,7 +128,7 @@ export function Page(): JSX.Element {
         }))
       }
     } catch (error) {
-      console.warn('[keywords.filters] unable to restore filters', error)
+      log.warn('[keywords.filters] unable to restore filters', { error })
     } finally {
       filtersLoadedRef.current = true
     }
@@ -138,7 +139,7 @@ export function Page(): JSX.Element {
     try {
       window.localStorage.setItem(FILTER_STORAGE_KEY, JSON.stringify(filters))
     } catch (error) {
-      console.warn('[keywords.filters] unable to persist filters', error)
+      log.warn('[keywords.filters] unable to persist filters', { error })
     }
   }, [filters])
 
@@ -901,9 +902,7 @@ function PaginationControls({
 }
 
 function logDebug(event: string, data: Record<string, unknown>): void {
-  if (typeof console !== 'undefined' && console.debug) {
-    console.debug(`[keywords.${event}]`, data)
-  }
+  log.debug(`[keywords.${event}]`, data)
 }
 
 function redactPayload(payload: AddKeywordPayload): Record<string, unknown> {

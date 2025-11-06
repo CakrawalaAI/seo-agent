@@ -23,10 +23,6 @@ export async function runWorker(options: WorkerOptions = {}) {
   // Initialize CMS connectors
   initConnectors()
   log.info('[Worker] CMS connectors initialized')
-  try {
-    const mockKeyword = String(process.env.MOCK_KEYWORD_GENERATOR || '').trim().toLowerCase() === 'true'
-    log.info('[keywords.generate] mode', { mode: mockKeyword ? 'mock' : 'real' })
-  } catch {}
   if (queueEnabled()) {
     const masked = (process.env.RABBITMQ_URL ? (() => { try { const u = new URL(process.env.RABBITMQ_URL); return `amqp://${u.username || 'user'}:****@${u.hostname}${u.port ? ':'+u.port : ''}${u.pathname || '/'}` } catch { return 'amqp://<invalid>' } })() : 'amqp://<missing>')
     log.info('[seo-agent] worker consuming RabbitMQ jobs', { url: masked })

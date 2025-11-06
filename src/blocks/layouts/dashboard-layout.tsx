@@ -4,7 +4,6 @@ import { Link, useNavigate, useRouterState } from '@tanstack/react-router'
 import { Home, ListChecks, CalendarDays, FileText, Plug, UserCircle2 } from 'lucide-react'
 
 import { DashboardShell, type DashboardNavGroup, type DashboardUserSummary } from '@blocks/dashboard/dashboard-shell'
-import { MockDataProvider } from '@common/dev/mock-data-context'
 import { ActiveWebsiteProvider } from '@common/state/active-website'
 import { useActiveWebsite } from '@common/state/active-website'
 import type { MeSession } from '@entities'
@@ -83,21 +82,19 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
     : null
 
   return (
-    <MockDataProvider>
-      <ActiveWebsiteProvider
-        initialId={resolvedProjectId}
-        buildSearchValue={(id) => (id ? getSearchValue(id) : null)}
+    <ActiveWebsiteProvider
+      initialId={resolvedProjectId}
+      buildSearchValue={(id) => (id ? getSearchValue(id) : null)}
+    >
+      <DashboardLayoutInner
+        pathname={pathname}
+        userSummary={userSummary}
+        hasOrgNoProjects={Boolean(activeOrg?.id && websites.length === 0)}
+        getSearchValue={getSearchValue}
       >
-        <DashboardLayoutInner
-          pathname={pathname}
-          userSummary={userSummary}
-          hasOrgNoProjects={Boolean(activeOrg?.id && websites.length === 0)}
-          getSearchValue={getSearchValue}
-        >
-          {children}
-        </DashboardLayoutInner>
-      </ActiveWebsiteProvider>
-    </MockDataProvider>
+        {children}
+      </DashboardLayoutInner>
+    </ActiveWebsiteProvider>
   )
 }
 

@@ -4,6 +4,7 @@ import { useState } from 'react'
 import appCss from '@app/styles/app.css?url'
 import { TanStackRouterDevtools } from '@tanstack/react-router-devtools'
 import { HeadContent, Scripts, Outlet, createRootRouteWithContext, useRouterState } from '@tanstack/react-router'
+import { log } from '@src/common/logger'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { Toaster } from '@src/common/ui/sonner'
 import type { RouterContext } from '@app/router'
@@ -50,25 +51,17 @@ export const Route = createRootRouteWithContext<RouterContext>()({
 function RootComponent(): JSX.Element {
   const [queryClient] = useState(() => new QueryClient())
   return (
-    <RootDocument>
-      <QueryClientProvider client={queryClient}>
-        <RouteWrapper>
-          <Outlet />
-        </RouteWrapper>
-        <TanStackRouterDevtools position="bottom-right" />
-      </QueryClientProvider>
-    </RootDocument>
-  )
-}
-
-function RootDocument({ children }: Readonly<{ children: React.ReactNode }>) {
-  return (
     <html className="dark">
       <head>
         <HeadContent />
       </head>
       <body>
-        {children}
+        <QueryClientProvider client={queryClient}>
+          <RouteWrapper>
+            <Outlet />
+          </RouteWrapper>
+          <TanStackRouterDevtools position="bottom-right" />
+        </QueryClientProvider>
         <Toaster />
         <Scripts />
       </body>
@@ -77,14 +70,49 @@ function RootDocument({ children }: Readonly<{ children: React.ReactNode }>) {
 }
 
 function RouteWrapper({ children }: { children: React.ReactNode }) {
-  const pathname = useRouterState({ select: (s) => s.location.pathname })
-  const isPublic = pathname === '/'
+  const { matches, pendingMatches, location } = useRouterState((state) => ({
+    matches: state.matches,
+    pendingMatches: state.pendingMatches,
+    location: state.location
+  }))
+
+  const activeMatches = pendingMatches?.length ? pendingMatches : matches
+  const leafRouteId = activeMatches?.length ? activeMatches[activeMatches.length - 1]?.routeId : null
+  const isLandingRoute = Boolean(activeMatches?.length === 1 && activeMatches[0]?.routeId === '/')
+  const isPublic = isLandingRoute || isPublicPath(location.pathname)
+
+  if (import.meta.env?.DEV) {
+    const routeIds = activeMatches?.map((match) => match.routeId) ?? []
+    log.debug('[RouteWrapper] render', {
+      pathname: location.pathname,
+      isPublic,
+      isLandingRoute,
+      leafRouteId,
+      routeIds
+    })
+  }
+
   if (isPublic) {
     return <div className="min-h-screen bg-background text-foreground">{children}</div>
   }
+
   return (
     <div className="min-h-screen bg-background text-foreground">
       <DashboardLayout>{children}</DashboardLayout>
     </div>
   )
+}
+
+function isPublicPath(pathname: string | undefined): boolean {
+  if (!pathname) {
+    if (import.meta.env?.DEV) {
+      log.debug('[RouteWrapper] missing pathname; defaulting to private shell')
+    }
+    return false
+  }
+  let normalized = pathname
+  if (normalized.length > 1 && normalized.endsWith('/')) {
+    normalized = normalized.replace(/\/+$/, '')
+  }
+  return normalized === '/'
 }
