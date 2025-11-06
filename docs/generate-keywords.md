@@ -21,5 +21,4 @@ Behavior
 - Planner consumes rows where `include=true`.
 
 Mocking
-- `src/common/providers/impl/mock/keyword-generator.ts` returns 100 deterministic, DataForSEO-shaped keyword records.
-- Mock uses the same `KeywordIdeaItem` interface as the real client so the worker logic stays identical in dev/test.
+- Removed. The agent always uses real providers (DataForSEO) for keyword ideas.

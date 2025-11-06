@@ -70,11 +70,9 @@ function RootComponent(): JSX.Element {
 }
 
 function RouteWrapper({ children }: { children: React.ReactNode }) {
-  const { matches, pendingMatches, location } = useRouterState((state) => ({
-    matches: state.matches,
-    pendingMatches: state.pendingMatches,
-    location: state.location
-  }))
+  const { matches, pendingMatches, location } = useRouterState({
+    select: (s) => ({ matches: s.matches, pendingMatches: s.pendingMatches, location: s.location })
+  })
 
   const activeMatches = pendingMatches?.length ? pendingMatches : matches
   const leafRouteId = activeMatches?.length ? activeMatches[activeMatches.length - 1]?.routeId : null

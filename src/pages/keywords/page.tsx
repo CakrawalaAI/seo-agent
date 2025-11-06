@@ -2,7 +2,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { log } from '@src/common/logger'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useActiveWebsite } from '@common/state/active-website'
-import { useMockData } from '@common/dev/mock-data-context'
 import { getWebsite } from '@entities/website/service'
 import type { Keyword } from '@entities'
 import { DataTable, type ColumnDef } from '@src/common/ui/data-table'
@@ -23,35 +22,7 @@ import { cn } from '@src/common/ui/cn'
 import { ArrowUpDown, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Loader2, MoreHorizontal, Plus, RefreshCw, SlidersHorizontal, X as XIcon } from 'lucide-react'
 import { toast } from 'sonner'
 
-const MOCK_KEYWORDS: Array<Keyword & { active?: boolean | null }> = [
-  {
-    id: 'kw-m-1',
-    websiteId: 'proj_mock',
-    canonId: 'kw-m-1',
-    phrase: 'interview questions for product managers',
-    metricsJson: { searchVolume: 4400, difficulty: 36, cpc: 2.1, competition: 0.32, asOf: new Date().toISOString() },
-    status: 'ready',
-    active: true
-  },
-  {
-    id: 'kw-m-2',
-    websiteId: 'proj_mock',
-    canonId: 'kw-m-2',
-    phrase: 'behavioral interview examples',
-    metricsJson: { searchVolume: 6600, difficulty: 62, cpc: 1.45, competition: 0.58, asOf: new Date().toISOString() },
-    status: 'in_review',
-    active: false
-  },
-  {
-    id: 'kw-m-3',
-    websiteId: 'proj_mock',
-    canonId: 'kw-m-3',
-    phrase: 'mock interview ai coach',
-    metricsJson: { searchVolume: 1900, difficulty: 24, cpc: 3.4, competition: 0.41, asOf: new Date().toISOString() },
-    status: 'starred',
-    active: false
-  }
-]
+// Removed UI mocks; always fetch from API
 
 type KeywordRow = Keyword & { active?: boolean | null }
 
@@ -101,7 +72,6 @@ const SEARCH_PAGE_SIZE = 1000
 
 export function Page(): JSX.Element {
   const { id: projectId } = useActiveWebsite()
-  const { enabled: mockEnabled } = useMockData()
   const queryClient = useQueryClient()
   const [deleteTarget, setDeleteTarget] = useState<KeywordRow | null>(null)
   const [activePendingId, setActivePendingId] = useState<string | null>(null)
@@ -146,7 +116,7 @@ export function Page(): JSX.Element {
   const projectQuery = useQuery({
     queryKey: ['keywords.project', projectId],
     queryFn: () => getWebsite(projectId!),
-    enabled: Boolean(projectId && !mockEnabled),
+    enabled: Boolean(projectId),
     staleTime: Number.POSITIVE_INFINITY,
     gcTime: Number.POSITIVE_INFINITY
   })
@@ -166,18 +136,13 @@ export function Page(): JSX.Element {
       }
       return await response.json()
     },
-    enabled: Boolean(projectId && !mockEnabled),
+    enabled: Boolean(projectId),
     staleTime: Number.POSITIVE_INFINITY,
     gcTime: Number.POSITIVE_INFINITY,
     refetchOnWindowFocus: false
   })
 
   const keywordsData = useMemo(() => {
-    if (mockEnabled) {
-      const items = MOCK_KEYWORDS
-      const activeMock = items.reduce((count, keyword) => (keyword.active ? count + 1 : count), 0)
-      return { items, total: items.length, active: activeMock, page: 1, pageCount: 1 }
-    }
     const data = keywordsQuery.data
     const items = data?.items ?? []
     const total = data?.total ?? items.length
@@ -185,7 +150,7 @@ export function Page(): JSX.Element {
     const pageFromApi = data?.page ?? page
     const pageCount = data?.pageCount ?? Math.max(1, Math.ceil(Math.max(total, 0) / (debouncedSearch ? SEARCH_PAGE_SIZE : PAGE_SIZE)))
     return { items, total, active, page: pageFromApi, pageCount }
-  }, [keywordsQuery.data, mockEnabled, page, debouncedSearch])
+  }, [keywordsQuery.data, page, debouncedSearch])
 
   // no deferral: keep toggle snappy with optimistic updates
   const keywords: KeywordRow[] = keywordsData.items
@@ -212,10 +177,10 @@ export function Page(): JSX.Element {
   }, [keywordsData.pageCount, page])
 
   useEffect(() => {
-    if (!mockEnabled && keywordsQuery.data?.page && keywordsQuery.data.page !== page) {
+    if (keywordsQuery.data?.page && keywordsQuery.data.page !== page) {
       setPage(keywordsQuery.data.page)
     }
-  }, [keywordsQuery.data?.page, mockEnabled, page])
+  }, [keywordsQuery.data?.page, page])
 
   useEffect(() => {
     setPage(1)
@@ -224,7 +189,6 @@ export function Page(): JSX.Element {
   const checkKeywordMutation = useMutation({
     mutationFn: async (phrase: string): Promise<KeywordPreview> => {
       if (!projectId) throw new Error('Select a website to add keywords')
-      if (mockEnabled) throw new Error('Mock data is read-only')
       const response = await fetch(`/api/websites/${projectId}/keywords`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
@@ -275,7 +239,7 @@ export function Page(): JSX.Element {
   const effectivePageSize = debouncedSearch ? SEARCH_PAGE_SIZE : PAGE_SIZE
 
   const filteredKeywords = useMemo(() => {
-    const applySearchFilter = mockEnabled || !debouncedSearch
+  const applySearchFilter = !debouncedSearch
     return keywords.filter((keyword) => {
       if (applySearchFilter && normalizedSearch && !keyword.phrase.toLowerCase().includes(normalizedSearch)) return false
       const metrics = keyword.metricsJson || {}
@@ -289,14 +253,13 @@ export function Page(): JSX.Element {
       if (!filters.showInactive && !keyword.active) return false
       return true
     })
-  }, [keywords, normalizedSearch, filters, mockEnabled, debouncedSearch])
+  }, [keywords, normalizedSearch, filters, debouncedSearch])
 
   const initialSorting = useMemo(() => [{ id: 'searchVolume', desc: true }], [])
 
   const addKeywordMutation = useMutation({
     mutationFn: async (payload: AddKeywordPayload) => {
       if (!projectId) throw new Error('Select a website to add keywords')
-      if (mockEnabled) throw new Error('Mock data is read-only')
       logDebug('add_keyword.submit', { projectId, payload: redactPayload(payload) })
       const response = await fetch(`/api/websites/${projectId}/keywords`, {
         method: 'POST',
@@ -330,7 +293,6 @@ export function Page(): JSX.Element {
   const regenerateMutation = useMutation({
     mutationFn: async () => {
       if (!projectId) throw new Error('Select a website to regenerate keywords')
-      if (mockEnabled) throw new Error('Mock data is read-only')
       const response = await fetch(`/api/websites/${projectId}/keywords/regenerate`, { method: 'POST' })
       let body: any = null
       try {
@@ -363,7 +325,7 @@ export function Page(): JSX.Element {
     }
   })
 
-  const regenerateDisabled = !projectId || mockEnabled || regenerateMutation.isPending
+  const regenerateDisabled = !projectId || regenerateMutation.isPending
 
   const previewMatchesDraft = Boolean(preview && normalizeKeyword(preview.phrase) === normalizedDraft)
 
@@ -377,9 +339,9 @@ export function Page(): JSX.Element {
       toast.error('Keyword already exists')
       return
     }
-    if (checkKeywordMutation.isPending || mockEnabled) return
+    if (checkKeywordMutation.isPending) return
     checkKeywordMutation.mutate(phrase)
-  }, [keywordDraft, checkKeywordMutation, mockEnabled, draftAlreadyExists])
+  }, [keywordDraft, checkKeywordMutation, draftAlreadyExists])
 
   const handleAddKeyword = useCallback(() => {
     const phrase = keywordDraft.trim()
@@ -412,7 +374,6 @@ export function Page(): JSX.Element {
 
   const toggleActiveMutation = useMutation({
     mutationFn: async ({ keywordId, active }: { keywordId: string; active: boolean }) => {
-      if (mockEnabled) return null
       return await fetch(`/api/keywords/${keywordId}`, { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ active }) })
     },
     onMutate: async ({ keywordId, active }) => {
@@ -449,15 +410,14 @@ export function Page(): JSX.Element {
 
   const handleToggleActive = useCallback(
     (keywordId: string, active: boolean) => {
-      if (mockEnabled) return
       toggleActiveMutation.mutate({ keywordId, active })
     },
-    [mockEnabled, toggleActiveMutation]
+    [toggleActiveMutation]
   )
 
   const confirmDelete = async () => {
     const target = deleteTarget
-    if (!target || mockEnabled) return
+    if (!target) return
     setDeletePendingId(target.id)
     try {
       await fetch(`/api/keywords/${target.id}`, { method: 'DELETE' })
@@ -555,7 +515,7 @@ export function Page(): JSX.Element {
                   className={cn('h-8 w-8', isActive ? 'text-rose-500 hover:text-rose-600' : 'text-muted-foreground hover:text-foreground')}
                   aria-label={isActive ? 'Deactivate keyword' : 'Activate keyword'}
                   onClick={() => handleToggleActive(keyword.id, !isActive)}
-                  disabled={mockEnabled || pending}
+                  disabled={pending}
                 >
                   {pending ? <Loader2 className="h-4 w-4 animate-spin" /> : isActive ? <XIcon className="h-4 w-4" /> : <Plus className="h-4 w-4" />}
                 </Button>
@@ -585,7 +545,7 @@ export function Page(): JSX.Element {
         enableSorting: false
       }
     ]
-  }, [handleToggleActive, activePendingId, mockEnabled])
+  }, [handleToggleActive, activePendingId])
 
   if (!projectId) {
     return (
@@ -604,21 +564,21 @@ export function Page(): JSX.Element {
     )
   }
 
-  const isLoading = !mockEnabled && keywordsQuery.isLoading
-  const checkDisabled = checkKeywordMutation.isPending || !normalizedDraft || !projectId || mockEnabled || draftAlreadyExists
-  const addDisabled = addKeywordMutation.isPending || checkKeywordMutation.isPending || !previewMatchesDraft || mockEnabled || draftAlreadyExists
+  const isLoading = keywordsQuery.isLoading
+  const checkDisabled = checkKeywordMutation.isPending || !normalizedDraft || !projectId || draftAlreadyExists
+  const addDisabled = addKeywordMutation.isPending || checkKeywordMutation.isPending || !previewMatchesDraft || draftAlreadyExists
 
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-col gap-6">
       <header className="space-y-1">
         <h1 className="text-2xl font-semibold">Keywords</h1>
-        <p className="text-sm text-muted-foreground">Triage and prioritize opportunities for {mockEnabled ? 'Prep Interview' : (projectQuery.data as any)?.url ?? 'your website'}.</p>
+        <p className="text-sm text-muted-foreground">Triage and prioritize opportunities for {(projectQuery.data as any)?.url ?? 'your website'}.</p>
       </header>
 
       <div className="flex flex-wrap items-center gap-3 rounded-lg border bg-card p-4 shadow-sm">
         <span className="text-xs font-semibold text-muted-foreground">{`${counts.active} / ${counts.total || 0} keywords active`}</span>
         <div className="ml-auto flex items-center gap-3">
-          {mockEnabled ? <Badge variant="outline">Mock data is read-only</Badge> : null}
+          {/* mock mode removed */}
           <Button
             type="button"
             variant="outline"
@@ -645,7 +605,7 @@ export function Page(): JSX.Element {
                 checkKeywordMutation.reset()
               }}
               placeholder="Type a keyword..."
-              disabled={mockEnabled}
+              disabled={false}
               onKeyDown={(event) => {
                 if (event.key === 'Enter' && !event.shiftKey) {
                   event.preventDefault()
@@ -720,7 +680,7 @@ export function Page(): JSX.Element {
           <EmptyHeader>
             <EmptyTitle>No keywords yet</EmptyTitle>
             <EmptyDescription>
-              {mockEnabled ? 'Toggle mock data off to view the live queue.' : 'Check metrics above to add your first keyword.'}
+              {'Check metrics above to add your first keyword.'}
             </EmptyDescription>
           </EmptyHeader>
         </Empty>
@@ -767,7 +727,7 @@ export function Page(): JSX.Element {
                 <DataTable columns={columns} data={filteredKeywords} paginate={false} initialSorting={initialSorting} />
               </div>
             </TooltipProvider>
-            {!mockEnabled ? (
+            {(
               <PaginationControls
                 page={keywordsData.page}
                 pageCount={keywordsData.pageCount}
@@ -776,7 +736,7 @@ export function Page(): JSX.Element {
                 total={counts.total}
                 currentCount={filteredKeywords.length}
               />
-            ) : null}
+            )}
           </div>
         </section>
       )}

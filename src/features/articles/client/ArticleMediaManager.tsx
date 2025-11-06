@@ -33,7 +33,7 @@ export function ArticleMediaManager({ articleId, attachments, disabled, onRefres
     const file = event.target.files?.[0]
     if (!file) return
     if (disabled) {
-      toast.info('Uploads disabled in mock mode')
+      toast.info('Uploads disabled')
       resetInput()
       return
     }
@@ -60,7 +60,7 @@ export function ArticleMediaManager({ articleId, attachments, disabled, onRefres
 
   const handleDelete = async (attachmentId: string) => {
     if (disabled) {
-      toast.info('Mock mode: attachments read-only')
+      toast.info('Attachments are read-only')
       return
     }
     setDeletingId(attachmentId)

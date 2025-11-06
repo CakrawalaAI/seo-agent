@@ -4,7 +4,7 @@ Last updated: 2025-11-04
 
 ## Why It Exists
 - Drive keyword generation for each website without touching expensive multi-endpoint funnels.
-- Mirror the DataForSEO `keyword_ideas/live` response so the mock provider can plug in without code drift.
+- Standardize on the DataForSEO `keyword_ideas/live` response.
 - Keep the contract tight: deterministic inputs (≤200 seeds) → deterministic, normalized keyword ideas.
 
 ## Authentication
@@ -76,7 +76,7 @@ Example slice:
 - `src/common/providers/impl/dataforseo/keyword-ideas-provider.ts`
   - Wires geo defaults, exposes provider via `KeywordIdeasProvider` interface.
 - `src/common/providers/registry.ts`
-  - Selects real vs mock provider depending on env flags.
+  - Returns the real provider only.
 - `src/features/keyword/server/generateKeywords.ts`
   - Dedupes seeds, fans out to provider, returns `KeywordIdeaResult[]` (phrase-only shape for downstream use).
 - `src/entities/keyword/service.ts`
@@ -92,16 +92,7 @@ Example slice:
   - `languageNameFromCode('en')` → `English`
 
 ## Mock Provider
-- File: `src/common/providers/impl/mock/keyword-generator.ts`
-- Generates 100 deterministic keywords seeded by website host + request seeds.
-- Returns objects that satisfy `KeywordIdeaRecord` (keyword + info/properties/impressions).
-- Enabled by `MOCK_KEYWORD_GENERATOR=true` (legacy aliases: `SEOA_MOCK_KEYWORD_GENERATION`, `SEOA_MOCK_KEYWORD_EXPANSION`, `SEOA_DISCOVERY_MOCK_MODE`).
-
-Mock output characteristics:
-- `keyword_info.search_volume`: random-looking but deterministic per keyword (range 1.2k–8.4k).
-- `keyword_info.cpc`: 1.20–4.80 (USD), 2 decimal places.
-- `keyword_properties.keyword_difficulty`: integer 18–65.
-- `monthly_searches`: 12 entries (rolling last 12 months).
+Removed. No mock keyword ideas in this codebase.
 
 ## Costs & Limits
 - Pricing (Nov 2025): `$0.012` per returned keyword idea.
@@ -124,7 +115,7 @@ Mock output characteristics:
        -d '[{"keywords":["interview"],"location_code":2840,"language_code":"en"}]' \
        https://api.dataforseo.com/v3/dataforseo_labs/google/keyword_ideas/live
   ```
-- Worker validation: `bun run worker` with `MOCK_KEYWORD_GENERATOR=true` should log `keyword generate mode` as mock and finish without hitting the real API.
+- Worker validation: run worker with DataForSEO credentials to exercise the real pipeline.
 - Cost levers: set `MAX_SEED_KEYWORDS` (seed batch, ≤200 enforced) and `MAX_KEYWORDS_GENERATE` (result limit, ≤1000) to tune spend; defaults set to 1200/1000 for production-like scale (clamped to API caps at runtime).
 
 ## Troubleshooting Cheatsheet

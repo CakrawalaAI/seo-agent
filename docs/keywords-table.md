@@ -52,4 +52,4 @@
 
 ## Metrics Refresh
 - Subtitle clamps project name; remove `refetch` button but keep background polling (45s).
-- When mock mode active, disable mutations and show inline note “Mock data is read-only”.
+Mock mode removed; table always reflects live data.

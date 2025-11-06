@@ -2,8 +2,7 @@ import { createFileRoute, redirect, Outlet } from '@tanstack/react-router'
 import { fetchSession } from '@entities/org/service'
 
 export const Route = createFileRoute('/integrations')({
-  beforeLoad: async ({ location }) => {
-    if (shouldBypassAuth()) return
+  beforeLoad: async () => {
     try {
       const data = await fetchSession()
       if (!data?.user) {
@@ -20,11 +19,4 @@ function IntegrationsRouteComponent() {
   return <Outlet />
 }
 
-function shouldBypassAuth(): boolean {
-  if (typeof window === 'undefined') return false
-  try {
-    return window.localStorage.getItem('seo-agent:mock-data') === 'on'
-  } catch {
-    return false
-  }
-}
+// mock-data bypass removed

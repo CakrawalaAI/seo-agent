@@ -1,6 +1,5 @@
 import { useCallback, useMemo, useState, useEffect, type FormEvent } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
-import { useMockData } from '@common/dev/mock-data-context'
 import { extractErrorMessage } from '@common/http/json'
 import { fetchSession, fetchOrgMembers, inviteOrgMember } from '@entities/org/service'
 import type { MeSession, OrgMember, OrgMemberRole } from '@entities'
@@ -17,22 +16,9 @@ import { CalendarDays, Sparkles, Users } from 'lucide-react'
 
 type Feedback = { type: 'success' | 'error'; message: string }
 
-const MOCK_SESSION: MeSession = {
-  user: { name: 'Radja Polem', email: 'radja@example.com' },
-  activeOrg: { id: 'org_mock', plan: 'growth' },
-  entitlements: { projectQuota: 5, monthlyPostCredits: 30, dailyArticles: 2 },
-  usage: { postsUsed: 8, monthlyPostCredits: 30, cycleStart: new Date().toISOString() },
-  orgs: [{ id: 'org_mock', name: 'Prep Interview', plan: 'growth' }],
-  activeProjectId: 'proj_mock'
-}
-
-const MOCK_MEMBERS: OrgMember[] = [
-  { orgId: 'org_mock', email: 'radja@example.com', role: 'owner', joinedAt: new Date().toISOString() },
-  { orgId: 'org_mock', email: 'content@example.com', role: 'member', joinedAt: new Date(Date.now() - 86_400_000).toISOString() }
-]
+// Removed settings mocks; always fetch from API
 
 export function Page(): JSX.Element {
-  const { enabled: mockEnabled } = useMockData()
   const [inviteEmail, setInviteEmail] = useState('')
   const [inviteRole, setInviteRole] = useState<OrgMemberRole>('member')
   const [feedback, setFeedback] = useState<Feedback | null>(null)
@@ -45,24 +31,24 @@ export function Page(): JSX.Element {
     queryKey: ['settings.session'],
     queryFn: fetchSession,
     staleTime: 60_000,
-    enabled: !mockEnabled
+    enabled: true
   })
 
   const membersQuery = useQuery<{ items: OrgMember[] }>({
     queryKey: ['settings.members'],
     queryFn: fetchOrgMembers,
     staleTime: 30_000,
-    enabled: !mockEnabled
+    enabled: true
   })
 
-  const session = mockEnabled ? MOCK_SESSION : sessionQuery.data
-  const members = useMemo(() => (mockEnabled ? MOCK_MEMBERS : membersQuery.data?.items ?? []), [mockEnabled, membersQuery.data])
+  const session = sessionQuery.data
+  const members = useMemo(() => membersQuery.data?.items ?? [], [membersQuery.data])
 
   // Content policy query (active website)
   const websiteQuery = useQuery({
     queryKey: ['settings.website', activeWebsiteId],
     queryFn: () => getWebsite(activeWebsiteId!),
-    enabled: Boolean(activeWebsiteId && !mockEnabled),
+    enabled: Boolean(activeWebsiteId),
     staleTime: 30_000
   })
 
@@ -94,9 +80,7 @@ export function Page(): JSX.Element {
     onSuccess: (result) => {
       setInviteEmail('')
       setFeedback({ type: 'success', message: `Invitation sent to ${result.email} as ${labelizeRole(result.role)}.` })
-      if (!mockEnabled) {
-        membersQuery.refetch().catch(() => {})
-      }
+      membersQuery.refetch().catch(() => {})
     },
     onError: (error) => {
       setFeedback({ type: 'error', message: extractErrorMessage(error) })
@@ -105,7 +89,6 @@ export function Page(): JSX.Element {
 
   const activateMutation = useMutation({
     mutationFn: async () => {
-      if (mockEnabled) return
       const res = await fetch('/api/billing/checkout', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
@@ -134,7 +117,6 @@ export function Page(): JSX.Element {
 
   const cancelMutation = useMutation({
     mutationFn: async () => {
-      if (mockEnabled) return
       const res = await fetch('/api/billing/portal', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
@@ -196,11 +178,10 @@ export function Page(): JSX.Element {
   const handleInviteSubmit = useCallback(
     (event: FormEvent<HTMLFormElement>) => {
       event.preventDefault()
-      if (mockEnabled) return
       setFeedback(null)
       inviteMutation.mutate()
     },
-    [inviteMutation, mockEnabled]
+    [inviteMutation]
   )
 
   const handleInviteRoleChange = useCallback((value: string) => {
@@ -267,7 +248,7 @@ export function Page(): JSX.Element {
                 setFeedback(null)
                 subscriptionAction.mutate()
               }}
-              disabled={mockEnabled || subscriptionActionPending}
+              disabled={subscriptionActionPending}
             >
               {subscriptionActionPending ? 'Processing…' : subscriptionActionLabel}
             </Button>
@@ -287,7 +268,7 @@ export function Page(): JSX.Element {
                   className="h-4 w-4"
                   checked={policyAllowYoutube}
                   onChange={(e) => setPolicyAllowYoutube(e.currentTarget.checked)}
-                  disabled={mockEnabled || websiteQuery.isFetching || savingPolicy}
+                  disabled={websiteQuery.isFetching || savingPolicy}
                 />
                 Allow YouTube embeds
               </Label>
@@ -300,14 +281,14 @@ export function Page(): JSX.Element {
                   value={policyMaxImages}
                   onChange={(e) => setPolicyMaxImages(Math.max(0, Math.min(4, Number(e.currentTarget.value))))}
                   className="w-24"
-                  disabled={mockEnabled || websiteQuery.isFetching || savingPolicy}
+                  disabled={websiteQuery.isFetching || savingPolicy}
                 />
               </Label>
               <div className="md:col-span-1 lg:col-span-2 flex items-center">
                 <Button
                   type="button"
                   onClick={async () => {
-                    if (!activeWebsiteId || mockEnabled) return
+                    if (!activeWebsiteId) return
                     setSavingPolicy(true)
                     setFeedback(null)
                     try {
@@ -324,7 +305,7 @@ export function Page(): JSX.Element {
                       setSavingPolicy(false)
                     }
                   }}
-                  disabled={mockEnabled || websiteQuery.isFetching || savingPolicy}
+                  disabled={websiteQuery.isFetching || savingPolicy}
                 >
                   {savingPolicy ? 'Saving…' : 'Save policy'}
                 </Button>
@@ -353,12 +334,12 @@ export function Page(): JSX.Element {
                 onChange={(event) => setInviteEmail(event.target.value)}
                 placeholder="teammate@example.com"
                 required
-                disabled={mockEnabled || inviteMutation.isPending}
+                disabled={inviteMutation.isPending}
               />
             </Label>
             <Label className="flex flex-col gap-1 text-sm font-medium text-muted-foreground">
               Role
-              <Select value={inviteRole} onValueChange={handleInviteRoleChange} disabled={mockEnabled || inviteMutation.isPending}>
+              <Select value={inviteRole} onValueChange={handleInviteRoleChange} disabled={inviteMutation.isPending}>
                 <SelectTrigger>
                   <SelectValue placeholder="Select role" />
                 </SelectTrigger>
@@ -368,8 +349,8 @@ export function Page(): JSX.Element {
                 </SelectContent>
               </Select>
             </Label>
-            <Button type="submit" disabled={mockEnabled || inviteMutation.isPending}>
-              {inviteMutation.isPending ? 'Sending…' : mockEnabled ? 'Mocked' : 'Send invite'}
+            <Button type="submit" disabled={inviteMutation.isPending}>
+              {inviteMutation.isPending ? 'Sending…' : 'Send invite'}
             </Button>
           </form>
           <Separator />
@@ -383,11 +364,11 @@ export function Page(): JSX.Element {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {membersQuery.isLoading && !mockEnabled ? (
+                {membersQuery.isLoading ? (
                   <TableRow>
                     <TableCell colSpan={3}>Loading members…</TableCell>
                   </TableRow>
-                ) : membersQuery.isError && !mockEnabled ? (
+                ) : membersQuery.isError ? (
                   <TableRow>
                     <TableCell colSpan={3} className="text-destructive">
                       Unable to load members.

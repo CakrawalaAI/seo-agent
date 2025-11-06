@@ -173,7 +173,7 @@ export function Page(): JSX.Element {
         cell: ({ row }) => {
           const isDeleting = deletingId === row.original.entityId
           const isStatusPending = statusMutatingId === row.original.entityId
-          const canMutate = !mockEnabled && !isDeleting && !isStatusPending
+          const canMutate = !isDeleting && !isStatusPending
           return (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
@@ -206,7 +206,6 @@ export function Page(): JSX.Element {
                   <DropdownMenuItem
                     onClick={async (event) => {
                       event.stopPropagation()
-                      if (mockEnabled) return
                       publishMutation.mutate({ articleId: row.original.entityId })
                     }}
                   >
@@ -218,7 +217,6 @@ export function Page(): JSX.Element {
                   <DropdownMenuItem
                     onClick={async (event) => {
                       event.stopPropagation()
-                      if (mockEnabled) return
                       try { await publishArticleApi(row.original.entityId, activeWebhookId) } catch {}
                     }}
                   >
@@ -230,7 +228,7 @@ export function Page(): JSX.Element {
                   <DropdownMenuItem
                     onClick={async (event) => {
                       event.stopPropagation()
-                      if (isStatusPending || mockEnabled) return
+                      if (isStatusPending) return
                       log.info('[articles.page] menu_unpublish_click', {
                         articleId: row.original.entityId
                       })
@@ -245,10 +243,10 @@ export function Page(): JSX.Element {
                 <DropdownMenuSeparator />
                   <DropdownMenuItem
                     className="text-destructive"
-                    disabled={isDeleting || mockEnabled}
+                    disabled={isDeleting}
                     onClick={async (event) => {
                       event.stopPropagation()
-                      if (isDeleting || mockEnabled) return
+                      if (isDeleting) return
                       const confirmed = window.confirm('Delete this article and remove it from the schedule?')
                       if (!confirmed) return
                       log.info('[articles.page] menu_delete_confirmed', {
@@ -266,7 +264,7 @@ export function Page(): JSX.Element {
         }
       }
     ]
-  }, [deleteArticleAction, deletingId, mockEnabled, statusMutatingId, unpublishArticleAction, viewArticle])
+  }, [deleteArticleAction, deletingId, statusMutatingId, unpublishArticleAction, viewArticle])
   const handleRowClick = useCallback(
     (row: Row<TimelineItem>) => {
       log.info('[articles.page] row_click', {
@@ -309,13 +307,12 @@ export function Page(): JSX.Element {
           variant="outline"
           size="sm"
           onClick={() => {
-            if (mockEnabled) return
             articlesQuery.refetch()
             planQuery.refetch()
           }}
-          disabled={mockEnabled || articlesQuery.isRefetching || planQuery.isRefetching}
+          disabled={articlesQuery.isRefetching || planQuery.isRefetching}
         >
-          {articlesQuery.isRefetching || planQuery.isRefetching ? 'Refreshing…' : mockEnabled ? 'Mock data' : 'Refresh data'}
+          {articlesQuery.isRefetching || planQuery.isRefetching ? 'Refreshing…' : 'Refresh data'}
         </Button>
       </header>
 
@@ -324,9 +321,7 @@ export function Page(): JSX.Element {
           <EmptyHeader>
             <EmptyTitle>No articles yet</EmptyTitle>
             <EmptyDescription>
-              {mockEnabled
-                ? 'Disable mock data to view the live feed.'
-                : articlesQuery.isFetching
+              {articlesQuery.isFetching
                 ? 'Loading your articles and plan…'
                 : 'Generate plan items to populate the publishing queue.'}
             </EmptyDescription>

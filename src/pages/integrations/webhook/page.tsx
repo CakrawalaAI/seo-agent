@@ -2,7 +2,6 @@ import { useEffect, useMemo, useState } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { Link, useRouterState } from '@tanstack/react-router'
 import { useActiveWebsite } from '@common/state/active-website'
-import { useMockData } from '@common/dev/mock-data-context'
 import { getWebsite, getWebsiteSnapshot } from '@entities/website/service'
 import type { IntegrationStatus } from '@entities'
 import { buildIntegrationViews } from '@integrations/shared/catalog'
@@ -71,7 +70,6 @@ const WEBHOOK_EVENTS: Array<{
 
 export function Page(): JSX.Element {
   const { id: activeProjectId } = useActiveWebsite()
-  const { enabled: mockEnabled } = useMockData()
   const routerState = useRouterState()
   const projectId = activeProjectId
   const [targetUrl, setTargetUrl] = useState('')
@@ -85,14 +83,14 @@ export function Page(): JSX.Element {
   const snapshotQuery = useQuery({
     queryKey: ['integrations.snapshot', projectId],
     queryFn: () => getWebsiteSnapshot(projectId!, { cache: 'no-store' }),
-    enabled: Boolean(projectId && !mockEnabled),
+    enabled: Boolean(projectId),
     refetchInterval: 45_000
   })
 
   const projectQuery = useQuery({
     queryKey: ['project.detail', projectId],
     queryFn: () => getWebsite(projectId!),
-    enabled: Boolean(projectId && !mockEnabled)
+    enabled: Boolean(projectId)
   })
 
   const integrationView = useMemo<WebsiteIntegrationView | null>(() => {
@@ -173,7 +171,7 @@ export function Page(): JSX.Element {
   const isConnected = integrationView?.isActive ?? false
   const config = integrationView?.integration?.configJson
   const secretPreview = config?.secret ? maskSecret(String(config.secret)) : null
-  const canMutate = Boolean(projectId) && !mockEnabled
+  const canMutate = Boolean(projectId)
   const projectName = projectQuery.data?.url ?? 'Website'
   const rawSearch = routerState.location.search as unknown
   const currentSearch = useMemo<Record<string, unknown>>(() => {

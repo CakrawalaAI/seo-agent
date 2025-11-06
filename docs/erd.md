@@ -100,7 +100,7 @@ None. All crawl pages, summaries, keyword caches, and article drafts persist in 
 
 ## Process Contracts (inputs → outputs)
 - Crawl: input `websites.url` → output `websites.summary`, `crawl_jobs` + `crawl_pages`.
-- Generate Keywords (real or mock): input `websites.summary` (+ headings) → output `keywords` with metrics. Users toggle `include`.
+- Generate Keywords: input `websites.summary` (+ headings) → output `keywords` with metrics. Users toggle `include`.
 - Plan/Schedule: input `keywords(include=true)` → output `articles` rows (30‑day runway or full subscription period; round‑robin; deletions leave days empty).
 - Generate Articles: input `articles(status=queued)` within global 3‑day buffer → output `articles(status=scheduled, body_html)`.
 - Publish: input `articles(status=scheduled, scheduled_date<=today)` + integration → output `articles(status=published, url)`.

@@ -10,19 +10,11 @@ export const Route = createFileRoute('/integrations/$integrationId')({
         search: () => searchObject as never
       })
     }
-    if (shouldBypassAuth()) return
+    // mock-data bypass removed
   },
   component: () => {
     const { integrationId } = Route.useParams()
     return <Page integrationId={integrationId} />
   }
 })
-
-function shouldBypassAuth(): boolean {
-  if (typeof window === 'undefined') return false
-  try {
-    return window.localStorage.getItem('seo-agent:mock-data') === 'on'
-  } catch {
-    return false
-  }
-}
+// mock-data bypass removed

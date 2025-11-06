@@ -2,7 +2,6 @@ import { useCallback, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 
-import { useMockData } from '@common/dev/mock-data-context'
 import { useActiveWebsite } from '@common/state/active-website'
 import { deleteArticle as deleteArticleRequest, unpublishArticle as unpublishArticleRequest } from '@entities/article/service'
 import { reschedulePlanItem as reschedulePlanItemRequest } from '@entities/website/service'
@@ -13,13 +12,12 @@ type Nullable<T> = T | null
 
 const statusMessage = {
   selectWebsite: 'Select a website first',
-  mockReadOnly: 'Mock data is read-only'
+  mockReadOnly: 'Read-only'
 }
 
 export function useArticleActions() {
   const queryClient = useQueryClient()
   const { id: projectId } = useActiveWebsite()
-  const { enabled: mockEnabled } = useMockData()
 
   const [deletingId, setDeletingId] = useState<Nullable<string>>(null)
   const [statusMutatingId, setStatusMutatingId] = useState<Nullable<string>>(null)
@@ -34,12 +32,8 @@ export function useArticleActions() {
       toast.error(statusMessage.selectWebsite)
       return false
     }
-    if (mockEnabled) {
-      toast.error(statusMessage.mockReadOnly)
-      return false
-    }
     return true
-  }, [mockEnabled, projectId])
+  }, [projectId])
 
   const restoreCache = useCallback(
     (key: readonly unknown[] | null, snapshot: unknown) => {
@@ -187,7 +181,6 @@ export function useArticleActions() {
   )
 
   return {
-    mockEnabled,
     deletingId,
     statusMutatingId,
     reschedulingId,

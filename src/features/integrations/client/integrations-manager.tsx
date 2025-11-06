@@ -2,7 +2,6 @@ import { useMemo, useState } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { useNavigate, useRouterState } from '@tanstack/react-router'
 import { useActiveWebsite } from '@common/state/active-website'
-import { useMockData } from '@common/dev/mock-data-context'
 import { getWebsiteSnapshot } from '@entities/website/service'
 import type { IntegrationStatus, WebsiteIntegration } from '@entities'
 import { integrationManifests, buildIntegrationViews } from '@integrations/shared/catalog'
@@ -13,7 +12,7 @@ import { Badge } from '@src/common/ui/badge'
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from '@src/common/ui/empty'
 import { cn } from '@src/common/ui/cn'
 
-const MOCK_INTEGRATIONS: WebsiteIntegration[] = []
+// UI mocks removed
 
 export type IntegrationsManagerProps = {
   projectId?: string | null
@@ -23,7 +22,6 @@ export type IntegrationsManagerProps = {
 
 export function IntegrationsManager({ projectId: propProjectId, variant = 'page', className }: IntegrationsManagerProps) {
   const { id: activeProjectId } = useActiveWebsite()
-  const { enabled: mockEnabled } = useMockData()
   const navigate = useNavigate()
   const routerState = useRouterState({ select: (s) => s.location.search })
   const projectId = propProjectId ?? activeProjectId ?? null
@@ -44,13 +42,13 @@ export function IntegrationsManager({ projectId: propProjectId, variant = 'page'
   const snapshotQuery = useQuery({
     queryKey: ['integrations.snapshot', projectId],
     queryFn: () => getWebsiteSnapshot(projectId!, { cache: 'no-store' }),
-    enabled: Boolean(projectId && !mockEnabled),
+    enabled: Boolean(projectId),
     refetchInterval: 45_000
   })
 
   const integrations = useMemo<WebsiteIntegration[]>(
-    () => (mockEnabled ? MOCK_INTEGRATIONS : snapshotQuery.data?.integrations ?? []),
-    [mockEnabled, snapshotQuery.data?.integrations]
+    () => snapshotQuery.data?.integrations ?? [],
+    [snapshotQuery.data?.integrations]
   )
 
   const integrationViews = useMemo<WebsiteIntegrationView[]>(
@@ -77,7 +75,7 @@ export function IntegrationsManager({ projectId: propProjectId, variant = 'page'
     onError: (error) => setBanner({ tone: 'error', text: extractErrorMessage(error) })
   })
 
-  const canMutate = Boolean(projectId) && !mockEnabled
+  const canMutate = Boolean(projectId)
 
   if (!projectId) {
     return (

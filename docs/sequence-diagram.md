@@ -219,7 +219,7 @@ Input `websites.url` → Output `websites.summary`, `crawl_jobs` + `crawl_pages`
 
 **Steps:**
 1. **Seeds:** from website summary (LLM) + headings (parser)
-2. **Expand:** DataForSEO (real) or deterministic mock (default)
+2. **Expand:** DataForSEO keyword ideas
 3. **Canon:** normalize phrase
 4. **Metrics:** fetch and upsert volume/difficulty
 5. **Attach:** persist into `keywords` with default `include=false` (auto-include top picks)
@@ -424,7 +424,7 @@ Daily Scheduler      Worker (publish)       Integration Registry      CMS Provid
 - Endpoint: `/v3/dataforseo_labs/google/keyword_ideas/live`
 - Contract: accepts up to 200 seed keywords, returns keyword ideas with `keyword_info`, `keyword_properties`, `impressions_info`.
 - Client wrapper: `src/common/providers/impl/dataforseo/keyword-ideas.ts` (20s timeout, single-task payload, error logging).
-- Provider interface: `src/common/providers/interfaces/keyword-ideas.ts` standardises return shape for real + mock providers.
+- Provider interface: `src/common/providers/interfaces/keyword-ideas.ts` standardises return shape for providers.
 - Geo helpers: `src/common/providers/impl/dataforseo/geo.ts` exposes `locationCodeFromLocale`, `languageCodeFromLocale`, plus name lookups.
 
 **Keyword Generation Funnel:**
@@ -437,7 +437,7 @@ Optional planner hook
   ↓ trigger schedule refresh when keyword list changes
 ```
 
-**Mock mode:** `src/common/providers/impl/mock/keyword-generator.ts` returns 100 deterministic keyword ideas using the same schema; enable with `MOCK_KEYWORD_GENERATOR=true` (legacy aliases remain supported).
+Mock mode removed: keyword ideas always use DataForSEO.
 
 **Smoke checks:**
 ```bash
@@ -453,7 +453,7 @@ curl -H "Authorization: Basic $DATAFORSEO_AUTH" \
 - Purpose: capture top organic results (rank, title, URL, snippet) for each prioritized keyword.
 - Client wrapper: `src/common/providers/impl/dataforseo/serp.ts` (20s timeout, trimmed to topK results, text dump cached with snapshot).
 - Device: desktop by default; mobile supported via optional parameter.
-- Mock: `src/common/providers/impl/mock/serp.ts` (deterministic SERP cards for PrepInterview archetype).
+- SERP snapshots come from DataForSEO/scraping only.
 
 ### 6.2 Other Providers
 
@@ -598,5 +598,5 @@ curl -H "Authorization: Basic $DATAFORSEO_AUTH" \
 - Terminology: "websites" only (never "projects")
 - Storage: "DB-only", "stateless" (no bundle/filesystem references)
 - Queue names: `seo.jobs` exchange, `seo_jobs.crawler`/`seo_jobs.general` workers
-- Mock flags: Reference AGENTS.md; don't duplicate flag docs here
+Mock flags removed.
 - Cross-refs: Sequence links to erd.md sections for produced tables; pages.md links to Snapshot APIs section here
