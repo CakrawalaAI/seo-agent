@@ -93,3 +93,6 @@ PostgreSQL
 
 Removed. The codebase no longer supports mock providers or mock UI toggles. All flows rely on real providers.
 - All flags should be unset or `"0"`
+
+- Oracle bundles a prompt plus the right files so another AI (GPT 5 Pro + more) can answer. Use when stuck/bugs/reviewing.
+- Run `npx -y @steipete/oracle --help` once per session before first use.
